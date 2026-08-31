@@ -1,0 +1,141 @@
+{
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "short_name": "Genuine Trust",
+  "name": "Genuine Electronics Trust",
+  "description": "Tanzania's authorized online shopping center and retail hub for 100% genuine electronics, smart TVs, laptops, smartphones and home appliances with manufacturer warranty & offline support.",
+  "lang": "en-TZ",
+  "dir": "ltr",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#020617",
+  "theme_color": "#2563eb",
+  "categories": ["shopping", "business", "productivity", "utilities"],
+  "prefer_related_applications": false,
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  },
+  "handle_links": "preferred",
+  "icons": [
+    {
+      "src": "/favicon-48x48.png",
+      "type": "image/png",
+      "sizes": "48x48",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-96.png",
+      "type": "image/png",
+      "sizes": "96x96",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-128.png",
+      "type": "image/png",
+      "sizes": "128x128",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "180x180",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Shop Center",
+      "short_name": "Store",
+      "description": "Browse genuine electronics, smart TVs, phones & home appliances",
+      "url": "/?source=shortcut-shop",
+      "icons": [
+        {
+          "src": "/icon-96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Deals & Offers",
+      "short_name": "Deals",
+      "description": "View limited-time flash sales and discounted items",
+      "url": "/?source=shortcut-deals",
+      "icons": [
+        {
+          "src": "/icon-96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Shopping Bag",
+      "short_name": "Cart",
+      "description": "Review shopping cart and checkout directly",
+      "url": "/?source=shortcut-cart",
+      "icons": [
+        {
+          "src": "/icon-96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Admin & POS Portal",
+      "short_name": "Admin",
+      "description": "Manage products, sales, inventory, and POS transactions",
+      "url": "/?source=shortcut-admin",
+      "icons": [
+        {
+          "src": "/icon-96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "https://ukwkseawcdwbpsjnwrut.supabase.co/storage/v1/object/public/genuine_electronics/Genuine%20Electronics%203D%2002.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Genuine Electronics Mobile Store - 100% Genuine Tech & Home Appliances"
+    },
+    {
+      "src": "https://ukwkseawcdwbpsjnwrut.supabase.co/storage/v1/object/public/genuine_electronics/Genuine%20Electronics%203D%2002.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Genuine Electronics Trust Desktop Portal & Shopping Hub"
+    }
+  ]
+}

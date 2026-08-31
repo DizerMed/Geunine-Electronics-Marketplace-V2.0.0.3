@@ -938,9 +938,9 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
       />
 
       {/* Deep Insights Leaderboards: Top Searched Keywords & Most Viewed Products */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
         {/* Left: Top Search Queries Leaderboard */}
-        <div className={`rounded-2xl border p-5 sm:p-6 shadow-sm flex flex-col justify-between transition-all ${
+        <div className={`rounded-2xl border p-5 sm:p-6 shadow-sm flex flex-col justify-between h-full transition-all ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80'
         }`}>
           <div className="flex-1 flex flex-col min-h-0">
@@ -964,7 +964,7 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
                   <div className={`flex items-center p-0.5 rounded-lg border text-[11px] font-semibold ${
                     isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
                   }`}>
-                    {[5, 8, 12, 20].map((sz) => (
+                    {[5, 8, 10, 15].map((sz) => (
                       <button
                         key={sz}
                         type="button"
@@ -994,13 +994,13 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
                 const paginatedSearches = summary.topSearches.slice(startIdx, startIdx + topSearchesPageSize);
 
                 return (
-                  <div className="space-y-2 flex-1 overflow-y-auto pr-1 max-h-[520px]">
+                  <div className="space-y-2.5 flex-1 overflow-y-auto pr-1">
                     {paginatedSearches.map((s, idx) => {
                       const rank = startIdx + idx + 1;
                       return (
                         <div 
                           key={idx}
-                          className={`flex items-center justify-between p-2.5 rounded-xl border transition-colors group cursor-pointer ${
+                          className={`flex items-center justify-between p-3 rounded-xl border transition-colors group cursor-pointer ${
                             isDark 
                               ? 'bg-slate-800/60 hover:bg-amber-950/30 border-slate-700/60 hover:border-amber-700/50' 
                               : 'bg-slate-50 hover:bg-amber-50/50 border-slate-100 hover:border-amber-200'
@@ -1009,24 +1009,26 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
                           title={`Click to analyze search intelligence for "${s.query}"`}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <span className={`w-5 h-5 rounded-md border text-[10px] font-bold flex items-center justify-center shrink-0 ${
+                            <span className={`w-6 h-6 rounded-lg border text-[11px] font-bold flex items-center justify-center shrink-0 ${
                               isDark ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-600'
                             }`}>
                               #{rank}
                             </span>
-                            <span className={`text-sm font-semibold truncate ${
-                              isDark ? 'text-slate-200 group-hover:text-amber-400' : 'text-slate-800 group-hover:text-amber-700'
-                            }`}>
-                              {s.query}
-                            </span>
+                            <div className="min-w-0">
+                              <span className={`text-sm font-semibold truncate block ${
+                                isDark ? 'text-slate-200 group-hover:text-amber-400' : 'text-slate-800 group-hover:text-amber-700'
+                              }`}>
+                                {s.query}
+                              </span>
+                            </div>
                           </div>
                           <div className="flex items-center gap-3 text-xs shrink-0">
-                            <span className={`font-semibold px-2 py-0.5 rounded-md border ${
+                            <span className={`font-semibold px-2.5 py-1 rounded-lg border ${
                               isDark ? 'bg-slate-900 text-slate-200 border-slate-700' : 'bg-white text-slate-900 border-slate-200'
                             }`}>
                               {s.count} {s.count === 1 ? 'search' : 'searches'}
                             </span>
-                            <ChevronRight className={`w-3.5 h-3.5 transition-all group-hover:translate-x-0.5 ${
+                            <ChevronRight className={`w-4 h-4 transition-all group-hover:translate-x-0.5 ${
                               isDark ? 'text-slate-500 group-hover:text-amber-400' : 'text-slate-400 group-hover:text-amber-600'
                             }`} />
                           </div>
@@ -1037,7 +1039,7 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
                 );
               })()
             ) : (
-              <div className={`py-12 text-center text-sm flex items-center justify-center ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+              <div className={`py-12 text-center text-sm flex-1 flex items-center justify-center ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                 No search queries recorded in this timeframe yet.
               </div>
             )}

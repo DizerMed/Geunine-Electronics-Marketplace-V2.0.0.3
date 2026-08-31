@@ -79,7 +79,7 @@ export const TopViewedProductsBreakdown: React.FC<TopViewedProductsBreakdownProp
   const bgSubtle = isDark ? 'bg-slate-800/80 border-slate-700/80' : 'bg-slate-50 border-slate-100';
 
   return (
-    <div className={`rounded-2xl border ${bgCard} p-5 sm:p-6 shadow-sm flex flex-col justify-between transition-all`}>
+    <div className={`rounded-2xl border ${bgCard} p-5 sm:p-6 shadow-sm flex flex-col justify-between h-full transition-all`}>
       <div className="flex-1 flex flex-col min-h-0">
         {/* Header & Mode Filters */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
@@ -267,7 +267,7 @@ export const TopViewedProductsBreakdown: React.FC<TopViewedProductsBreakdownProp
             })}
           </div>
         ) : (
-          <div className="py-12 text-center text-sm text-slate-400 flex items-center justify-center">
+          <div className="py-12 text-center text-sm text-slate-400 flex-1 flex items-center justify-center">
             No product view events found matching the active filter.
           </div>
         )}

@@ -43,6 +43,8 @@ import { Product, VisitorLog, VisitorAnalyticsSummary, VisitorInteractionType, f
 import { fetchVisitorSummary, fetchVisitorLogs, triggerVisitorLogsCleanup, exportVisitorLogsToCSV, startVisitorPresenceHeartbeat } from '../lib/visitorTrackingService';
 import { VisitorActivityHeatmap } from './VisitorActivityHeatmap';
 import { TopViewedProductsBreakdown } from './TopViewedProductsBreakdown';
+import { VisitorAnalyticsCharts } from './VisitorAnalyticsCharts';
+import { VisitorAnalyticsAIAdvisor } from './VisitorAnalyticsAIAdvisor';
 import { SearchQueryHistoryModal } from './SearchQueryHistoryModal';
 import { customAlert, customConfirm } from '../utils/dialog';
 
@@ -912,6 +914,20 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
           )}
         </div>
       )}
+
+      {/* Orbi AI Visitor Intelligence & Strategic Recommendations Suite */}
+      <VisitorAnalyticsAIAdvisor
+        summary={summary}
+        timeframe={timeframe}
+        isDark={isDark}
+      />
+
+      {/* Interactive Visual Charts: Traffic Timeline, Conversion Funnel, & 24h Distribution */}
+      <VisitorAnalyticsCharts
+        summary={summary}
+        timeframe={timeframe}
+        isDark={isDark}
+      />
 
       {/* Visitor Activity Heatmap Section (Peak Hours, Peak Days & Server Load Optimization) */}
       <VisitorActivityHeatmap 

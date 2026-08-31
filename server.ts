@@ -5733,6 +5733,196 @@ app.post(['/api/analytics/cleanup', '/api/analytics/purge'], async (req, res) =>
   }
 });
 
+// AI Visitor Analytics Intelligence & Recommendations endpoint
+app.post('/api/analytics/ai-insights', async (req, res) => {
+  try {
+    const { summary: clientSummary, customQuestion, focus = 'overview', language = 'en', timeframe = '30days' } = req.body || {};
+    
+    // Prepare aggregated summary data
+    let analyticsData = clientSummary;
+    if (!analyticsData) {
+      // Pull latest from memoryStore
+      const allLogs: any[] = Object.values(memoryStore['visitor_logs'] || {});
+      const now = Date.now();
+      const eatOffsetMs = 3 * 60 * 60 * 1000;
+      const todayEatMidnightUtc = Date.UTC(new Date(now + eatOffsetMs).getUTCFullYear(), new Date(now + eatOffsetMs).getUTCMonth(), new Date(now + eatOffsetMs).getUTCDate()) - eatOffsetMs;
+      
+      let minTime = todayEatMidnightUtc - (29 * 24 * 60 * 60 * 1000);
+      if (timeframe === 'today') minTime = todayEatMidnightUtc;
+      else if (timeframe === 'yesterday') minTime = todayEatMidnightUtc - (24 * 60 * 60 * 1000);
+      else if (timeframe === '7days') minTime = todayEatMidnightUtc - (6 * 24 * 60 * 60 * 1000);
+      else if (timeframe === '60days') minTime = todayEatMidnightUtc - (59 * 24 * 60 * 60 * 1000);
+      else if (timeframe === 'all') minTime = 0;
+
+      const filtered = allLogs.filter((l: any) => {
+        const t = new Date(l.createdAt || l.created_at || 0).getTime();
+        return t >= minTime;
+      });
+
+      const uniqueVids = new Set(filtered.map((l: any) => l.visitorId || l.visitor_id));
+      analyticsData = {
+        totalVisits: filtered.length,
+        uniqueVisitors: uniqueVids.size,
+        totalProductViews: filtered.filter((l: any) => l.interactionType === 'PRODUCT_VIEW').length,
+        totalSearches: filtered.filter((l: any) => l.interactionType === 'SEARCH').length,
+        totalCartAdds: filtered.filter((l: any) => l.interactionType === 'ADD_TO_CART' || l.interactionType === 'EXPRESS_BUY_OPEN').length,
+        totalOrdersPlaced: filtered.filter((l: any) => l.interactionType === 'ORDER_PLACED').length,
+      };
+    }
+
+    const client = getAiClient();
+    const isSwahili = language === 'sw' || (typeof customQuestion === 'string' && /habari|uchambuzi|wateja|mauzo|punguzo|runinga|friji|inverter/i.test(customQuestion));
+
+    // Formulate a compact data brief for the AI model
+    const topSearchesText = (analyticsData?.topSearches || []).slice(0, 10).map((s: any) => `"${s.query}" (${s.count} searches)`).join(', ') || 'No recorded searches';
+    const topProductsText = (analyticsData?.topProducts || []).slice(0, 8).map((p: any) => `${p.brand || ''} ${p.name} (Views: ${p.views}, Cart: ${p.cartAdds}, Conv: ${p.conversionRate || 0}%)`).join('; ') || 'No product views';
+    const topCategoriesText = (analyticsData?.topCategories || []).slice(0, 6).map((c: any) => `${c.category} (${c.count} views, ${c.percentage}%)`).join(', ') || 'No category data';
+    const deviceText = (analyticsData?.deviceBreakdown || []).map((d: any) => `${d.device}: ${d.percentage}% (${d.count})`).join(', ') || 'Mobile dominant';
+    
+    const peakDay = analyticsData?.activityHeatmap?.peakDay || 'Friday & Saturday';
+    const peakHour = analyticsData?.activityHeatmap?.peakHour || '8:00 PM (EAT)';
+    const promoWindow = analyticsData?.activityHeatmap?.recommendedPromoWindow || 'Friday & Saturday, 06:00 PM – 10:00 PM (EAT)';
+    const convRate = analyticsData?.conversionRate || 0;
+    const cartToOrderRate = analyticsData?.cartToOrderRate || 0;
+    const totalVisits = analyticsData?.totalVisits || 0;
+    const uniqueVisitors = analyticsData?.uniqueVisitors || 0;
+
+    const dataContext = `
+STORE ANALYTICS SNAPSHOT (Genuine Electronics - Dar es Salaam, Tanzania):
+- Timeframe: ${timeframe}
+- Total Interactions Logged: ${totalVisits}
+- Unique Visitors in Window: ${uniqueVisitors}
+- Product Views: ${analyticsData?.totalProductViews || 0}
+- Search Queries Logged: ${analyticsData?.totalSearches || 0}
+- Cart & Express Buy Adds: ${analyticsData?.totalCartAdds || 0}
+- Orders Placed: ${analyticsData?.totalOrdersPlaced || 0}
+- Product View-to-Cart Conversion: ${convRate}%
+- Cart-to-Order Conversion: ${cartToOrderRate}%
+- Device Distribution: ${deviceText}
+- Peak Traffic Day: ${peakDay}
+- Peak Traffic Hour: ${peakHour}
+- Recommended Promo Window: ${promoWindow}
+- Top Customer Search Terms: ${topSearchesText}
+- Top Viewed Products: ${topProductsText}
+- Top Product Categories: ${topCategoriesText}
+`;
+
+    const systemInstruction = `You are "Orbi AI Analytics", the executive eCommerce business intelligence advisor for Genuine Electronics in Dar es Salaam, Tanzania.
+Your mission is to provide sharp, high-impact, actionable visitor intelligence to help the store management maximize revenue, fix conversion drop-offs, optimize marketing timing (East Africa Time - GMT+3), and capitalize on high-demand search keywords.
+
+GUIDELINES:
+1. Tone: Professional, authoritative, executive, and direct. Avoid generic fluff.
+2. Language: ${isSwahili ? 'SWAHILI (Kiswahili sanifu, cha heshima na kibiashara)' : 'ENGLISH (Crisp, executive business English)'}.
+3. Formatting:
+   - Use bold highlights, clear section headers (###), bullet points, and percentage/time callouts.
+   - Ground all insights in the specific numbers provided in the data snapshot.
+   - When suggesting marketing or WhatsApp flash sale timings, use East Africa Time (EAT / GMT+3).
+4. Focus: ${focus === 'timing' ? 'Prioritize peak traffic windows and marketing schedules.' : focus === 'search_demand' ? 'Prioritize search queries vs inventory demand and missing stock.' : focus === 'funnel' ? 'Prioritize conversion drop-offs between views, cart, and checkout.' : focus === 'promotions' ? 'Prioritize specific product offer recommendations and WhatsApp broadcast strategies.' : 'Provide a comprehensive executive overview encompassing traffic, search demand, conversion funnel, and actionable next steps.'}`;
+
+    const prompt = customQuestion 
+      ? `Based on the following visitor data, answer the store admin's question thoroughly and actionably:\n\nQUESTION: "${customQuestion}"\n\n${dataContext}`
+      : `Provide an executive Visitor Analytics & Conversion Intelligence report for Genuine Electronics based on the current window:\n\n${dataContext}\n\nInclude:
+1. 📊 **Executive Summary & Traffic Quality**
+2. ⏰ **Peak Traffic Windows & Marketing Timing (EAT)**
+3. 🔍 **Customer Search Intent & Unmet Demand Analysis**
+4. 🛒 **Conversion Funnel Health & Cart Abandonment Diagnosis**
+5. 🚀 **Top 4 Immediate Action Steps for Maximum Sales**`;
+
+    let aiReplyText = "";
+    let usedModel = "rule-based-engine";
+
+    if (client && process.env.GEMINI_API_KEY) {
+      const candidateModels = ["gemini-3.7-flash", "gemini-3.1-flash-lite"];
+      for (const modelName of candidateModels) {
+        try {
+          const generatePromise = client.models.generateContent({
+            model: modelName,
+            contents: [prompt],
+            config: {
+              systemInstruction,
+              temperature: 0.3,
+              thinkingConfig: {
+                thinkingBudget: 0
+              }
+            }
+          });
+
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`Timeout generating analytics AI with ${modelName}`)), 9000)
+          );
+
+          const response = await Promise.race([generatePromise, timeoutPromise]) as any;
+          if (response && response.text) {
+            aiReplyText = response.text;
+            usedModel = modelName;
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`[AI Analytics] Model ${modelName} error:`, err?.message || err);
+        }
+      }
+    }
+
+    // Fallback algorithmic synthesis if Gemini API key is missing or offline
+    if (!aiReplyText) {
+      if (isSwahili) {
+        aiReplyText = `### 📊 Muhtasari wa Takwimu za Wateja (${timeframe.toUpperCase()})
+- **Jumla ya Wageni Walioingia:** Wateja ${uniqueVisitors.toLocaleString()} wametembelea duka (${totalVisits.toLocaleString()} matukio yaliyorekodiwa).
+- **Kiwango cha Ubadilishaji (View-to-Cart):** ${convRate}%, huku Cart kwenda Oda ikiwa **${cartToOrderRate}%**.
+- **Kifaa Kikuu:** ${deviceText.split(',')[0] || 'Simu za mkononi (Mobile)'} ndicho chanzo kikuu cha wateja.
+
+### ⏰ Nyakati Nzuri za Matangazo na Ofa (EAT GMT+3)
+- **Siku Yenye Wageni Wengi:** **${peakDay}**, hasa kuanzia saa **${peakHour}**.
+- **Muda Unaopendekezwa kwa WhatsApp Broadcast:** **${promoWindow}**. Kutuma jumbe za punguzo wakati huu kutaleta matokeo ya haraka zaidi.
+
+### 🔍 Mahitaji ya Wateja Kupitia Search
+- Maneno yaliyotafutwa zaidi: **${topSearchesText}**.
+- Hakikisha vifaa hivi vinaonekana juu kwenye ukurasa wa mbele (Hero section) na bei zake ni shindani.
+
+### 🚀 Hatua 3 za Kuchukua Mara Moja
+1. **Weka Punguzo la Haraka (Flash Offer):** Kwenye bidhaa zilizotazamwa sana lakini hazijanunuliwa bado.
+2. **Kikumbusho cha Cart:** Wateja walioweka bidhaa kwenye kapu wafuatiliwe kupitia WhatsApp kwa huduma ya haraka.
+3. **Maboresho ya Simu (Mobile-First):** Kwa kuwa asilimia kubwa ya wateja wanatumia simu, hakikisha picha na maelezo yanafunguka kwa sekunde 1 tu.`;
+      } else {
+        aiReplyText = `### 📊 Executive Visitor Intelligence Summary (${timeframe.toUpperCase()})
+- **Audience Volume:** **${uniqueVisitors.toLocaleString()}** unique visitors engaged with the storefront across **${totalVisits.toLocaleString()}** logged interactions.
+- **Conversion Efficiency:** View-to-cart rate stands at **${convRate}%**, with a cart-to-order completion rate of **${cartToOrderRate}%**.
+- **Device Dominance:** **${deviceText.split(',')[0] || 'Mobile'}** accounts for the majority of browsing traffic.
+
+### ⏰ Optimal Marketing & Promotion Timing (EAT GMT+3)
+- **Peak Traffic Window:** **${peakDay}**, concentrating around **${peakHour}**.
+- **Recommended WhatsApp & Social Campaign Window:** **${promoWindow}**. Posting flash promotions during this window will yield maximum customer engagement and checkout volume.
+
+### 🔍 Search Intent & High-Demand Keyword Analysis
+- Top search terms recorded: **${topSearchesText}**.
+- Customer queries demonstrate high intent for targeted categories (**${topCategoriesText.split(',').slice(0, 2).join(', ')}**). Ensure these models feature transparent price tags and official 2-year warranty badges.
+
+### 🚀 Top Actionable Directives
+1. **Launch Weekend WhatsApp Flash Sales:** Schedule targeted broadcasts on ${peakDay} during the peak window.
+2. **Feature High-Demand Search Items:** Place top-searched models directly on the storefront hero banners.
+3. **Cart Abandonment Recovery:** Follow up with direct WhatsApp checkout support for shoppers who added high-ticket items to their basket.`;
+      }
+    }
+
+    res.json({
+      success: true,
+      insights: aiReplyText,
+      generatedAt: new Date().toISOString(),
+      model: usedModel,
+      metricsSnapshot: {
+        totalVisits,
+        uniqueVisitors,
+        conversionRate: convRate,
+        cartToOrderRate,
+        peakTimeWindow: promoWindow
+      }
+    });
+  } catch (err: any) {
+    console.error('AI Analytics Error:', err);
+    res.status(500).json({ error: err.message || 'Failed to generate AI analytics insights' });
+  }
+});
+
 // Catch-all for undefined API routes
 app.all('/api/*', (req, res) => {
   console.warn(`404 API Route Not Found: ${req.method} ${req.url}`);

@@ -4371,23 +4371,82 @@ ORGANIZATION & ORIGIN KNOWLEDGE:
 CRITICAL SPEED & CONCISENESS RULES:
 1. Respond quickly, directly, and crisply. Avoid filler introductory or repetitive text to maximize response speed and save tokens.
 2. Language: ${isSwahili ? 'SWAHILI (Kiswahili sanifu, cha heshima na kibiashara)' : 'ENGLISH (Professional and engaging)'}.
-3. PRODUCT RECOMMENDATION & TAGGING:
+3. PRODUCT RECOMMENDATION & COMPARISON:
+   - Understand all store products, brands, model differences, special offers/discounts, warranties, and stock availability.
    - When suggesting or referencing store inventory items, ALWAYS use tag format: [PRODUCT:product_id] where product_id is the exact item id/sku.
-   - Example: "Ninakupendekezea **Hisense 55\\" 4K UHD Smart TV** [PRODUCT:prod-hisense-55-4k-tv] kwa TZS 1,180,000 (Waranti miaka 2)."
+   - Example: "Ninakupendekezea **Hisense 55\\" 4K UHD Smart TV** [PRODUCT:prod-hisense-55-4k-tv] kwa TZS 1,180,000 (Punguzo maalum, Waranti miaka 2)."
+   - If products are on offer or have discounts, highlight the offer title and savings clearly.
+   - When asked for comparisons (e.g., TCL vs Hisense, Inverter vs Non-inverter, TV sizes), give a structured 2-3 bullet point comparison with clear pros/cons.
 4. Visual image support: If an image or sticker is provided, immediately identify the device model, key specs, and warranty status.`;
 
-    // Compact token-efficient inventory representation (saves >75% tokens vs raw JSON)
+    // Smart semantic & token-efficient product retrieval:
+    // Sort & rank products based on user query match, category relevance, or special offers
     let compactInventory = "";
     if (Array.isArray(productCatalog) && productCatalog.length > 0) {
-      const topProducts = productCatalog.slice(0, 18);
-      compactInventory = topProducts.map((p: any) => {
+      const q = String(message || '').toLowerCase();
+      const tokens = q.split(/\s+/).filter(t => t.length > 2);
+
+      // Score each product for relevancy
+      const scoredProducts = productCatalog.map((p: any) => {
+        let score = 0;
+        const name = String(p.name || '').toLowerCase();
+        const brand = String(p.brand || '').toLowerCase();
+        const cat = String(p.category || '').toLowerCase();
+        const desc = String(p.description || '').toLowerCase();
+        const offer = String(p.offerTitle || '').toLowerCase();
+
+        for (const token of tokens) {
+          if (name.includes(token)) score += 10;
+          if (brand.includes(token)) score += 8;
+          if (cat.includes(token)) score += 6;
+          if (offer.includes(token)) score += 5;
+          if (desc.includes(token)) score += 2;
+        }
+
+        // Boost offers and featured products if user is asking about offers, sales, or browsing
+        if (p.isOnOffer || p.discountPrice || p.discountPercentage) {
+          if (/ofa|offer|punguzo|discount|sale|deal|bei nafuu|cheap/i.test(q)) {
+            score += 20;
+          } else {
+            score += 2;
+          }
+        }
+
+        return { p, score };
+      });
+
+      // Sort by score descending; fallback to preserving catalog order
+      scoredProducts.sort((a, b) => b.score - a.score);
+
+      // Pick top 35 most relevant or representative products with compact token footprint
+      const selectedProducts = scoredProducts.slice(0, 35).map(item => item.p);
+
+      compactInventory = selectedProducts.map((p: any) => {
         const id = p.id || p.sku;
-        const price = p.discountPrice || p.price;
+        const regularPrice = Number(p.price || 0);
+        const discountPrice = p.discountPrice ? Number(p.discountPrice) : null;
+        const effectivePrice = discountPrice || regularPrice;
         const brand = p.brand || '';
-        const specsSnippet = p.specs && typeof p.specs === 'object' 
-          ? Object.entries(p.specs).slice(0, 2).map(([k, v]) => `${k}: ${v}`).join(', ')
-          : '';
-        return `• [${id}] ${brand} ${p.name} | TZS ${Number(price || 0).toLocaleString()} | Stock: ${p.stock ?? (p.inStock ? 'Available' : 'Out')} ${specsSnippet ? `| ${specsSnippet}` : ''}`;
+        const cat = p.category ? `[${p.category}] ` : '';
+        
+        let offerTag = '';
+        if (p.isOnOffer || discountPrice || p.discountPercentage) {
+          offerTag = ` 🔥[OFFER: ${p.discountPercentage ? `${p.discountPercentage}% OFF` : ''} Was TZS ${regularPrice.toLocaleString()}]`;
+        }
+
+        const specsList = [];
+        if (p.tonnage) specsList.push(`Tonnage: ${p.tonnage}`);
+        if (p.capacity) specsList.push(`Cap: ${p.capacity}`);
+        if (p.energyRating) specsList.push(`Energy: ${p.energyRating}`);
+        if (p.warranty) specsList.push(`Warranty: ${p.warranty}`);
+        if (p.specs && typeof p.specs === 'object') {
+          for (const [k, v] of Object.entries(p.specs).slice(0, 2)) {
+            specsList.push(`${k}: ${v}`);
+          }
+        }
+        const specsSnippet = specsList.length > 0 ? ` | ${specsList.slice(0, 3).join(', ')}` : '';
+
+        return `• [${id}] ${cat}${brand} ${p.name} | TZS ${effectivePrice.toLocaleString()}${offerTag} | Stock: ${p.stock ?? (p.inStock ? 'Available' : 'In Stock')}${specsSnippet}`;
       }).join('\n');
     }
 

@@ -79,7 +79,7 @@ export const TopViewedProductsBreakdown: React.FC<TopViewedProductsBreakdownProp
   const bgSubtle = isDark ? 'bg-slate-800/80 border-slate-700/80' : 'bg-slate-50 border-slate-100';
 
   return (
-    <div className={`rounded-2xl border ${bgCard} p-5 sm:p-6 shadow-sm flex flex-col justify-between h-full transition-all`}>
+    <div className={`rounded-2xl border ${bgCard} p-5 sm:p-6 shadow-sm flex flex-col justify-between h-[620px] transition-all`}>
       <div className="flex-1 flex flex-col min-h-0">
         {/* Header & Mode Filters */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
@@ -137,7 +137,7 @@ export const TopViewedProductsBreakdown: React.FC<TopViewedProductsBreakdownProp
 
         {/* Product Items List */}
         {filteredProducts.length > 0 ? (
-          <div className="space-y-2.5 flex-1 overflow-y-auto pr-1 max-h-[520px]">
+          <div className="space-y-2.5 flex-1 min-h-0 overflow-y-auto pr-1.5 custom-scrollbar">
             {paginatedProducts.map((prod, idx) => {
               const globalRank = startIndex + idx + 1;
               const isExpanded = expandedProductId === prod.id;

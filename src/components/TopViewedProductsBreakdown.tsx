@@ -37,12 +37,12 @@ export const TopViewedProductsBreakdown: React.FC<TopViewedProductsBreakdownProp
   const [filterMode, setFilterMode] = useState<'all' | 'trending' | 'search-driven'>('all');
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const pageSize = 5;
+  const [pageSize, setPageSize] = useState<number>(6);
 
   // Reset page when filter mode or products change
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterMode, products.length]);
+  }, [filterMode, products.length, pageSize]);
 
   const handleSetFilterMode = (mode: 'all' | 'trending' | 'search-driven') => {
     setFilterMode(mode);
@@ -79,7 +79,7 @@ export const TopViewedProductsBreakdown: React.FC<TopViewedProductsBreakdownProp
   const bgSubtle = isDark ? 'bg-slate-800/80 border-slate-700/80' : 'bg-slate-50 border-slate-100';
 
   return (
-    <div className={`rounded-2xl border ${bgCard} p-5 sm:p-6 shadow-sm flex flex-col justify-between h-full min-h-[560px] max-h-[620px]`}>
+    <div className={`rounded-2xl border ${bgCard} p-5 sm:p-6 shadow-sm flex flex-col justify-between transition-all`}>
       <div className="flex-1 flex flex-col min-h-0">
         {/* Header & Mode Filters */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
@@ -137,7 +137,7 @@ export const TopViewedProductsBreakdown: React.FC<TopViewedProductsBreakdownProp
 
         {/* Product Items List */}
         {filteredProducts.length > 0 ? (
-          <div className="space-y-2.5 flex-1 overflow-y-auto pr-1 min-h-[380px] max-h-[440px]">
+          <div className="space-y-2.5 flex-1 overflow-y-auto pr-1 max-h-[520px]">
             {paginatedProducts.map((prod, idx) => {
               const globalRank = startIndex + idx + 1;
               const isExpanded = expandedProductId === prod.id;
@@ -267,7 +267,7 @@ export const TopViewedProductsBreakdown: React.FC<TopViewedProductsBreakdownProp
             })}
           </div>
         ) : (
-          <div className="py-12 text-center text-sm text-slate-400 min-h-[380px] flex items-center justify-center">
+          <div className="py-12 text-center text-sm text-slate-400 flex items-center justify-center">
             No product view events found matching the active filter.
           </div>
         )}
@@ -275,10 +275,40 @@ export const TopViewedProductsBreakdown: React.FC<TopViewedProductsBreakdownProp
 
       {/* Footer Info & Pagination Bar */}
       <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <span className="flex items-center gap-1 text-[11px]">
-          <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
-          <span>Click any product to filter logs.</span>
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1 text-[11px]">
+            <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
+            <span>Click product to filter logs.</span>
+          </span>
+
+          {/* Rows per page selector */}
+          {filteredProducts.length > 5 && (
+            <div className="flex items-center gap-1.5">
+              <span className={`text-[11px] font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Rows:</span>
+              <div className={`flex items-center p-0.5 rounded-lg border text-[11px] font-semibold ${
+                isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
+              }`}>
+                {[5, 6, 8, 12].map((sz) => (
+                  <button
+                    key={sz}
+                    type="button"
+                    onClick={() => {
+                      setPageSize(sz);
+                      setCurrentPage(1);
+                    }}
+                    className={`px-2 py-0.5 rounded-md transition-all ${
+                      pageSize === sz
+                        ? (isDark ? 'bg-blue-500 text-white font-bold' : 'bg-white text-blue-700 shadow-xs font-bold')
+                        : (isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900')
+                    }`}
+                  >
+                    {sz}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Record count & pagination window */}
         <div className="flex items-center gap-2">

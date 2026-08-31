@@ -83,7 +83,7 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(25);
   const [topSearchesPage, setTopSearchesPage] = useState<number>(1);
-  const topSearchesPageSize = 5;
+  const [topSearchesPageSize, setTopSearchesPageSize] = useState<number>(8);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [historyModalQuery, setHistoryModalQuery] = useState<{ query: string, rank?: number, count?: number } | null>(null);
 
@@ -938,22 +938,52 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
       />
 
       {/* Deep Insights Leaderboards: Top Searched Keywords & Most Viewed Products */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* Left: Top Search Queries Leaderboard */}
-        <div className={`rounded-2xl border p-5 sm:p-6 shadow-sm flex flex-col justify-between transition-all h-full min-h-[560px] max-h-[620px] ${
+        <div className={`rounded-2xl border p-5 sm:p-6 shadow-sm flex flex-col justify-between transition-all ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80'
         }`}>
           <div className="flex-1 flex flex-col min-h-0">
-            <div className={`flex items-center justify-between mb-4 pb-3 border-b shrink-0 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+            <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b shrink-0 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
               <div className="flex items-center gap-2">
                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
                   isDark ? 'bg-amber-950/60 text-amber-400 border border-amber-900/60' : 'bg-amber-50 text-amber-600'
                 }`}>
                   <Search className="w-3.5 h-3.5" />
                 </div>
-                <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Top Search Queries</h3>
+                <div>
+                  <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Top Search Queries</h3>
+                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Buyer Demand &amp; Keyword Intent</p>
+                </div>
               </div>
-              <span className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>Buyer Demand Evaluation</span>
+
+              {/* Rows per page selector */}
+              {summary?.topSearches && summary.topSearches.length > 5 && (
+                <div className="flex items-center gap-1.5 self-start sm:self-auto">
+                  <span className={`text-[11px] font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Rows:</span>
+                  <div className={`flex items-center p-0.5 rounded-lg border text-[11px] font-semibold ${
+                    isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
+                  }`}>
+                    {[5, 8, 12, 20].map((sz) => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => {
+                          setTopSearchesPageSize(sz);
+                          setTopSearchesPage(1);
+                        }}
+                        className={`px-2 py-0.5 rounded-md transition-all ${
+                          topSearchesPageSize === sz
+                            ? (isDark ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-white text-amber-700 shadow-xs font-bold')
+                            : (isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900')
+                        }`}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {summary?.topSearches && summary.topSearches.length > 0 ? (
@@ -964,7 +994,7 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
                 const paginatedSearches = summary.topSearches.slice(startIdx, startIdx + topSearchesPageSize);
 
                 return (
-                  <div className="space-y-2 flex-1 overflow-y-auto pr-1 min-h-[380px] max-h-[440px]">
+                  <div className="space-y-2 flex-1 overflow-y-auto pr-1 max-h-[520px]">
                     {paginatedSearches.map((s, idx) => {
                       const rank = startIdx + idx + 1;
                       return (
@@ -979,7 +1009,7 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
                           title={`Click to analyze search intelligence for "${s.query}"`}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <span className={`w-5 h-5 rounded-md border text-[10px] font-bold flex items-center justify-center ${
+                            <span className={`w-5 h-5 rounded-md border text-[10px] font-bold flex items-center justify-center shrink-0 ${
                               isDark ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-600'
                             }`}>
                               #{rank}
@@ -994,7 +1024,7 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
                             <span className={`font-semibold px-2 py-0.5 rounded-md border ${
                               isDark ? 'bg-slate-900 text-slate-200 border-slate-700' : 'bg-white text-slate-900 border-slate-200'
                             }`}>
-                              {s.count} searches
+                              {s.count} {s.count === 1 ? 'search' : 'searches'}
                             </span>
                             <ChevronRight className={`w-3.5 h-3.5 transition-all group-hover:translate-x-0.5 ${
                               isDark ? 'text-slate-500 group-hover:text-amber-400' : 'text-slate-400 group-hover:text-amber-600'
@@ -1007,7 +1037,7 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
                 );
               })()
             ) : (
-              <div className={`py-12 text-center text-sm min-h-[380px] flex items-center justify-center ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+              <div className={`py-12 text-center text-sm flex items-center justify-center ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                 No search queries recorded in this timeframe yet.
               </div>
             )}

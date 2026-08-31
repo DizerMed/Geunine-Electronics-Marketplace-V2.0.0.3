@@ -174,16 +174,9 @@ export const VisitorAnalyticsAIAdvisor: React.FC<VisitorAnalyticsAIAdvisorProps>
             <Sparkles className="w-5 h-5 animate-pulse" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                Orbi AI Visitor Intelligence Advisor
-              </h3>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                isDark ? 'bg-blue-950 text-blue-400 border border-blue-800/60' : 'bg-blue-100 text-blue-700'
-              }`}>
-                {modelUsed || 'Gemini 3.7 Flash'}
-              </span>
-            </div>
+            <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              Orbi AI Visitor Intelligence Advisor
+            </h3>
             <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
               Executive AI synthesis of shopper traffic, demand search queries, and conversion bottlenecks.
             </p>

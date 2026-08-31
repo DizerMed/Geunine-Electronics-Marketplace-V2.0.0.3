@@ -37,7 +37,9 @@ import {
   Check,
   ListFilter,
   BarChart2,
-  SearchX
+  SearchX,
+  Flame,
+  Package
 } from 'lucide-react';
 import { Product, VisitorLog, VisitorAnalyticsSummary, VisitorInteractionType, formatToGMT3 } from '../types';
 import { fetchVisitorSummary, fetchVisitorLogs, triggerVisitorLogsCleanup, exportVisitorLogsToCSV, startVisitorPresenceHeartbeat } from '../lib/visitorTrackingService';
@@ -83,7 +85,8 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(25);
   const [topSearchesPage, setTopSearchesPage] = useState<number>(1);
-  const [topSearchesPageSize, setTopSearchesPageSize] = useState<number>(8);
+  const [topSearchesPageSize, setTopSearchesPageSize] = useState<number>(6);
+  const [searchFilterMode, setSearchFilterMode] = useState<'all' | 'high-demand' | 'missing-stock'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [historyModalQuery, setHistoryModalQuery] = useState<{ query: string, rank?: number, count?: number } | null>(null);
 
@@ -945,11 +948,11 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
         }`}>
           <div className="flex-1 flex flex-col min-h-0">
             <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b shrink-0 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
-              <div className="flex items-center gap-2">
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                  isDark ? 'bg-amber-950/60 text-amber-400 border border-amber-900/60' : 'bg-amber-50 text-amber-600'
+              <div className="flex items-center gap-2.5">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                  isDark ? 'bg-amber-950/60 text-amber-400 border border-amber-900/60' : 'bg-amber-50 text-amber-600 border border-amber-200'
                 }`}>
-                  <Search className="w-3.5 h-3.5" />
+                  <Search className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Top Search Queries</h3>
@@ -957,14 +960,229 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
                 </div>
               </div>
 
+              {/* Filter Tabs matching Top Viewed Products */}
+              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 text-xs font-semibold self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchFilterMode('all');
+                    setTopSearchesPage(1);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg transition-all ${
+                    searchFilterMode === 'all'
+                      ? (isDark ? 'bg-amber-500 text-slate-950 shadow-xs font-bold' : 'bg-white text-amber-700 shadow-xs font-bold')
+                      : (isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900')
+                  }`}
+                >
+                  All Queries
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchFilterMode('high-demand');
+                    setTopSearchesPage(1);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
+                    searchFilterMode === 'high-demand'
+                      ? (isDark ? 'bg-amber-500 text-slate-950 shadow-xs font-bold' : 'bg-white text-amber-700 shadow-xs font-bold')
+                      : (isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900')
+                  }`}
+                >
+                  <Flame className="w-3 h-3 text-amber-500" />
+                  <span>High Volume</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchFilterMode('missing-stock');
+                    setTopSearchesPage(1);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
+                    searchFilterMode === 'missing-stock'
+                      ? (isDark ? 'bg-rose-500 text-white shadow-xs font-bold' : 'bg-white text-rose-700 shadow-xs font-bold')
+                      : (isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900')
+                  }`}
+                >
+                  <AlertCircle className="w-3 h-3 text-rose-400" />
+                  <span>Unmet Demand</span>
+                </button>
+              </div>
+            </div>
+
+            {summary?.topSearches && summary.topSearches.length > 0 ? (
+              (() => {
+                // Compute matching products and demand metrics for every search query
+                const enrichedSearches = summary.topSearches.map((s, originalIdx) => {
+                  const queryLower = (s.query || '').trim().toLowerCase();
+                  const matchingProducts = products.filter(p => {
+                    const name = (p.name || '').toLowerCase();
+                    const cat = (p.category || '').toLowerCase();
+                    return name.includes(queryLower) || cat.includes(queryLower) || queryLower.split(' ').some(w => w.length > 2 && (name.includes(w) || cat.includes(w)));
+                  });
+                  const matchedCount = matchingProducts.length;
+                  const totalSearchesAll = summary.totalSearches || summary.topSearches.reduce((acc, curr) => acc + curr.count, 0) || 1;
+                  const demandSharePct = Math.min(100, Math.max(1, Math.round((s.count / totalSearchesAll) * 100)));
+                  const isZeroMatch = matchedCount === 0 || (s.resultsCountAvg !== undefined && s.resultsCountAvg === 0);
+
+                  return {
+                    ...s,
+                    originalRank: originalIdx + 1,
+                    matchedCount,
+                    demandSharePct,
+                    isZeroMatch,
+                  };
+                });
+
+                // Apply active filter mode
+                const filteredSearches = enrichedSearches.filter(s => {
+                  if (searchFilterMode === 'high-demand') return s.count >= 5 || s.originalRank <= 4;
+                  if (searchFilterMode === 'missing-stock') return s.isZeroMatch;
+                  return true;
+                });
+
+                const totalSearchesCount = filteredSearches.length;
+                const totalSearchPages = Math.ceil(totalSearchesCount / topSearchesPageSize) || 1;
+                const startIdx = (topSearchesPage - 1) * topSearchesPageSize;
+                const paginatedSearches = filteredSearches.slice(startIdx, startIdx + topSearchesPageSize);
+
+                if (paginatedSearches.length === 0) {
+                  return (
+                    <div className={`py-12 text-center text-sm flex-1 flex flex-col items-center justify-center gap-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                      <AlertCircle className="w-8 h-8 opacity-40" />
+                      <p>No search queries found matching the "{searchFilterMode}" filter.</p>
+                      <button
+                        type="button"
+                        onClick={() => setSearchFilterMode('all')}
+                        className="text-xs text-amber-500 hover:underline font-semibold mt-1"
+                      >
+                        Show All Queries
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-2.5 flex-1 overflow-y-auto pr-1">
+                    {paginatedSearches.map((s, idx) => {
+                      const rank = s.originalRank;
+                      return (
+                        <div 
+                          key={idx}
+                          className={`p-3 rounded-xl border transition-all group cursor-pointer ${
+                            isDark 
+                              ? 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/60 hover:border-amber-700/50' 
+                              : 'bg-slate-50 hover:bg-white border-slate-200/70 hover:border-amber-300 shadow-2xs hover:shadow-xs'
+                          }`}
+                          onClick={() => setHistoryModalQuery({ query: s.query, rank, count: s.count })}
+                          title={`Click to analyze search intelligence for "${s.query}"`}
+                        >
+                          {/* Row 1: Rank, Query Text, Intent Badges & Search Count */}
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className={`w-6 h-6 rounded-lg border text-[11px] font-bold flex items-center justify-center shrink-0 ${
+                                rank === 1
+                                  ? (isDark ? 'bg-amber-950/80 border-amber-700 text-amber-300' : 'bg-amber-100 border-amber-300 text-amber-800')
+                                  : (isDark ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-600')
+                              }`}>
+                                #{rank}
+                              </span>
+                              <div className="min-w-0 flex items-center gap-2">
+                                <span className={`text-sm font-bold truncate ${
+                                  isDark ? 'text-slate-100 group-hover:text-amber-400' : 'text-slate-800 group-hover:text-amber-700'
+                                }`}>
+                                  {s.query}
+                                </span>
+                                {s.isZeroMatch ? (
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 flex items-center gap-1 ${
+                                    isDark ? 'bg-rose-950/60 text-rose-300 border-rose-800/60' : 'bg-rose-50 text-rose-700 border-rose-200'
+                                  }`}>
+                                    <AlertCircle className="w-2.5 h-2.5" />
+                                    <span>Unmet Demand</span>
+                                  </span>
+                                ) : rank <= 3 ? (
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 flex items-center gap-1 ${
+                                    isDark ? 'bg-amber-950/60 text-amber-300 border-amber-800/60' : 'bg-amber-50 text-amber-700 border-amber-200'
+                                  }`}>
+                                    <Flame className="w-2.5 h-2.5 text-amber-500" />
+                                    <span>High Demand</span>
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2.5 text-xs shrink-0">
+                              <span className={`font-semibold px-2.5 py-1 rounded-lg border ${
+                                isDark ? 'bg-slate-900 text-slate-200 border-slate-700' : 'bg-white text-slate-900 border-slate-200'
+                              }`}>
+                                {s.count} {s.count === 1 ? 'search' : 'searches'}
+                              </span>
+                              <ChevronRight className={`w-4 h-4 transition-all group-hover:translate-x-0.5 ${
+                                isDark ? 'text-slate-500 group-hover:text-amber-400' : 'text-slate-400 group-hover:text-amber-600'
+                              }`} />
+                            </div>
+                          </div>
+
+                          {/* Row 2: Catalog Supply Status & Relative Demand Intensity Bar */}
+                          <div className={`mt-2 pt-2 border-t flex flex-wrap items-center justify-between gap-2 text-[11px] ${
+                            isDark ? 'border-slate-700/50 text-slate-400' : 'border-slate-200/60 text-slate-500'
+                          }`}>
+                            <div className="flex items-center gap-2">
+                              {s.isZeroMatch ? (
+                                <span className={`flex items-center gap-1 font-medium ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>
+                                  <AlertCircle className="w-3 h-3 shrink-0" />
+                                  <span>0 store catalog results (Missing Stock)</span>
+                                </span>
+                              ) : (
+                                <span className={`flex items-center gap-1 font-medium ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                                  <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                  <span>{s.matchedCount} {s.matchedCount === 1 ? 'store product matches' : 'store products match'}</span>
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-medium opacity-80">
+                                {s.demandSharePct}% of searches
+                              </span>
+                              <div className={`w-14 h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                                <div 
+                                  className={`h-full rounded-full ${s.isZeroMatch ? 'bg-rose-500' : 'bg-amber-500'}`}
+                                  style={{ width: `${Math.min(100, s.demandSharePct * 2.5)}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()
+            ) : (
+              <div className={`py-12 text-center text-sm flex-1 flex items-center justify-center ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                No search queries recorded in this timeframe yet.
+              </div>
+            )}
+          </div>
+
+          {/* Footer Info & Pagination Control */}
+          <div className={`mt-4 pt-3 border-t text-xs flex flex-wrap items-center justify-between gap-2 shrink-0 ${
+            isDark ? 'border-slate-800 text-slate-400' : 'border-slate-100 text-slate-500'
+          }`}>
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1 text-[11px]">
+                <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
+                <span>Click query to view details.</span>
+              </span>
+
               {/* Rows per page selector */}
               {summary?.topSearches && summary.topSearches.length > 5 && (
-                <div className="flex items-center gap-1.5 self-start sm:self-auto">
+                <div className="flex items-center gap-1.5">
                   <span className={`text-[11px] font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Rows:</span>
                   <div className={`flex items-center p-0.5 rounded-lg border text-[11px] font-semibold ${
                     isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
                   }`}>
-                    {[5, 8, 10, 15].map((sz) => (
+                    {[5, 6, 8, 12].map((sz) => (
                       <button
                         key={sz}
                         type="button"
@@ -985,71 +1203,6 @@ export const AdminVisitorAnalytics: React.FC<AdminVisitorAnalyticsProps> = ({
                 </div>
               )}
             </div>
-
-            {summary?.topSearches && summary.topSearches.length > 0 ? (
-              (() => {
-                const totalSearchesCount = summary.topSearches.length;
-                const totalSearchPages = Math.ceil(totalSearchesCount / topSearchesPageSize) || 1;
-                const startIdx = (topSearchesPage - 1) * topSearchesPageSize;
-                const paginatedSearches = summary.topSearches.slice(startIdx, startIdx + topSearchesPageSize);
-
-                return (
-                  <div className="space-y-2.5 flex-1 overflow-y-auto pr-1">
-                    {paginatedSearches.map((s, idx) => {
-                      const rank = startIdx + idx + 1;
-                      return (
-                        <div 
-                          key={idx}
-                          className={`flex items-center justify-between p-3 rounded-xl border transition-colors group cursor-pointer ${
-                            isDark 
-                              ? 'bg-slate-800/60 hover:bg-amber-950/30 border-slate-700/60 hover:border-amber-700/50' 
-                              : 'bg-slate-50 hover:bg-amber-50/50 border-slate-100 hover:border-amber-200'
-                          }`}
-                          onClick={() => setHistoryModalQuery({ query: s.query, rank, count: s.count })}
-                          title={`Click to analyze search intelligence for "${s.query}"`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <span className={`w-6 h-6 rounded-lg border text-[11px] font-bold flex items-center justify-center shrink-0 ${
-                              isDark ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-600'
-                            }`}>
-                              #{rank}
-                            </span>
-                            <div className="min-w-0">
-                              <span className={`text-sm font-semibold truncate block ${
-                                isDark ? 'text-slate-200 group-hover:text-amber-400' : 'text-slate-800 group-hover:text-amber-700'
-                              }`}>
-                                {s.query}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3 text-xs shrink-0">
-                            <span className={`font-semibold px-2.5 py-1 rounded-lg border ${
-                              isDark ? 'bg-slate-900 text-slate-200 border-slate-700' : 'bg-white text-slate-900 border-slate-200'
-                            }`}>
-                              {s.count} {s.count === 1 ? 'search' : 'searches'}
-                            </span>
-                            <ChevronRight className={`w-4 h-4 transition-all group-hover:translate-x-0.5 ${
-                              isDark ? 'text-slate-500 group-hover:text-amber-400' : 'text-slate-400 group-hover:text-amber-600'
-                            }`} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()
-            ) : (
-              <div className={`py-12 text-center text-sm flex-1 flex items-center justify-center ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                No search queries recorded in this timeframe yet.
-              </div>
-            )}
-          </div>
-
-          {/* Footer Info & Pagination Control */}
-          <div className={`mt-4 pt-3 border-t text-xs flex flex-wrap items-center justify-between gap-2 shrink-0 ${
-            isDark ? 'border-slate-800 text-slate-400' : 'border-slate-100 text-slate-500'
-          }`}>
-            <span className="text-[11px]">Click query to view details.</span>
 
             {/* Pagination Controls */}
             {summary?.topSearches && summary.topSearches.length > 0 && (

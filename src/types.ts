@@ -424,6 +424,7 @@ export interface StoreSettings {
   structuredDataEnabled?: boolean;
   searchBreadcrumbsEnabled?: boolean;
   autoSeoEnabled?: boolean;
+  blockedIPs?: string[];
 }
 
 

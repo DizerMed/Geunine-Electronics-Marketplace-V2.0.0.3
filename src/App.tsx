@@ -1,29 +1,21 @@
 import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
 import { Product, CartItem, Order, POSTransaction, StoreSettings, CategoryItem, BRAND_LOGO_URL, Staff, UserProfile, Review, getEATCurrentParts } from './types';
 import { Navbar } from './components/Navbar';
-import { ClientShop as ClientApp } from './components/ClientShop';
-
-
-
-
-import { InternetConnectionBanner } from './components/InternetConnectionBanner';
-import { WhatsAppFloatingButton } from './components/WhatsAppFloatingButton';
-
-
 import { FullScreenSaveLoader } from './components/FullScreenSaveLoader';
-import { CookieConsentBanner } from './components/CookieConsentBanner';
 import { useSupabaseCollection, useSupabaseAuth } from './lib/useSupabase';
 import { applyDynamicSEOMetadata } from './lib/seoManager';
 import { useLoanAlerts } from './hooks/useLoanAlerts';
-
 import { ShieldCheck, Sparkles, Bot, MessageSquareText } from 'lucide-react';
-
-
-import { AIChatWidget } from './components/AIChatWidget';
-import { InstallPwaBanner } from './components/InstallPwaBanner';
-import { Footer } from './components/Footer';
-import { ClientProfileModal } from './components/ClientProfileModal';
 import { customAlert, customConfirm } from './utils/dialog';
+
+const ClientApp = lazy(() => import('./components/ClientShop').then(m => ({ default: m.ClientShop })));
+const InternetConnectionBanner = lazy(() => import('./components/InternetConnectionBanner').then(m => ({ default: m.InternetConnectionBanner })));
+const WhatsAppFloatingButton = lazy(() => import('./components/WhatsAppFloatingButton').then(m => ({ default: m.WhatsAppFloatingButton })));
+const CookieConsentBanner = lazy(() => import('./components/CookieConsentBanner').then(m => ({ default: m.CookieConsentBanner })));
+const AIChatWidget = lazy(() => import('./components/AIChatWidget').then(m => ({ default: m.AIChatWidget })));
+const InstallPwaBanner = lazy(() => import('./components/InstallPwaBanner').then(m => ({ default: m.InstallPwaBanner })));
+const Footer = lazy(() => import('./components/Footer').then(m => ({ default: m.Footer })));
+const ClientProfileModal = lazy(() => import('./components/ClientProfileModal').then(m => ({ default: m.ClientProfileModal })));
 
 const AdminApp = lazy(() => import('./components/AdminPortal').then(m => ({ default: m.AdminPortal })));
 const AuthScreen = lazy(() => import('./components/AuthScreen').then(m => ({ default: m.AuthScreen })));
@@ -367,7 +359,7 @@ export default function App() {
   
   // Real-time Supabase sync for main entities
   const isAdmin = currentView === 'admin';
-  const { data: products, addItem: addSupabaseProduct, updateItem: updateSupabaseProduct, deleteItem: deleteSupabaseProduct, clearCollection: clearProducts } = useSupabaseCollection<Product>('products', [], isAdmin);
+  const { data: products, loading: productsLoading, addItem: addSupabaseProduct, updateItem: updateSupabaseProduct, deleteItem: deleteSupabaseProduct, clearCollection: clearProducts } = useSupabaseCollection<Product>('products', [], isAdmin);
   const { data: orders, addItem: addSupabaseOrder, updateItem: updateSupabaseOrder, deleteItem: deleteOrder, clearCollection: clearOrders } = useSupabaseCollection<Order>('orders', [], isAdmin);
   const { data: posTransactions, addItem: addSupabasePOSTransaction, updateItem: updateSupabasePOSTransaction, deleteItem: deletePOSTransaction, clearCollection: clearPOSTransactions } = useSupabaseCollection<POSTransaction>('posTransactions', [], isAdmin);
   const { data: staff, updateItem: updateSupabaseStaff, deleteItem: deleteSupabaseStaff, clearCollection: clearStaff } = useSupabaseCollection<Staff>('staff', [], isAdmin);
@@ -827,8 +819,8 @@ export default function App() {
         </div>
       ) : (
         <>
-          <InternetConnectionBanner />
-          <InstallPwaBanner theme={activeTheme} />
+          <Suspense fallback={null}><InternetConnectionBanner /></Suspense>
+          <Suspense fallback={null}><InstallPwaBanner theme={activeTheme} /></Suspense>
           {AlertsComponent}
 
           {currentView === 'client' ? (
@@ -864,8 +856,10 @@ export default function App() {
                   onLogout={handleAdminLogout}
                   onLoginClick={() => setIsAuthModalOpen(true)}
                 />
+                <Suspense fallback={<div className="flex-1 flex items-center justify-center p-12"><div className="w-12 h-12 border-4 border-blue-600/30 border-t-blue-600 rounded-full animate-spin"></div></div>}>
                 <ClientApp
                   products={productsWithReviews}
+                  productsLoading={productsLoading}
                   categoriesList={categories}
                   cart={cart}
                   addToCart={addToCart}
@@ -887,10 +881,14 @@ export default function App() {
                   onLogout={handleAdminLogout}
                   onLoginClick={() => setIsAuthModalOpen(true)}
                 />
+                </Suspense>
               </div>
-              <Footer categoriesList={categories} storeSettings={storeSettings} />
+              <Suspense fallback={null}>
+                <Footer categoriesList={categories} storeSettings={storeSettings} />
+              </Suspense>
 
               {/* Client Profile & Orders Tracking Modal */}
+              <Suspense fallback={null}>
               <ClientProfileModal
                 storeSettings={storeSettings} 
                 isOpen={isProfileModalOpen}
@@ -914,6 +912,7 @@ export default function App() {
                 }}
                 isDark={effectiveClientTheme === 'dark'}
               />
+              </Suspense>
 
               {/* Storefront Auth Screen Modal */}
               {isAuthModalOpen && (
@@ -1029,6 +1028,7 @@ export default function App() {
 
           {/* Orbi AI Assistant Floating Widget */}
           {isAiAssistantOpen && (
+            <Suspense fallback={null}>
             <AIChatWidget
               isOpen={isAiAssistantOpen}
               onClose={() => setIsAiAssistantOpen(false)}
@@ -1037,6 +1037,7 @@ export default function App() {
               storeSettings={storeSettings}
               onSelectProduct={handleSelectProductFromAI}
             />
+          </Suspense>
           )}
 
           {/* Unified Floating Raised Chat Icon Hub with Pulsing Heartbeat Waves (Solid Modern Look) */}
@@ -1092,7 +1093,9 @@ export default function App() {
 
           {/* Privacy & Cookie Consent Banner */}
           {currentView === 'client' && (
-            <CookieConsentBanner />
+            <Suspense fallback={null}>
+              <CookieConsentBanner />
+            </Suspense>
           )}
 
           {/* Full Screen Save Loader for Client Operations */}

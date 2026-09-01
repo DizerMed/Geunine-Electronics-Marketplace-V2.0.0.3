@@ -17,7 +17,8 @@ export const supabaseClient: SupabaseClient = createClient(
     auth: {
       autoRefreshToken: isSupabaseConfigured,
       persistSession: isSupabaseConfigured,
-      detectSessionInUrl: isSupabaseConfigured
+      detectSessionInUrl: isSupabaseConfigured,
+      flowType: 'pkce'
     }
   }
 );

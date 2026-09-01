@@ -35,6 +35,7 @@ import {
 
 interface ClientShopProps {
   products: Product[];
+  productsLoading?: boolean;
   categoriesList?: CategoryItem[];
   cart: CartItem[];
   addToCart: (product: Product, quantity?: number) => void;
@@ -60,16 +61,46 @@ interface ClientShopProps {
 }
 
 
-import { ProductDetailPage } from './ProductDetailPage';
-import { InvoicePrintModal } from './InvoicePrintModal';
-import { POSReceiptModal } from './POSReceiptModal';
-import { ProductCompareModal, CompareFloatingBar } from './ProductCompareModal';
-import { ExpressBuyDrawer } from './ExpressBuyDrawer';
-import { ReceiptVerificationModal } from './ReceiptVerificationModal';
-import { ReviewForm } from './ReviewForm';
+const ProductDetailPage = React.lazy(() => import('./ProductDetailPage').then(m => ({ default: m.ProductDetailPage })));
+const InvoicePrintModal = React.lazy(() => import('./InvoicePrintModal').then(m => ({ default: m.InvoicePrintModal })));
+const POSReceiptModal = React.lazy(() => import('./POSReceiptModal').then(m => ({ default: m.POSReceiptModal })));
+const ProductCompareModal = React.lazy(() => import('./ProductCompareModal').then(m => ({ default: m.ProductCompareModal })));
+const CompareFloatingBar = React.lazy(() => import('./ProductCompareModal').then(m => ({ default: m.CompareFloatingBar })));
+const ExpressBuyDrawer = React.lazy(() => import('./ExpressBuyDrawer').then(m => ({ default: m.ExpressBuyDrawer })));
+const ReceiptVerificationModal = React.lazy(() => import('./ReceiptVerificationModal').then(m => ({ default: m.ReceiptVerificationModal })));
+const ReviewForm = React.lazy(() => import('./ReviewForm').then(m => ({ default: m.ReviewForm })));
 import { customAlert, customConfirm } from '../utils/dialog';
 
+const ProductSkeletonCard = () => (
+  <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 overflow-hidden shadow-xs flex flex-col animate-pulse">
+    <div className="relative aspect-square bg-slate-200 dark:bg-slate-700/70 flex items-center justify-center">
+      <div className="w-8 h-8 rounded-full bg-slate-300 dark:bg-slate-600 flex items-center justify-center opacity-70">
+        <Loader2 className="w-4 h-4 animate-spin text-slate-400 dark:text-slate-400" />
+      </div>
+      <div className="absolute top-3 left-3 w-14 h-4.5 rounded-lg bg-slate-300 dark:bg-slate-600/80" />
+    </div>
+    <div className="p-3.5 sm:p-5 flex-1 flex flex-col justify-between space-y-3">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="h-3 w-16 bg-slate-200 dark:bg-slate-700 rounded" />
+          <div className="h-3 w-10 bg-slate-200 dark:bg-slate-700 rounded" />
+        </div>
+        <div className="h-4 w-4/5 bg-slate-200 dark:bg-slate-700 rounded" />
+        <div className="h-3 w-3/5 bg-slate-100 dark:bg-slate-700/50 rounded" />
+      </div>
+      <div className="pt-2 sm:pt-3 border-t border-slate-100 dark:border-slate-700/60 flex flex-col gap-2">
+        <div className="h-4 w-24 bg-slate-200 dark:bg-slate-700 rounded" />
+        <div className="flex items-center gap-1.5 w-full">
+          <div className="h-8 sm:h-9 flex-1 bg-slate-200 dark:bg-slate-700 rounded-lg sm:rounded-xl" />
+          <div className="h-8 sm:h-9 w-8 sm:w-9 bg-slate-200 dark:bg-slate-700 rounded-lg sm:rounded-xl" />
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
 export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
+  productsLoading,
   products,
   categoriesList = [],
   cart,
@@ -1129,7 +1160,8 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
           <p className="mt-4 text-slate-500 font-medium">Loading product details...</p>
         </div>
       ) : selectedProduct ? (
-        <ProductDetailPage
+        <React.Suspense fallback={null}>
+<ProductDetailPage
           product={selectedProduct}
           allProducts={products}
           user={user}
@@ -1164,6 +1196,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
           isInCompare={compareProducts.some((p) => p.id === selectedProduct.id)}
           categoriesList={categoriesList}
         />
+</React.Suspense>
       ) : (
         <>
 
@@ -1677,7 +1710,13 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                 </span>
               </div>
 
-              {filteredProducts.length === 0 ? (
+              {productsLoading ? (
+                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-6 lg:gap-8">
+                  {Array.from({ length: 5 }).map((_, idx) => (
+                    <ProductSkeletonCard key={`initial-deals-skeleton-${idx}`} />
+                  ))}
+                </div>
+              ) : filteredProducts.length === 0 ? (
                 <div className="text-center py-16 px-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800">
                   <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center mx-auto mb-4 text-indigo-500">
                     <Zap className="w-8 h-8" />
@@ -1911,7 +1950,15 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                 </div>
 
             {/* Product Grid & Empty State */}
-            {filteredProducts.length === 0 ? (
+            {productsLoading ? (
+              <div className="w-full">
+                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-6 lg:gap-8 mb-8">
+                  {Array.from({ length: 12 }).map((_, idx) => (
+                    <ProductSkeletonCard key={`initial-main-skeleton-${idx}`} />
+                  ))}
+                </div>
+              </div>
+            ) : filteredProducts.length === 0 ? (
               <div className="w-full flex flex-col gap-10">
                 {/* Modern Hero Empty State Box */}
                 <div className={`relative overflow-hidden rounded-3xl border p-8 sm:p-12 shadow-sm text-center transition-all ${
@@ -2322,34 +2369,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                 {isLoadingMore && (
                   <>
                     {Array.from({ length: Math.min(6, Math.max(2, filteredProducts.length - visibleProductsCount)) }).map((_, idx) => (
-                      <div
-                        key={`loading-skeleton-card-${idx}`}
-                        className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 overflow-hidden shadow-xs flex flex-col animate-pulse"
-                      >
-                        <div className="relative aspect-square bg-slate-200 dark:bg-slate-700/70 flex items-center justify-center">
-                          <div className="w-8 h-8 rounded-full bg-slate-300 dark:bg-slate-600 flex items-center justify-center opacity-70">
-                            <Loader2 className="w-4 h-4 animate-spin text-slate-400 dark:text-slate-400" />
-                          </div>
-                          <div className="absolute top-3 left-3 w-14 h-4.5 rounded-lg bg-slate-300 dark:bg-slate-600/80" />
-                        </div>
-                        <div className="p-3.5 sm:p-5 flex-1 flex flex-col justify-between space-y-3">
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <div className="h-3 w-16 bg-slate-200 dark:bg-slate-700 rounded" />
-                              <div className="h-3 w-10 bg-slate-200 dark:bg-slate-700 rounded" />
-                            </div>
-                            <div className="h-4 w-4/5 bg-slate-200 dark:bg-slate-700 rounded" />
-                            <div className="h-3 w-3/5 bg-slate-100 dark:bg-slate-700/50 rounded" />
-                          </div>
-                          <div className="pt-2 sm:pt-3 border-t border-slate-100 dark:border-slate-700/60 flex flex-col gap-2">
-                            <div className="h-4 w-24 bg-slate-200 dark:bg-slate-700 rounded" />
-                            <div className="flex items-center gap-1.5 w-full">
-                              <div className="h-8 sm:h-9 flex-1 bg-slate-200 dark:bg-slate-700 rounded-lg sm:rounded-xl" />
-                              <div className="h-8 sm:h-9 w-8 sm:w-9 bg-slate-200 dark:bg-slate-700 rounded-lg sm:rounded-xl" />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      <ProductSkeletonCard key={`loading-skeleton-card-${idx}`} />
                     ))}
                   </>
                 )}
@@ -3740,34 +3760,41 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
 
       {/* Invoice Print Modal overlay */}
       {printingInvoiceOrder && (
-        <InvoicePrintModal
+        <React.Suspense fallback={null}>
+<InvoicePrintModal
           order={printingInvoiceOrder}
           onClose={() => setPrintingInvoiceOrder(null)}
           storeSettings={storeSettings}
           defaultDocType={printingInvoiceOrder.paymentStatus === 'Paid' ? 'tax' : 'proforma'}
           isClientView={true}
         />
+</React.Suspense>
       )}
 
       {/* Thermal POS / Official Payment Receipt Modal */}
       {printingReceiptOrder && (
-        <POSReceiptModal
+        <React.Suspense fallback={null}>
+<POSReceiptModal
           receipt={printingReceiptOrder}
           onClose={() => setPrintingReceiptOrder(null)}
           storeSettings={storeSettings}
         />
+</React.Suspense>
       )}
 
       {/* Product Comparison Floating Bar & Modal */}
-      <CompareFloatingBar
+      <React.Suspense fallback={null}>
+<CompareFloatingBar
         compareProducts={compareProducts}
         onOpenCompareModal={() => setIsCompareModalOpen(true)}
         onRemoveProduct={removeFromCompare}
         onClearAll={clearCompare}
         isDark={isDark}
       />
+</React.Suspense>
 
-      <ProductCompareModal
+      <React.Suspense fallback={null}>
+<ProductCompareModal
         compareProducts={compareProducts}
         allProducts={products}
         isOpen={isCompareModalOpen}
@@ -3779,9 +3806,11 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
         onSelectProduct={(product) => setSelectedProduct(product)}
         isDark={isDark}
       />
+</React.Suspense>
 
       {/* Express 1-Click Buy Drawer */}
-      <ExpressBuyDrawer
+      <React.Suspense fallback={null}>
+<ExpressBuyDrawer
         product={expressBuyProduct}
         isOpen={isExpressBuyOpen}
         onClose={() => {
@@ -3794,9 +3823,11 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
         storeSettings={storeSettings}
         isDark={isDark}
       />
+</React.Suspense>
 
       {/* Online Receipt Verification Modal */}
-      <ReceiptVerificationModal
+      <React.Suspense fallback={null}>
+<ReceiptVerificationModal
         isOpen={isReceiptVerificationOpen}
         onClose={() => {
           setIsReceiptVerificationOpen(false);
@@ -3806,6 +3837,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
         receiptNo={receiptVerificationParams?.receiptNo}
         storeSettings={storeSettings}
       />
+</React.Suspense>
 
       {/* Toast Notifications */}
       <div className="fixed bottom-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-none">

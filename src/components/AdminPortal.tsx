@@ -6750,6 +6750,29 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
 
 
+              {/* Security & Access Control */}
+              <div className={`p-6 rounded-2xl border space-y-6 ${cardBg}`}>
+                <div className="flex items-center gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
+                  <ShieldAlert className="w-5 h-5 text-indigo-500" />
+                  <h3 className={`font-bold text-base ${textTitle}`}>Security & Access Control</h3>
+                </div>
+                
+                <div className="space-y-3">
+                  <label className={`block text-xs font-bold uppercase tracking-wider ${textSub}`}>Blocked IP Addresses</label>
+                  <p className="text-xs text-slate-500 mb-2">Enter IP addresses to block from accessing your store and API. Separate multiple IPs with commas.</p>
+                  <textarea
+                    rows={3}
+                    placeholder="e.g. 192.168.1.1, 10.0.0.5"
+                    className={`w-full p-3 rounded-xl border text-sm font-mono ${inputBg} ${isDark ? 'focus:border-indigo-500/50 focus:ring-indigo-500/20' : 'focus:border-indigo-500 focus:ring-indigo-100'} transition-all`}
+                    defaultValue={settingsForm.blockedIPs?.join(', ') || ''}
+                    onBlur={(e) => {
+                      const ips = e.target.value.split(',').map(ip => ip.trim()).filter(ip => ip);
+                      setSettingsForm({ ...settingsForm, blockedIPs: ips });
+                    }}
+                  />
+                </div>
+              </div>
+
               {/* Danger Zone: Data Reset */}
 
               <div className={`p-6 rounded-2xl border border-rose-500/20 bg-rose-500/5 space-y-6 ${cardBg}`}>

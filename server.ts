@@ -7,8 +7,11 @@ import multer from "multer";
 import cookieParser from "cookie-parser";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import sharp from "sharp";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 const app = express();
+app.set('trust proxy', 1); // Enable trusting reverse proxy for rate limiter to get correct IP
 const PORT = 3000;
 
 // Lazy initialization for Supabase Service Role client with Circuit Breaker and Timeout protection
@@ -787,24 +790,51 @@ async function syncVisitorLogsFromSupabase(): Promise<number> {
 }
 
 let lastDbSaveTimestamp = Date.now();
+let dbSaveTimeout: any = null;
+let isSavingDb = false;
 
-function saveDiskDb(): boolean {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+function saveDiskDb(immediate = false): boolean {
+  lastDbSaveTimestamp = Date.now();
+  if (immediate) {
+    if (dbSaveTimeout) {
+      clearTimeout(dbSaveTimeout);
+      dbSaveTimeout = null;
     }
-    fs.writeFileSync(DB_FILE, JSON.stringify(memoryStore, null, 2), 'utf-8');
-    return true;
-  } catch (err) {
-    console.warn('Failed to write disk database:', err);
-    return false;
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      fs.writeFileSync(DB_FILE, JSON.stringify(memoryStore), 'utf-8');
+      return true;
+    } catch (err) {
+      console.warn('Failed to write disk database immediately:', err);
+      return false;
+    }
   }
+
+  if (dbSaveTimeout) return true;
+  dbSaveTimeout = setTimeout(async () => {
+    dbSaveTimeout = null;
+    if (isSavingDb) return;
+    isSavingDb = true;
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      await fs.promises.writeFile(DB_FILE, JSON.stringify(memoryStore), 'utf-8');
+    } catch (err) {
+      console.warn('Async disk database save error:', err);
+    } finally {
+      isSavingDb = false;
+    }
+  }, 1200);
+  return true;
 }
 
 loadDiskDb();
 setTimeout(() => {
   syncVisitorLogsFromSupabase().catch(() => {});
-}, 3000);
+}, 15000);
 
 // Active SSE client connections for real-time global live synchronization
 const sseClients = new Set<express.Response>();
@@ -829,6 +859,83 @@ app.use((req, res, next) => {
   next();
 });
 
+// Helmet: Security Headers (Cyber Attack Prevention)
+// Configured to allow Vite/SPA development if needed
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
+
+// IP Blocking Middleware
+app.use((req, res, next) => {
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
+  const normalizedIp = typeof clientIp === 'string' ? clientIp.split(',')[0].trim() : String(clientIp);
+
+  // Check memoryStore settings for blocked IPs
+  const settings = memoryStore['settings']?.['main'] || {};
+  const blockedIPs = Array.isArray(settings.blockedIPs) ? settings.blockedIPs : [];
+
+  if (normalizedIp && blockedIPs.includes(normalizedIp)) {
+    return res.status(403).json({ error: 'Access denied. Your IP address has been blocked due to suspicious activity.' });
+  }
+  
+  next();
+});
+
+// Express Rate Limiters (DDoS and Brute Force Protection)
+const globalApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // Limit each IP to 1000 requests per window
+  message: { error: 'Too many requests from this IP, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', globalApiLimiter);
+
+const chatApiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10, // Limit AI chat to 10 requests per minute
+  message: { error: 'Chat rate limit exceeded. Please wait a moment.' }
+});
+app.use('/api/chat', chatApiLimiter);
+
+// Cyber Injection & XSS Sanitization Middleware
+const sanitizeInput = (obj: any): any => {
+  if (typeof obj === 'string') {
+    // Basic protection against NoSQL/SQL injection characters & HTML/script tags
+    return obj.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+              .replace(/\$/g, '＄'); // Replace potential NoSQL operator prefix
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => sanitizeInput(item));
+  }
+  if (obj !== null && typeof obj === 'object') {
+    const sanitizedObj: any = {};
+    for (const key in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
+        // Drop suspicious keys completely (like $where in NoSQL context)
+        if (key.startsWith('$')) continue;
+        sanitizedObj[key] = sanitizeInput(obj[key]);
+      }
+    }
+    return sanitizedObj;
+  }
+  return obj;
+};
+
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+app.use((req, res, next) => {
+  if (req.body && Object.keys(req.body).length > 0) {
+    req.body = sanitizeInput(req.body);
+  }
+  if (req.query && Object.keys(req.query).length > 0) {
+    req.query = sanitizeInput(req.query);
+  }
+  next();
+});
+
 // Health Check Endpoint for internal system monitoring
 app.get('/health', (req, res) => {
   res.json({
@@ -842,8 +949,6 @@ app.get('/health', (req, res) => {
 });
 
 app.use(cookieParser());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.text({ type: ['text/plain', 'application/text'], limit: '10mb' }));
 
 const upload = multer({
@@ -3575,7 +3680,7 @@ app.get('/api/data/:collection', async (req, res) => {
     if (supabase) {
       try {
         const queryPromise = supabase.from(sqlTable).select('*');
-        const { data, error }: any = await withTimeout(queryPromise, 2500);
+        const { data, error }: any = await withTimeout(queryPromise, 1200);
         
         if (!error && Array.isArray(data)) {
           normalizedList = data.map(item => normalizeFromSupabase(colName, item));
@@ -3585,102 +3690,107 @@ app.get('/api/data/:collection', async (req, res) => {
             if (item && item.id) memoryStore[colName][item.id] = item;
           });
 
-          if (colName === 'orders') {
-            try {
-              const { data: itemData }: any = await withTimeout(supabase.from('order_items').select('*'), 1500);
-              if (Array.isArray(itemData)) {
-                const itemMap = new Map<string, any[]>();
-                itemData.forEach(it => {
-                  const orderId = it.order_id || it.orderId;
-                  if (orderId) {
-                    if (!itemMap.has(orderId)) itemMap.set(orderId, []);
-                    itemMap.get(orderId)!.push({
-                      id: it.id,
-                      productId: it.product_id || it.productId,
-                      name: it.name,
-                      price: Number(it.price),
-                      quantity: Number(it.quantity),
-                      image: it.image
-                    });
-                  }
-                });
-                normalizedList.forEach(order => {
-                  if (itemMap.has(order.id)) {
-                    order.items = itemMap.get(order.id);
-                  }
-                });
-              }
-            } catch (err) {
-              // Silently ignore secondary relational timeout
-            }
-          }
-
-          if (colName === 'posTransactions' || colName === 'pos_transactions' || colName === 'orders') {
-            try {
-              const { data: repData }: any = await withTimeout(supabase.from('loan_repayments').select('*'), 1500);
-              if (Array.isArray(repData) && repData.length > 0) {
-                const repMap = new Map<string, any[]>();
-                repData.forEach(rep => {
-                  const txId = rep.transaction_id || rep.transactionId;
-                  if (txId) {
-                    if (!repMap.has(txId)) repMap.set(txId, []);
-                    repMap.get(txId)!.push({
-                      id: rep.id,
-                      amount: Number(rep.amount),
-                      date: rep.date,
-                      paymentMethod: rep.payment_method || rep.paymentMethod || 'M-Pesa',
-                      recordedBy: rep.recorded_by || rep.recordedBy || 'Admin',
-                      notes: rep.notes
-                    });
-                  }
-                });
-                normalizedList.forEach(tx => {
-                  const relationalReps = repMap.get(tx.id);
-                  if (Array.isArray(relationalReps) && relationalReps.length > 0) {
-                    const existingReps = Array.isArray(tx.loanRepayments) ? tx.loanRepayments : (Array.isArray(tx.partialPayments) ? tx.partialPayments : []);
-                    const combinedMap = new Map<string, any>();
-                    existingReps.forEach((r: any) => { if (r && r.id) combinedMap.set(r.id, r); });
-                    relationalReps.forEach((r: any) => { if (r && r.id) combinedMap.set(r.id, r); });
-                    const merged = Array.from(combinedMap.values()).sort((a: any, b: any) => {
-                      return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
-                    });
-                    tx.loanRepayments = merged;
-                    if (colName === 'orders') {
-                      tx.partialPayments = merged;
-                    }
-                  }
-                });
-              }
-            } catch (err) {
-              // Silently ignore secondary relational timeout
+          // Fetch relational items in parallel with low timeout
+          if (colName === 'orders' || colName === 'posTransactions' || colName === 'pos_transactions') {
+            const relPromises: Promise<any>[] = [];
+            
+            if (colName === 'orders') {
+              relPromises.push(withTimeout(supabase.from('order_items').select('*'), 900).catch(() => ({ data: null })));
+            } else {
+              relPromises.push(Promise.resolve({ data: null }));
             }
 
-            try {
-              const { data: itemData }: any = await withTimeout(supabase.from('pos_transaction_items').select('*'), 1500);
-              if (Array.isArray(itemData)) {
-                const itemMap = new Map<string, any[]>();
-                itemData.forEach(it => {
-                  const txId = it.transaction_id || it.transactionId;
-                  if (txId) {
-                    if (!itemMap.has(txId)) itemMap.set(txId, []);
-                    itemMap.get(txId)!.push({
-                      id: it.id,
-                      productId: it.product_id || it.productId,
-                      name: it.name,
-                      price: Number(it.price),
-                      quantity: Number(it.quantity),
-                      image: it.image
-                    });
+            relPromises.push(withTimeout(supabase.from('loan_repayments').select('*'), 900).catch(() => ({ data: null })));
+            
+            if (colName === 'posTransactions' || colName === 'pos_transactions') {
+              relPromises.push(withTimeout(supabase.from('pos_transaction_items').select('*'), 900).catch(() => ({ data: null })));
+            } else {
+              relPromises.push(Promise.resolve({ data: null }));
+            }
+
+            const [orderItemsRes, loanRepsRes, posItemsRes] = await Promise.all(relPromises);
+
+            // Handle order items
+            if (orderItemsRes?.data && Array.isArray(orderItemsRes.data)) {
+              const itemMap = new Map<string, any[]>();
+              orderItemsRes.data.forEach((it: any) => {
+                const orderId = it.order_id || it.orderId;
+                if (orderId) {
+                  if (!itemMap.has(orderId)) itemMap.set(orderId, []);
+                  itemMap.get(orderId)!.push({
+                    id: it.id,
+                    productId: it.product_id || it.productId,
+                    name: it.name,
+                    price: Number(it.price),
+                    quantity: Number(it.quantity),
+                    image: it.image
+                  });
+                }
+              });
+              normalizedList.forEach(order => {
+                if (itemMap.has(order.id)) {
+                  order.items = itemMap.get(order.id);
+                }
+              });
+            }
+
+            // Handle loan repayments
+            if (loanRepsRes?.data && Array.isArray(loanRepsRes.data) && loanRepsRes.data.length > 0) {
+              const repMap = new Map<string, any[]>();
+              loanRepsRes.data.forEach((rep: any) => {
+                const txId = rep.transaction_id || rep.transactionId;
+                if (txId) {
+                  if (!repMap.has(txId)) repMap.set(txId, []);
+                  repMap.get(txId)!.push({
+                    id: rep.id,
+                    amount: Number(rep.amount),
+                    date: rep.date,
+                    paymentMethod: rep.payment_method || rep.paymentMethod || 'M-Pesa',
+                    recordedBy: rep.recorded_by || rep.recordedBy || 'Admin',
+                    notes: rep.notes
+                  });
+                }
+              });
+              normalizedList.forEach(tx => {
+                const relationalReps = repMap.get(tx.id);
+                if (Array.isArray(relationalReps) && relationalReps.length > 0) {
+                  const existingReps = Array.isArray(tx.loanRepayments) ? tx.loanRepayments : (Array.isArray(tx.partialPayments) ? tx.partialPayments : []);
+                  const combinedMap = new Map<string, any>();
+                  existingReps.forEach((r: any) => { if (r && r.id) combinedMap.set(r.id, r); });
+                  relationalReps.forEach((r: any) => { if (r && r.id) combinedMap.set(r.id, r); });
+                  const merged = Array.from(combinedMap.values()).sort((a: any, b: any) => {
+                    return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+                  });
+                  tx.loanRepayments = merged;
+                  if (colName === 'orders') {
+                    tx.partialPayments = merged;
                   }
-                });
-                normalizedList.forEach(tx => {
-                  if (itemMap.has(tx.id)) {
-                    tx.items = itemMap.get(tx.id);
-                  }
-                });
-              }
-            } catch (err) {
-              // Silently ignore secondary relational timeout
+                }
+              });
+            }
+
+            // Handle POS transaction items
+            if (posItemsRes?.data && Array.isArray(posItemsRes.data)) {
+              const itemMap = new Map<string, any[]>();
+              posItemsRes.data.forEach((it: any) => {
+                const txId = it.transaction_id || it.transactionId;
+                if (txId) {
+                  if (!itemMap.has(txId)) itemMap.set(txId, []);
+                  itemMap.get(txId)!.push({
+                    id: it.id,
+                    productId: it.product_id || it.productId,
+                    name: it.name,
+                    price: Number(it.price),
+                    quantity: Number(it.quantity),
+                    image: it.image
+                  });
+                }
+              });
+              normalizedList.forEach(tx => {
+                if (itemMap.has(tx.id)) {
+                  tx.items = itemMap.get(tx.id);
+                }
+              });
             }
           }
         } else {
@@ -3696,7 +3806,8 @@ app.get('/api/data/:collection', async (req, res) => {
     return res.json({ data: normalizedList });
   } catch (error: any) {
     console.error(`GET /api/data/${req.params.collection} failed:`, error.message);
-    res.status(500).json({ error: error.message || 'Failed to retrieve cloud data.' });
+    const fallbackList = Object.values(memoryStore[req.params.collection] || {}).map(item => normalizeFromSupabase(req.params.collection, item));
+    return res.json({ data: fallbackList });
   }
 });
 
@@ -4110,20 +4221,24 @@ app.get('/api/settings', async (req, res) => {
   try {
     const supabase = getSupabaseAdmin();
     if (!supabase) {
-      return res.status(503).json({ error: 'Database service is currently unconfigured or unavailable.' });
+      const cached = memoryStore['settings']?.['main'] || null;
+      return res.json({ settings: cached });
     }
 
     const queryPromise = supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle();
-    const { data, error }: any = await withTimeout(queryPromise, 5000);
+    const { data, error }: any = await withTimeout(queryPromise, 1000);
     
-    if (error) {
-      return res.status(500).json({ error: `Cloud read error: ${error.message}` });
+    if (!error && data?.settings) {
+      if (!memoryStore['settings']) memoryStore['settings'] = {};
+      memoryStore['settings']['main'] = data.settings;
+      return res.json({ settings: data.settings });
     }
 
-    return res.json({ settings: data?.settings || null });
+    const cached = memoryStore['settings']?.['main'] || null;
+    return res.json({ settings: cached });
   } catch (err: any) {
-    console.error('Error reading settings:', err);
-    res.status(500).json({ error: err.message || 'Failed to read store settings' });
+    const cached = memoryStore['settings']?.['main'] || null;
+    return res.json({ settings: cached });
   }
 });
 
@@ -4144,6 +4259,10 @@ app.post('/api/settings', async (req, res) => {
       console.error('Failed to upsert store_settings in Supabase:', error.message);
       return res.status(500).json({ error: `Cloud save failed: ${error.message}` });
     }
+
+    if (!memoryStore['settings']) memoryStore['settings'] = {};
+    memoryStore['settings']['main'] = settings;
+    saveDiskDb();
 
     // Broadcast globally to all visitors & customer devices
     broadcastEvent({
@@ -4359,6 +4478,24 @@ app.post("/api/ai-chat", async (req, res) => {
     const client = getAiClient();
     const isSwahili = language === 'sw' || (typeof message === 'string' && /habari|mambo|shikamoo|bei|shilingi|duka|runinga|jokofu|friji|inverter|punguzo|mzigo|dhamana|waranti|kioo|chapa|nunua|msaada/i.test(message));
 
+    let compactInventory = "";
+    if (Array.isArray(productCatalog) && productCatalog.length > 0) {
+      compactInventory = productCatalog.map((p: any) => {
+        const cat = p.category ? `[${p.category}] ` : '';
+        const price = p.price ? ` | TZS ${Number(p.price).toLocaleString()}` : '';
+        const brand = p.brand ? ` | ${p.brand}` : '';
+        let specsStr = '';
+        if (p.specs) {
+          try {
+            const specObj = typeof p.specs === 'string' ? JSON.parse(p.specs) : p.specs;
+            specsStr = ` | Specs: ${Object.entries(specObj).map(([k, v]) => `${k}:${v}`).join(', ')}`;
+          } catch(e) {}
+        }
+        const desc = p.description ? ` | Info: ${p.description.replace(/\n/g, ' ')}` : '';
+        return `• [${p.id}] ${cat}${p.name}${brand}${price}${specsStr}${desc}`;
+      }).join('\n');
+    }
+
     const systemInstruction = `You are "Orbi AI", the instant shopping & technology assistant for "Genuine Electronics" in Dar es Salaam, Tanzania (TZS currency, official 2-year warranty, genuine electronics).
 
 ORGANIZATION & ORIGIN KNOWLEDGE:
@@ -4372,88 +4509,15 @@ CRITICAL SPEED & CONCISENESS RULES:
 1. Respond quickly, directly, and crisply. Avoid filler introductory or repetitive text to maximize response speed and save tokens.
 2. Language: ${isSwahili ? 'SWAHILI (Kiswahili sanifu, cha heshima na kibiashara)' : 'ENGLISH (Professional and engaging)'}.
 3. PRODUCT RECOMMENDATION & COMPARISON:
-   - Understand all store products, brands, model differences, special offers/discounts, warranties, and stock availability.
    - When suggesting or referencing store inventory items, ALWAYS use tag format: [PRODUCT:product_id] where product_id is the exact item id/sku.
-   - Example: "Ninakupendekezea **Hisense 55\\" 4K UHD Smart TV** [PRODUCT:prod-hisense-55-4k-tv] kwa TZS 1,180,000 (Punguzo maalum, Waranti miaka 2)."
-   - If products are on offer or have discounts, highlight the offer title and savings clearly.
-   - When asked for comparisons (e.g., TCL vs Hisense, Inverter vs Non-inverter, TV sizes), give a structured 2-3 bullet point comparison with clear pros/cons.
-4. Visual image support: If an image or sticker is provided, immediately identify the device model, key specs, and warranty status.`;
+   - Example: "Ninakupendekezea **Hisense 55\" 4K UHD Smart TV** [PRODUCT:prod-hisense-55-4k-tv] kwa TZS 1,180,000"
+4. Visual image support: If an image or sticker is provided, immediately identify the device model, key specs, and warranty status.
 
-    // Smart semantic & token-efficient product retrieval:
-    // Sort & rank products based on user query match, category relevance, or special offers
-    let compactInventory = "";
-    if (Array.isArray(productCatalog) && productCatalog.length > 0) {
-      const q = String(message || '').toLowerCase();
-      const tokens = q.split(/\s+/).filter(t => t.length > 2);
-
-      // Score each product for relevancy
-      const scoredProducts = productCatalog.map((p: any) => {
-        let score = 0;
-        const name = String(p.name || '').toLowerCase();
-        const brand = String(p.brand || '').toLowerCase();
-        const cat = String(p.category || '').toLowerCase();
-        const desc = String(p.description || '').toLowerCase();
-        const offer = String(p.offerTitle || '').toLowerCase();
-
-        for (const token of tokens) {
-          if (name.includes(token)) score += 10;
-          if (brand.includes(token)) score += 8;
-          if (cat.includes(token)) score += 6;
-          if (offer.includes(token)) score += 5;
-          if (desc.includes(token)) score += 2;
-        }
-
-        // Boost offers and featured products if user is asking about offers, sales, or browsing
-        if (p.isOnOffer || p.discountPrice || p.discountPercentage) {
-          if (/ofa|offer|punguzo|discount|sale|deal|bei nafuu|cheap/i.test(q)) {
-            score += 20;
-          } else {
-            score += 2;
-          }
-        }
-
-        return { p, score };
-      });
-
-      // Sort by score descending; fallback to preserving catalog order
-      scoredProducts.sort((a, b) => b.score - a.score);
-
-      // Pick top 35 most relevant or representative products with compact token footprint
-      const selectedProducts = scoredProducts.slice(0, 35).map(item => item.p);
-
-      compactInventory = selectedProducts.map((p: any) => {
-        const id = p.id || p.sku;
-        const regularPrice = Number(p.price || 0);
-        const discountPrice = p.discountPrice ? Number(p.discountPrice) : null;
-        const effectivePrice = discountPrice || regularPrice;
-        const brand = p.brand || '';
-        const cat = p.category ? `[${p.category}] ` : '';
-        
-        let offerTag = '';
-        if (p.isOnOffer || discountPrice || p.discountPercentage) {
-          offerTag = ` 🔥[OFFER: ${p.discountPercentage ? `${p.discountPercentage}% OFF` : ''} Was TZS ${regularPrice.toLocaleString()}]`;
-        }
-
-        const specsList = [];
-        if (p.tonnage) specsList.push(`Tonnage: ${p.tonnage}`);
-        if (p.capacity) specsList.push(`Cap: ${p.capacity}`);
-        if (p.energyRating) specsList.push(`Energy: ${p.energyRating}`);
-        if (p.warranty) specsList.push(`Warranty: ${p.warranty}`);
-        if (p.specs && typeof p.specs === 'object') {
-          for (const [k, v] of Object.entries(p.specs).slice(0, 2)) {
-            specsList.push(`${k}: ${v}`);
-          }
-        }
-        const specsSnippet = specsList.length > 0 ? ` | ${specsList.slice(0, 3).join(', ')}` : '';
-
-        return `• [${id}] ${cat}${brand} ${p.name} | TZS ${effectivePrice.toLocaleString()}${offerTag} | Stock: ${p.stock ?? (p.inStock ? 'Available' : 'In Stock')}${specsSnippet}`;
-      }).join('\n');
-    }
-
-    const promptText = `Customer query: "${message || (isSwahili ? 'Msaada wa kifaa' : 'Product assistance')}"
-${context ? `Context: ${context}` : ''}
 Store Available Inventory:
 ${compactInventory || 'Catalog loaded'}`;
+
+    const promptText = `Customer query: "${message || (isSwahili ? 'Msaada wa kifaa' : 'Product assistance')}"
+${context ? `Context: ${context}` : ''}`;
 
     if (!process.env.GEMINI_API_KEY) {
       return res.json({
@@ -4493,6 +4557,7 @@ ${compactInventory || 'Catalog loaded'}`;
           config: {
             systemInstruction,
             temperature: 0.4,
+            maxOutputTokens: 300,
             thinkingConfig: {
               thinkingBudget: 0
             }

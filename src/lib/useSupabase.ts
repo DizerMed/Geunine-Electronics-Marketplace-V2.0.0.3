@@ -406,7 +406,7 @@ function normalizeClientItem<T>(tableName: string, item: any): T {
   return clone as T;
 }
 
-async function fetchWithTimeout(resource: string, options: any = {}, timeout: number = 12000) {
+async function fetchWithTimeout(resource: string, options: any = {}, timeout: number = 3500) {
   const controller = new AbortController();
   const id = setTimeout(() => {
     try {
@@ -437,7 +437,7 @@ export function useSupabaseCollection<T extends { id: string }>(
   isAdmin: boolean = false
 ) {
   const [data, setData] = useState<T[]>(initialData);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const isFetchingRef = useRef(false);
 
   const processCloudItems = useCallback((rawItems: T[]) => {
@@ -464,6 +464,13 @@ export function useSupabaseCollection<T extends { id: string }>(
       return;
     }
 
+    // Defer heavy admin-only collections until admin mode is active
+    const adminOnlyCollections = ['posTransactions', 'pos_transactions', 'staff'];
+    if (adminOnlyCollections.includes(tableName) && !isAdmin) {
+      setLoading(false);
+      return;
+    }
+
     if (isRateLimited) {
       if (Date.now() < rateLimitResetTime) return;
       isRateLimited = false;
@@ -478,7 +485,7 @@ export function useSupabaseCollection<T extends { id: string }>(
 
       // 1. Fetch live data from Express backend API
       try {
-        const response = await fetchWithTimeout(`/api/data/${tableName}`, {}, 6000);
+        const response = await fetchWithTimeout(`/api/data/${tableName}`, {}, 3000);
 
         if (response.status === 429) {
           isRateLimited = true;
@@ -503,10 +510,10 @@ export function useSupabaseCollection<T extends { id: string }>(
         console.warn(`Fetch /api/data/${tableName} failed:`, err?.message || err);
       }
 
-      // 2. Try direct Supabase client if backend endpoint returned error
+      // 2. Direct Supabase fallback only if backend was completely unreachable
       if (!isBackendSuccess && isSupabaseConfigured) {
         try {
-          const { data: supaRows, error } = await supabaseClient.from(tableName).select('*');
+          const { data: supaRows, error } = await supabaseClient.from(tableName).select('*').limit(300);
           if (!error && Array.isArray(supaRows)) {
             cloudItems = supaRows as unknown as T[];
             isBackendSuccess = true;
@@ -525,7 +532,7 @@ export function useSupabaseCollection<T extends { id: string }>(
       isFetchingRef.current = false;
       setLoading(false);
     }
-  }, [tableName, processCloudItems]);
+  }, [tableName, isAdmin, processCloudItems]);
 
   useEffect(() => {
     fetchData();
@@ -851,7 +858,7 @@ const buildProfileFromUser = (u: any) => {
 export function useSupabaseAuth() {
   const [user, setUser] = useState<any>(getInitialUserSession);
   const [profile, setProfile] = useState<any>(() => buildProfileFromUser(getInitialUserSession()));
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const syncAuth = useCallback((authUser: any) => {
     if (authUser) {

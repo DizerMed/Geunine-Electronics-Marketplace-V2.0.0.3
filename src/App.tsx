@@ -631,15 +631,16 @@ export default function App() {
   };
 
   // Inventory Product Actions
-  const addProduct = async (productData: Omit<Product, 'id'>) => {
+  const addProduct = async (productData: Omit<Product, 'id'> | Product): Promise<Product> => {
     const newProduct: Product = {
       ...productData,
-      id: `prod-${Date.now()}`,
+      id: (productData as any).id || `prod-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     };
     const res = await addSupabaseProduct(newProduct);
     if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to add product to Supabase');
+      throw new Error(res?.error || 'Failed to add product to database');
     }
+    return newProduct;
   };
 
   const updateProduct = async (updatedProduct: Product) => {

@@ -76,6 +76,8 @@ ALTER TABLE products
   ADD COLUMN IF NOT EXISTS "offerTitle" VARCHAR(255),
   ADD COLUMN IF NOT EXISTS is_vat_inclusive BOOLEAN DEFAULT true,
   ADD COLUMN IF NOT EXISTS "isVatInclusive" BOOLEAN DEFAULT true,
+  ADD COLUMN IF NOT EXISTS is_local_only BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS "isLocalOnly" BOOLEAN DEFAULT false,
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -142,6 +144,31 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'products' AND column_name = 'images_gallery'
   ) THEN
     ALTER TABLE public.products ALTER COLUMN images_gallery DROP NOT NULL;
+  END IF;
+
+  -- Ensure is_local_only has safe defaults and no blocking constraints
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'products' AND column_name = 'is_local_only'
+  ) THEN
+    ALTER TABLE public.products ALTER COLUMN is_local_only DROP NOT NULL;
+    ALTER TABLE public.products ALTER COLUMN is_local_only SET DEFAULT false;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'products' AND column_name = 'isLocalOnly'
+  ) THEN
+    ALTER TABLE public.products ALTER COLUMN "isLocalOnly" DROP NOT NULL;
+    ALTER TABLE public.products ALTER COLUMN "isLocalOnly" SET DEFAULT false;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'products' AND column_name = 'islocalonly'
+  ) THEN
+    ALTER TABLE public.products ALTER COLUMN islocalonly DROP NOT NULL;
+    ALTER TABLE public.products ALTER COLUMN islocalonly SET DEFAULT false;
   END IF;
 END $$;
 
@@ -623,6 +650,12 @@ CREATE TABLE IF NOT EXISTS pos_transaction_items (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE pos_transaction_items
+  ADD COLUMN IF NOT EXISTS cost_price DECIMAL(12, 2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "costPrice" DECIMAL(12, 2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS is_local_only BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS "isLocalOnly" BOOLEAN DEFAULT false;
+
 ALTER TABLE pos_transaction_items ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public Access POS Transaction Items" ON pos_transaction_items;
 CREATE POLICY "Public Access POS Transaction Items" ON pos_transaction_items FOR ALL USING (true) WITH CHECK (true);
@@ -725,6 +758,7 @@ CREATE TABLE IF NOT EXISTS visitor_logs (
 );
 
 -- Fast Indexes for Queries, Product-level filtering, and 2-Month Retention Purging
+CREATE INDEX IF NOT EXISTS idx_products_is_local_only ON products (is_local_only);
 CREATE INDEX IF NOT EXISTS idx_visitor_logs_created_at ON visitor_logs (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_visitor_logs_interaction ON visitor_logs (interaction_type);
 CREATE INDEX IF NOT EXISTS idx_visitor_logs_product_id ON visitor_logs (product_id);

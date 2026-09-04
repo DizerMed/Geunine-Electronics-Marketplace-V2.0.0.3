@@ -12,7 +12,7 @@ import { shareProduct } from '../utils/share';
 import { exportProductsToCSV, exportSalesToCSV, exportLoansToCSV, exportTaxJournalToCSV } from '../utils/exportData';
 import { triggerHaptic } from '../utils/haptics';
 import { isLoanTransaction } from '../utils/loanUtils';
-import { LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Plus, Search, ShieldCheck, AlertTriangle, Edit, Trash2, Printer, CheckCircle, RefreshCw, DollarSign, ArrowUpRight, Check, X, QrCode, User, Mail, MapPin, Copy, Camera, Scan, Zap, Sparkles, Sun, Moon, Monitor, Settings, Tags, Upload, UploadCloud, Type, Image as ImageIcon, Eye, Grid, List, FolderPlus, Globe, Link, Lock, LogOut, Truck, Phone, Key, MessageCircle, Download, UserCheck, UserX, Calendar, BadgeCheck, Bell, BellRing, Award, FileSpreadsheet, ExternalLink, ShieldAlert, ChevronRight, Activity, Filter, Database, Server, HardDrive, CheckCircle2, Menu, Keyboard, Command, Save, FileText, Star, GripVertical, ArrowLeftRight, ImagePlus, ZoomIn, Layers, Move, Share2, ChevronUp, ChevronDown, ArrowLeft, ArrowRight, Pause, RotateCcw, Minus, Percent, Banknote, History, Wifi, WifiOff, FileCheck2, Split, Barcode, Hash, CreditCard } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Plus, Search, ShieldCheck, AlertTriangle, Edit, Trash2, Printer, CheckCircle, RefreshCw, DollarSign, ArrowUpRight, Check, X, QrCode, User, Mail, MapPin, Copy, Camera, Scan, Zap, Sparkles, Sun, Moon, Monitor, Settings, Tags, Upload, UploadCloud, Type, Image as ImageIcon, Eye, Grid, List, FolderPlus, Globe, Link, Lock, LogOut, Truck, Phone, Key, MessageCircle, Download, UserCheck, UserX, Calendar, BadgeCheck, Bell, BellRing, Award, FileSpreadsheet, ExternalLink, ShieldAlert, ChevronRight, Activity, Filter, Database, Server, HardDrive, CheckCircle2, Menu, Keyboard, Command, Save, FileText, Star, GripVertical, ArrowLeftRight, ImagePlus, ZoomIn, Layers, Move, Share2, ChevronUp, ChevronDown, ArrowLeft, ArrowRight, Pause, RotateCcw, Minus, Percent, Banknote, History, Wifi, WifiOff, FileCheck2, Split, Barcode, Hash, CreditCard, Store, PackagePlus } from 'lucide-react';
 
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line, ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
@@ -673,7 +673,7 @@ interface AdminPortalProps {
 
   products: Product[];
 
-  addProduct: (product: Omit<Product, 'id'>) => void;
+  addProduct: (product: Omit<Product, 'id'> | Product) => Promise<any> | void;
 
   updateProduct: (product: Product) => void;
 
@@ -2162,6 +2162,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [formOfferEndsAt, setFormOfferEndsAt] = useState<string>('');
 
   const [formOfferTitle, setFormOfferTitle] = useState<string>('LIMITED TIME OFFER');
+  const [formIsLocalOnly, setFormIsLocalOnly] = useState<boolean>(false);
 
   const [formStock, setFormStock] = useState<number>(0);
 
@@ -2738,6 +2739,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [posPriceTier, setPosPriceTier] = useState<'retail' | 'wholesale'>('retail');
   const [posWholesaleDiscountPct, setPosWholesaleDiscountPct] = useState<number>(8);
   const [isZReportOpen, setIsZReportOpen] = useState(false);
+
+  const [isPosCustomItemModalOpen, setIsPosCustomItemModalOpen] = useState(false);
+  const [posCustomItemName, setPosCustomItemName] = useState('');
+  const [posCustomItemPrice, setPosCustomItemPrice] = useState('');
+  const [posCustomItemCostPrice, setPosCustomItemCostPrice] = useState('');
+  const [posCustomItemQty, setPosCustomItemQty] = useState('1');
+  const [posCustomItemStock, setPosCustomItemStock] = useState('1');
+  const [posCustomItemCategory, setPosCustomItemCategory] = useState('');
+  const [posCustomItemBrand, setPosCustomItemBrand] = useState('Local Stock');
+  const [posCustomItemBarcode, setPosCustomItemBarcode] = useState('');
+  const [posCustomItemSaveToInventory, setPosCustomItemSaveToInventory] = useState(true);
+  const [posCustomItemIsSubmitting, setPosCustomItemIsSubmitting] = useState(false);
+  const [posFilterLocalOnly, setPosFilterLocalOnly] = useState<boolean>(false);
+
   const [isSplitPaymentMode, setIsSplitPaymentMode] = useState(false);
   const [splitPaymentsList, setSplitPaymentsList] = useState<{ method: string; amount: number; reference?: string }[]>([
     { method: 'Cash', amount: 0, reference: '' },
@@ -3298,6 +3313,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setFormOfferEndsAt('');
 
     setFormOfferTitle('LIMITED TIME OFFER');
+    setFormIsLocalOnly(false);
 
     setFormStock(0);
 
@@ -3354,6 +3370,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setFormIsVatInclusive(product.isVatInclusive !== false);
     setFormOfferEndsAt(product.offerEndsAt || '');
     setFormOfferTitle(product.offerTitle || 'LIMITED TIME OFFER');
+    setFormIsLocalOnly(Boolean(product.isLocalOnly));
     setFormStock(product.stock);
     setFormMinAlert(product.minStockAlert || 3);
     setFormSku(''); // Reset
@@ -3657,6 +3674,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           offerEndsAt: formOfferEndsAt || '',
 
           offerTitle: formOfferTitle || (formIsOnOffer ? 'LIMITED TIME OFFER' : ''),
+          isLocalOnly: Boolean(formIsLocalOnly),
 
           stock: formStock,
 
@@ -8364,6 +8382,29 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </button>
                 </div>
 
+                
+                {/* Custom Item / Local Stock */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPosCustomItemName('');
+                    setPosCustomItemPrice('');
+                    setPosCustomItemCostPrice('');
+                    setPosCustomItemQty('1');
+                    setPosCustomItemStock('1');
+                    setPosCustomItemCategory(selectedPOSCategory !== 'All' ? selectedPOSCategory : (categories[0]?.name || 'General'));
+                    setPosCustomItemBrand('Local Stock');
+                    setPosCustomItemBarcode('');
+                    setPosCustomItemSaveToInventory(true);
+                    setIsPosCustomItemModalOpen(true);
+                  }}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500 hover:text-white flex items-center gap-1.5 transition-all active:scale-95 shadow-xs"
+                  title="Add Custom Item or Register New Local Stock Inventory"
+                >
+                  <PackagePlus className="w-3.5 h-3.5" />
+                  <span>+ Local Stock / Custom Item</span>
+                </button>
+
                 {/* Z-Report / Daily Register Closure */}
                 <button
                   type="button"
@@ -8534,6 +8575,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <Check className={`w-3 h-3 ${posFilterInStockOnly ? 'opacity-100' : 'opacity-40'}`} />
                       <span>In-Stock Only</span>
                     </button>
+
+                    <button
+                      onClick={() => setPosFilterLocalOnly(!posFilterLocalOnly)}
+                      className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap transition-all border shrink-0 flex items-center gap-1.5 ${
+                        posFilterLocalOnly
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                          : isDark ? 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                      }`}
+                      title="Filter to Local In-Store Stock"
+                    >
+                      <Store className={`w-3 h-3 ${posFilterLocalOnly ? 'opacity-100' : 'opacity-40'}`} />
+                      <span>Local Stock Only</span>
+                    </button>
                   </div>
                 </div>
 
@@ -8549,7 +8603,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       (p.sku && String(p.sku).toLowerCase().includes(q)) ||
                       (p.brand && String(p.brand).toLowerCase().includes(q));
                     const matchesStock = !posFilterInStockOnly || Number(p.stock || 0) > 0;
-                    return matchesCategory && matchesQuery && matchesStock;
+                    const matchesLocalOnly = !posFilterLocalOnly || Boolean(p.isLocalOnly);
+                    return matchesCategory && matchesQuery && matchesStock && matchesLocalOnly;
                   });
 
                   if (filteredProducts.length === 0) {
@@ -8604,7 +8659,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                         <img src={p.image} alt={p.name} className="w-9 h-9 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0" />
                                         <div className="min-w-0">
                                           <div className={`font-bold truncate ${textTitle}`}>{p.name}</div>
-                                          <div className="text-[10px] text-emerald-500 font-semibold">{p.brand}</div>
+                                          <div className="flex items-center gap-1.5 mt-0.5">
+                                            <span className="text-[10px] text-emerald-500 font-semibold">{p.brand}</span>
+                                            {p.isLocalOnly && (
+                                              <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-0.5 shrink-0">
+                                                <Store className="w-2.5 h-2.5" />
+                                                Local Stock
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
                                     </td>
@@ -8673,7 +8736,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                               <div className="flex-1 min-w-0 overflow-hidden">
                                 <div className="flex items-center justify-between gap-1 mb-0.5">
-                                  <span className="text-[10px] text-emerald-500 font-bold uppercase truncate">{p.brand || p.category}</span>
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className="text-[10px] text-emerald-500 font-bold uppercase truncate">{p.brand || p.category}</span>
+                                    {p.isLocalOnly && (
+                                      <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-0.5 shrink-0">
+                                        <Store className="w-2.5 h-2.5" />
+                                        Local
+                                      </span>
+                                    )}
+                                  </div>
                                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-black shrink-0 ${
                                     stock <= 0
                                       ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
@@ -14866,6 +14937,347 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         onOpenShortcuts={() => setIsShortcutsModalOpen(true)}
 
       />
+
+      
+      {/* POS Local Stock / Custom Item Modal */}
+      {isPosCustomItemModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className={`w-full max-w-lg rounded-3xl ${cardBg} border border-slate-200/50 dark:border-slate-700/50 shadow-2xl overflow-hidden`}>
+            {/* Header */}
+            <div className={`p-5 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50/80 dark:bg-slate-800/80`}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center shrink-0">
+                  <Store className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className={`font-black text-lg ${textTitle}`}>Register & Sell Local Stock</h3>
+                  <p className={`text-xs ${textSub}`}>Add in-store physical items to POS cart and persist to database</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsPosCustomItemModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1.5 bg-white dark:bg-slate-700 rounded-full shadow-xs border border-slate-200 dark:border-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4 max-h-[calc(85vh-120px)] overflow-y-auto">
+              {/* Item Name */}
+              <div>
+                <label className={`block text-xs font-bold mb-1.5 ${textSub}`}>
+                  Product / Item Name <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={posCustomItemName}
+                  onChange={(e) => setPosCustomItemName(e.target.value)}
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-semibold outline-none transition-all ${
+                    isDark
+                      ? 'bg-slate-900 border-slate-700 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 text-white'
+                      : 'bg-white border-slate-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 text-slate-900'
+                  }`}
+                  placeholder="e.g., HDMI 4K Braided Cable 2M"
+                  autoFocus
+                />
+              </div>
+
+              {/* Pricing Grid: Selling Price & Cost Price */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-xs font-bold mb-1.5 ${textSub}`}>
+                    Selling Price (TZS) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={posCustomItemPrice}
+                    onChange={(e) => setPosCustomItemPrice(e.target.value)}
+                    className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-bold outline-none transition-all ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-700 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 text-white'
+                        : 'bg-white border-slate-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 text-slate-900'
+                    }`}
+                    placeholder="0"
+                    min="0"
+                  />
+                </div>
+
+                <div>
+                  <label className={`block text-xs font-bold mb-1.5 ${textSub}`}>
+                    Cost Price (TZS) <span className="text-slate-400 font-normal">(for profit/Z-report)</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={posCustomItemCostPrice}
+                    onChange={(e) => setPosCustomItemCostPrice(e.target.value)}
+                    className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-semibold outline-none transition-all ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-700 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 text-white'
+                        : 'bg-white border-slate-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 text-slate-900'
+                    }`}
+                    placeholder="0"
+                    min="0"
+                  />
+                </div>
+              </div>
+
+              {/* Quantities: Sell Now & Total Local Stock Received */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-xs font-bold mb-1.5 ${textSub}`}>
+                    Quantity to Sell Now <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={posCustomItemQty}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPosCustomItemQty(val);
+                      if (posCustomItemSaveToInventory) {
+                        const numVal = parseInt(val, 10) || 1;
+                        const currStock = parseInt(posCustomItemStock, 10) || 1;
+                        if (currStock < numVal) {
+                          setPosCustomItemStock(String(numVal));
+                        }
+                      }
+                    }}
+                    className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-bold outline-none transition-all ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-700 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 text-white'
+                        : 'bg-white border-slate-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 text-slate-900'
+                    }`}
+                    min="1"
+                  />
+                </div>
+
+                <div>
+                  <label className={`block text-xs font-bold mb-1.5 ${textSub}`}>
+                    Total Units Available in Store
+                  </label>
+                  <input
+                    type="number"
+                    value={posCustomItemStock}
+                    onChange={(e) => setPosCustomItemStock(e.target.value)}
+                    disabled={!posCustomItemSaveToInventory}
+                    className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-semibold outline-none transition-all ${
+                      !posCustomItemSaveToInventory
+                        ? 'opacity-40 cursor-not-allowed bg-slate-100 dark:bg-slate-800'
+                        : isDark
+                        ? 'bg-slate-900 border-slate-700 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 text-white'
+                        : 'bg-white border-slate-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 text-slate-900'
+                    }`}
+                    min={posCustomItemQty || "1"}
+                  />
+                </div>
+              </div>
+
+              {/* Meta: Category & Brand */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-xs font-bold mb-1.5 ${textSub}`}>Category</label>
+                  <select
+                    value={posCustomItemCategory}
+                    onChange={(e) => setPosCustomItemCategory(e.target.value)}
+                    className={`w-full px-3 py-2.5 rounded-xl border text-xs font-semibold outline-none transition-all ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-700 focus:border-amber-500 text-white'
+                        : 'bg-white border-slate-200 focus:border-amber-500 text-slate-900'
+                    }`}
+                  >
+                    {categories.filter(c => c.name !== 'All').map((c) => (
+                      <option key={c.id} value={c.name}>{c.name}</option>
+                    ))}
+                    <option value="General">General / Accessories</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className={`block text-xs font-bold mb-1.5 ${textSub}`}>Brand / Supplier</label>
+                  <input
+                    type="text"
+                    value={posCustomItemBrand}
+                    onChange={(e) => setPosCustomItemBrand(e.target.value)}
+                    className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-semibold outline-none transition-all ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-700 focus:border-amber-500 text-white'
+                        : 'bg-white border-slate-200 focus:border-amber-500 text-slate-900'
+                    }`}
+                    placeholder="Local Stock"
+                  />
+                </div>
+              </div>
+
+              {/* Barcode / SKU (Optional) */}
+              <div>
+                <label className={`block text-xs font-bold mb-1.5 ${textSub}`}>
+                  Barcode / Serial / SKU <span className="text-slate-400 font-normal">(optional, for fast laser scanning)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={posCustomItemBarcode}
+                    onChange={(e) => setPosCustomItemBarcode(e.target.value)}
+                    className={`w-full pl-9 pr-3.5 py-2.5 rounded-xl border text-xs font-mono outline-none transition-all ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-700 focus:border-amber-500 text-white'
+                        : 'bg-white border-slate-200 focus:border-amber-500 text-slate-900'
+                    }`}
+                    placeholder="Scan or type barcode (e.g., 616400...)"
+                  />
+                  <Barcode className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                </div>
+              </div>
+
+              {/* Database Persistence Box */}
+              <div className={`p-3.5 rounded-2xl border transition-all ${
+                posCustomItemSaveToInventory
+                  ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10'
+                  : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50'
+              }`}>
+                <label className="flex items-start gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={posCustomItemSaveToInventory}
+                    onChange={(e) => setPosCustomItemSaveToInventory(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 text-amber-600 rounded border-slate-300 focus:ring-amber-500 cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-bold ${textTitle}`}>Save to Database (Local Inventory)</span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-500/20 text-amber-600 dark:text-amber-400">
+                        In-Store Only
+                      </span>
+                    </div>
+                    <p className={`text-[11px] leading-relaxed mt-1 ${textSub}`}>
+                      {posCustomItemSaveToInventory ? (
+                        <>
+                          Persists this item into PostgreSQL/Supabase <strong>products</strong> table with <code className="font-mono text-amber-600 dark:text-amber-400 font-bold">is_local_only = true</code>.
+                          {parseInt(posCustomItemStock, 10) > (parseInt(posCustomItemQty, 10) || 1) ? (
+                            <span> After selling {posCustomItemQty} now, <strong>{Math.max(0, (parseInt(posCustomItemStock, 10) || 1) - (parseInt(posCustomItemQty, 10) || 1))} units</strong> will remain in your local store catalog for future sales and barcode scans.</span>
+                          ) : (
+                            <span> Registered in your catalog for re-stocking and future transactions.</span>
+                          )}
+                          <br /><span className="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Excluded from public online storefront & Google Shopping feed.</span>
+                        </>
+                      ) : (
+                        <span>Quick ad-hoc sale: items will be sold in this cart session without saving to your permanent product catalog.</span>
+                      )}
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPosCustomItemModalOpen(false)}
+                  disabled={posCustomItemIsSubmitting}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs transition-all active:scale-95"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={posCustomItemIsSubmitting}
+                  onClick={async () => {
+                    if (!posCustomItemName.trim() || !posCustomItemPrice) {
+                      customAlert('Please provide at least the item name and selling price.');
+                      return;
+                    }
+                    const sellQty = Math.max(1, parseInt(posCustomItemQty, 10) || 1);
+                    const totalStockNum = Math.max(sellQty, parseInt(posCustomItemStock, 10) || sellQty);
+                    const remainingStock = Math.max(0, totalStockNum - sellQty);
+                    const priceNum = Number(posCustomItemPrice) || 0;
+                    const costPriceNum = Number(posCustomItemCostPrice) || 0;
+                    const brandName = posCustomItemBrand.trim() || 'Local Stock';
+                    const categoryName = (posCustomItemCategory.trim() || (categories[0]?.name || 'General')) as any;
+                    const barcodeValue = posCustomItemBarcode.trim() || undefined;
+
+                    setPosCustomItemIsSubmitting(true);
+                    try {
+                      if (posCustomItemSaveToInventory) {
+                        const newProductPayload: Omit<Product, 'id'> = {
+                          name: posCustomItemName.trim(),
+                          brand: brandName,
+                          category: categoryName,
+                          price: priceNum,
+                          costPrice: costPriceNum,
+                          originalPrice: 0,
+                          wholesalePrice: 0,
+                          discountPrice: 0,
+                          discountPercentage: 0,
+                          isOnOffer: false,
+                          stock: remainingStock,
+                          inStock: totalStockNum > 0,
+                          minStockAlert: 5,
+                          isLocalOnly: true,
+                          isGenuineVerified: true,
+                          rating: 5.0,
+                          reviewsCount: 0,
+                          description: `Physical in-store local stock: ${posCustomItemName.trim()}`,
+                          image: '',
+                          images: [],
+                          barcode: barcodeValue,
+                          sku: barcodeValue || `LOC-${Date.now().toString().slice(-6)}`,
+                          specs: {}
+                        };
+
+                        const saved = await addProduct(newProductPayload);
+                        const productToAdd: Product = (saved && (saved as any).id) ? (saved as any) : {
+                          ...newProductPayload,
+                          id: `prod-local-${Date.now()}`
+                        };
+
+                        setPosCart([{ product: productToAdd, quantity: sellQty, price: priceNum }, ...posCart]);
+                        triggerHaptic('success');
+                      } else {
+                        const adHocProduct: Product = {
+                          id: `custom-${Date.now()}`,
+                          name: posCustomItemName.trim(),
+                          brand: brandName,
+                          category: categoryName,
+                          price: priceNum,
+                          costPrice: costPriceNum,
+                          image: '',
+                          stock: 9999,
+                          inStock: true,
+                          isLocalOnly: true
+                        };
+                        setPosCart([{ product: adHocProduct, quantity: sellQty, price: priceNum }, ...posCart]);
+                        triggerHaptic('success');
+                      }
+
+                      setIsPosCustomItemModalOpen(false);
+                      setPosCustomItemName('');
+                      setPosCustomItemPrice('');
+                      setPosCustomItemCostPrice('');
+                      setPosCustomItemQty('1');
+                      setPosCustomItemStock('1');
+                      setPosCustomItemBarcode('');
+                    } catch (err: any) {
+                      customAlert(err.message || 'Failed to register local stock product');
+                    } finally {
+                      setPosCustomItemIsSubmitting(false);
+                    }
+                  }}
+                  className="flex-[2] py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {posCustomItemIsSubmitting ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <PackagePlus className="w-4 h-4" />
+                  )}
+                  <span>
+                    {posCustomItemSaveToInventory ? 'Add to Cart & Save Stock' : 'Add to Cart (One-Time)'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* POS Z-Report End-of-Day Balancing Modal */}
       {isZReportOpen && (

@@ -27,6 +27,7 @@ export interface Product {
   name: string;
   brand: string;
   category: Category;
+  isLocalOnly?: boolean;
   price: number;
   wholesalePrice?: number;
   costPrice?: number;

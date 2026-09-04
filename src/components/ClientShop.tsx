@@ -757,6 +757,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
   }, [searchTerm, selectedCategory, selectedBrand, dealFilter, catalogFilters, sortBy]);
 
   const filteredProducts = shuffledProducts.filter((p) => {
+    if (p.isLocalOnly) return false;
     const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
     
     // Brand filtering (supports both dropdown and multi-select in filter drawer)

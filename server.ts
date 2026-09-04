@@ -2374,6 +2374,10 @@ function normalizeFromSupabase(colName: string, row: any): any {
   if (result.swahili_name !== undefined && result.swahili_name !== null) result.swahiliName = result.swahili_name;
   if (result.swahiliname !== undefined && result.swahiliname !== null) result.swahiliName = result.swahiliname;
   
+  if (result.is_local_only !== undefined && result.is_local_only !== null) result.isLocalOnly = Boolean(result.is_local_only);
+  if (result.islocalonly !== undefined && result.islocalonly !== null) result.isLocalOnly = Boolean(result.islocalonly);
+  if (result.isLocalOnly !== undefined && result.isLocalOnly !== null) result.isLocalOnly = Boolean(result.isLocalOnly);
+  
   if (result.product_count !== undefined && result.product_count !== null) result.productCount = Number(result.product_count);
   if (result.productcount !== undefined && result.productcount !== null) result.productCount = Number(result.productcount);
   if (result.customer_name !== undefined && result.customer_name !== null && String(result.customer_name).trim() !== '') {
@@ -3213,17 +3217,27 @@ async function syncRelationalPOSItems(supabase: any, sqlTable: string, parentId:
   const items = item.items;
   if (Array.isArray(items) && items.length > 0) {
     for (const it of items) {
-      if (!it || !it.name) continue;
+      if (!it) continue;
+      const itemName = it.name || it.product?.name;
+      if (!itemName) continue;
       const itemId = it.id || `pti_${parentId}_${Math.random().toString(36).substring(2, 7)}`;
+      const prodId = it.productId || it.product_id || it.product?.id || null;
+      const price = Number(it.price) || Number(it.product?.price) || 0;
+      const costPrice = Number(it.costPrice) || Number(it.cost_price) || Number(it.product?.costPrice) || 0;
+      const isLocal = Boolean(it.isLocalOnly || it.is_local_only || it.product?.isLocalOnly);
+      const quantity = Number(it.quantity) || 1;
+      const image = it.image || it.product?.image || null;
       try {
         await supabase.from('pos_transaction_items').upsert({
           id: itemId,
           transaction_id: parentId,
-          product_id: it.productId || it.product_id || null,
-          name: it.name,
-          price: Number(it.price) || 0,
-          quantity: Number(it.quantity) || 1,
-          image: it.image || null
+          product_id: prodId,
+          name: itemName,
+          price,
+          quantity,
+          image,
+          cost_price: costPrice,
+          is_local_only: isLocal
         });
       } catch (err) {
         console.warn('Failed to upsert pos_transaction_item:', err);
@@ -4435,7 +4449,7 @@ app.get('/api/seo/google-feed', async (req, res) => {
     xml += `    <link>${origin}</link>\n`;
     xml += `    <description>Authorized Consumer & Enterprise Electronics in Tanzania</description>\n`;
 
-    productsList.forEach((p) => {
+    productsList.filter((p: any) => !p.isLocalOnly).forEach((p) => {
       const prodSlug = encodeURIComponent(String(p.name || 'product').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
       const prodUrl = `${origin}/product/${p.id}/${prodSlug}`;
       const priceNum = Number(p.price) || 0;

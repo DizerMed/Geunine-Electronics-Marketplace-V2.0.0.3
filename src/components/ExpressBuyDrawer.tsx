@@ -96,49 +96,7 @@ export const ExpressBuyDrawer: React.FC<ExpressBuyDrawerProps> = ({
   const stockAvailable = product.stock ?? product.stockCount ?? 10;
   const isOutOfStock = stockAvailable <= 0;
   
-  const unitPrice = (() => {
-    const sellingPrice = Number(product.price || 0);
-    const costPrice = Number((product as any).cost_price || product.costPrice || 0);
-
-    // 1. Single unit: regular selling price
-    if (quantity < 2) return sellingPrice;
-
-    // 2. 3+ Units: Full Wholesale Price
-    if (quantity >= 3) {
-      if (product.wholesalePrice && product.wholesalePrice > 0) {
-        return product.wholesalePrice;
-      }
-      if (costPrice > 0 && sellingPrice > costPrice) {
-        return Math.round(costPrice + (sellingPrice - costPrice) / 2);
-      }
-      let wholesaleVal = Math.round(sellingPrice * 0.88);
-      if (costPrice > 0 && wholesaleVal < costPrice) wholesaleVal = costPrice;
-      return wholesaleVal;
-    }
-
-    // 3. Exactly 2 Units: Dynamic auto % based on product value (capped under 6%)
-    let dynamicPct = 5;
-    if (sellingPrice >= 2000000) {
-      dynamicPct = 2; // 2% off high-value items
-    } else if (sellingPrice >= 800000) {
-      dynamicPct = 3; // 3% off mid-high items
-    } else if (sellingPrice >= 250000) {
-      dynamicPct = 4; // 4% off mid items
-    } else {
-      dynamicPct = 5.5; // 5.5% off standard items
-    }
-
-    let calculatedPrice = Math.round(sellingPrice * (1 - dynamicPct / 100));
-
-    // Profit margin protection
-    if (costPrice > 0 && calculatedPrice < costPrice) {
-      calculatedPrice = costPrice;
-    }
-
-    return calculatedPrice;
-  })();
-
-  const isDiscounted = unitPrice < (product.price || 0);
+  const unitPrice = Number(product.price || 0);
   const subtotal = unitPrice * quantity;
   const isDarEsSalaam = (deliveryCity || '').trim().toLowerCase() === 'dar es salaam';
   const shippingFee = isDarEsSalaam ? 0 : Math.round(subtotal * 0.05);
@@ -660,31 +618,6 @@ export const ExpressBuyDrawer: React.FC<ExpressBuyDrawerProps> = ({
                           <Plus className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                    </div>
-
-                    {/* Dynamic Discount Indicator Banner */}
-                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                      {quantity >= 3 ? (
-                        <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold flex items-center justify-between">
-                          <span className="flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
-                            <span>🎉 3+ Units Wholesale Price Unlocked!</span>
-                          </span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white font-black">WHOLESALE</span>
-                        </div>
-                      ) : quantity === 2 ? (
-                        <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400 text-[11px] font-bold flex items-center justify-between">
-                          <span className="flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5 shrink-0 text-purple-500" />
-                            <span>⚡ 2 Units Dynamic Value Discount Applied! (Set Qty to 3+ for Wholesale Rate)</span>
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-[11px] font-medium flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 shrink-0 text-blue-500" />
-                          <span>Buy 2 units for Dynamic Discount, or 3+ units for Wholesale Pricing!</span>
-                        </div>
-                      )}
                     </div>
 
                     {/* Warranty pill */}

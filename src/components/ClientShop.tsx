@@ -1092,48 +1092,9 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
     return items;
   }, [isDealsView, dealFilter, selectedCategory, selectedBrand, searchTerm, filteredProducts.length, language]);
 
+  // Online sales checkout strictly uses standard product catalog pricing (no item-count based wholesale or volume discounts)
   const calculateDiscountedPrice = (item: any) => {
-    const sellingPrice = Number(item.product.price || 0);
-    const costPrice = Number(item.product.cost_price || item.product.costPrice || 0);
-
-    // 1. Single item: regular selling price
-    if (onlineCartTotalQty < 2 && item.quantity < 2) {
-      return sellingPrice;
-    }
-
-    // 2. 3+ Items: Full Wholesale Price
-    if (onlineCartTotalQty >= 3 || item.quantity >= 3) {
-      if (item.product.wholesalePrice && item.product.wholesalePrice > 0) {
-        return item.product.wholesalePrice;
-      }
-      if (costPrice > 0 && sellingPrice > costPrice) {
-        return Math.round(costPrice + (sellingPrice - costPrice) / 2);
-      }
-      let wholesaleVal = Math.round(sellingPrice * 0.88);
-      if (costPrice > 0 && wholesaleVal < costPrice) wholesaleVal = costPrice;
-      return wholesaleVal;
-    }
-
-    // 3. Exactly 2 Items: Dynamic auto % based on product value (capped under 6%)
-    let dynamicPct = 5;
-    if (sellingPrice >= 2000000) {
-      dynamicPct = 2; // 2% off high-value items
-    } else if (sellingPrice >= 800000) {
-      dynamicPct = 3; // 3% off mid-high items
-    } else if (sellingPrice >= 250000) {
-      dynamicPct = 4; // 4% off mid items
-    } else {
-      dynamicPct = 5.5; // 5.5% off standard items
-    }
-
-    let calculatedPrice = Math.round(sellingPrice * (1 - dynamicPct / 100));
-
-    // Profit margin protection
-    if (costPrice > 0 && calculatedPrice < costPrice) {
-      calculatedPrice = costPrice;
-    }
-
-    return calculatedPrice;
+    return Number(item.product?.price || 0);
   };
 
   const cartSubtotal = cart.reduce((sum, item) => sum + calculateDiscountedPrice(item) * item.quantity, 0);
@@ -2511,37 +2472,6 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
               </div>
 
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                {cart.length > 0 && (
-                  onlineCartTotalQty >= 3 ? (
-                    <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-purple-500/10 to-indigo-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center justify-between gap-2 shadow-2xs">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                        <span>🎉 3+ Items Wholesale Price Applied!</span>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600 text-white font-extrabold shrink-0 shadow-2xs">
-                        WHOLESALE UNLOCKED
-                      </span>
-                    </div>
-                  ) : onlineCartTotalQty === 2 ? (
-                    <div className="p-3 rounded-2xl bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-blue-500/10 border border-purple-500/30 text-purple-700 dark:text-purple-300 text-xs font-bold flex items-center justify-between gap-2 shadow-2xs">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
-                        <span>⚡ 2 Items Dynamic Value Discount Applied! Add 1 more item for Wholesale Pricing.</span>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-600 text-white font-extrabold shrink-0 shadow-2xs">
-                        DYNAMIC %
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="p-3 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300 text-xs font-medium flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                        <span>Add <strong>2 items</strong> for Dynamic Discount or <strong>3+ items</strong> for Wholesale Pricing!</span>
-                      </div>
-                    </div>
-                  )
-                )}
-
                 {cart.length === 0 ? (
                   <div className="text-center py-20">
                     <ShoppingCart className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
@@ -2550,10 +2480,8 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                   </div>
                 ) : (
                   cart.map((item) => {
-                    const unitPrice = calculateDiscountedPrice(item);
+                    const unitPrice = Number(item.product?.price || 0);
                     const lineTotal = unitPrice * item.quantity;
-                    const regularLineTotal = item.product.price * item.quantity;
-                    const isDiscounted = unitPrice < item.product.price;
 
                     return (
                       <div key={item.product.id} className="flex gap-4 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40">
@@ -2578,14 +2506,9 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                           </div>
                           <div className="flex items-center justify-between gap-2 mt-2">
                             <div className="flex flex-col">
-                              <span className={`font-extrabold text-xs sm:text-sm break-words ${isDiscounted ? 'text-purple-600 dark:text-purple-400' : 'text-slate-900 dark:text-white'}`}>
+                              <span className="font-extrabold text-xs sm:text-sm break-words text-slate-900 dark:text-white">
                                 {formatTZS(lineTotal)}
                               </span>
-                              {isDiscounted && (
-                                <span className="line-through text-slate-400 text-[10px] font-medium">
-                                  {formatTZS(regularLineTotal)}
-                                </span>
-                              )}
                             </div>
                             <div className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-1 shrink-0">
                               <button
@@ -2814,8 +2737,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                     <span>Total</span>
                   </div>
                   {cart.map((item) => {
-                    const unitPrice = calculateDiscountedPrice(item);
-                    const isDiscounted = unitPrice < item.product.price;
+                    const unitPrice = Number(item.product?.price || 0);
                     return (
                       <div key={item.product.id} className="flex items-center justify-between gap-3 text-xs">
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -2826,14 +2748,9 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                           </div>
                         </div>
                         <div className="text-right shrink-0">
-                          <span className={`font-bold ${isDiscounted ? 'text-purple-600 dark:text-purple-400' : 'text-slate-900 dark:text-white'}`}>
+                          <span className="font-bold text-slate-900 dark:text-white">
                             {formatTZS(unitPrice * item.quantity)}
                           </span>
-                          {isDiscounted && (
-                            <span className="block text-[10px] line-through text-slate-400 font-normal">
-                              {formatTZS(item.product.price * item.quantity)}
-                            </span>
-                          )}
                         </div>
                       </div>
                     );

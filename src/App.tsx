@@ -977,6 +977,7 @@ export default function App() {
                     deleteProduct={deleteProduct}
                     clearProducts={clearProducts}
                     orders={orders}
+                    createOrder={createOrder}
                     updateOrderStatus={updateOrderStatus}
                     updateOrder={updateOrder}
                     deleteOrder={deleteOrder}

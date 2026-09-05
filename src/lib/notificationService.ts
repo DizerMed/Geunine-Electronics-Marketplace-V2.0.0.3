@@ -109,7 +109,7 @@ export function buildNotificationMessage(params: SendNotificationParams): string
       `💳 *Malipo:* ${posTransaction.paymentMethod}\n\n` +
       `🛍️ *Vitu Vilivyonunuliwa:*\n${itemsText}\n\n` +
       `💵 *Jumla Kuu:* *${formatTZS(total)}*\n` +
-      (posTransaction.includeVat ? `🏛️ *TRA VAT (18%):* Imelipwa (Kodi Imejumuishwa)\n` : '') +
+      (posTransaction.includeVat ? `🏛️ *VAT (18%):* Imelipwa (Kodi Imejumuishwa)\n` : '') +
       `\n✨ Asante kwa kununua vifaa 100% Halisi na ${storeName}!\n` +
       `📞 Msaada: ${storePhone}`;
   }

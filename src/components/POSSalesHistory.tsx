@@ -27,12 +27,13 @@ import {
   Sparkles,
   ArrowRight
 } from 'lucide-react';
-import { POSTransaction, StoreSettings } from '../types';
+import { POSTransaction, StoreSettings, Order } from '../types';
 import { isLoanTransaction } from '../utils/loanUtils';
 import { customAlert, customConfirm } from '../utils/dialog';
 
 interface POSSalesHistoryProps {
   posTransactions: POSTransaction[];
+  orders?: Order[];
   storeSettings?: StoreSettings;
   onOpenReceipt: (tx: POSTransaction) => void;
   onDeleteTransaction?: (id: string) => Promise<void> | void;
@@ -135,7 +136,8 @@ const KNOWN_PAYMENT_CONFIGS = [
 ];
 
 export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
-  posTransactions,
+  posTransactions = [],
+  orders = [],
   storeSettings,
   onOpenReceipt,
   onDeleteTransaction,
@@ -161,6 +163,48 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
   const [customDate, setCustomDate] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [viewingTx, setViewingTx] = useState<POSTransaction | null>(null);
+
+  // Combine POS transactions and any completed orders (so completed orders shift to Sales History)
+  const allTransactions = useMemo(() => {
+    const list: POSTransaction[] = [...(posTransactions || [])];
+    const existingIds = new Set<string>();
+    list.forEach(tx => {
+      if (tx.id) existingIds.add(tx.id);
+      if (tx.receiptNumber) existingIds.add(tx.receiptNumber);
+    });
+
+    (orders || []).forEach(o => {
+      const pStat = (o.paymentStatus || o.payment_status || '').toLowerCase();
+      const oStat = (o.status || '').toLowerCase();
+      const isCompleted = pStat === 'paid' || oStat === 'completed' || oStat === 'delivered';
+      if (isCompleted && !existingIds.has(o.id) && !(o.quotationNumber && existingIds.has(o.quotationNumber))) {
+        existingIds.add(o.id);
+        list.push({
+          id: o.id,
+          receiptNumber: o.quotationNumber || `ORD-${o.id.slice(-6)}`,
+          createdAt: o.createdAt || new Date().toISOString(),
+          cashierName: o.cashierName || 'Counter Cashier',
+          customerName: o.customerName || o.customer_name || 'Customer',
+          customerPhone: o.customerPhone || o.customer_phone || o.phone || '',
+          items: (o.items || []).map(i => ({
+            product: i.product,
+            quantity: i.quantity,
+            price: i.price || i.product?.price || 0
+          })),
+          subtotal: o.subtotal || o.totalAmount || 0,
+          tax: o.tax || 0,
+          discount: o.discount || 0,
+          total: o.totalAmount || 0,
+          totalAmount: o.totalAmount || 0,
+          paymentMethod: o.paymentMethod || 'Completed Order',
+          status: 'Completed',
+          notes: o.notes || 'Completed Order'
+        });
+      }
+    });
+
+    return list;
+  }, [posTransactions, orders]);
 
   const formatTZS = (val: number) => {
     return new Intl.NumberFormat('en-TZ', {
@@ -192,7 +236,7 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
 
   // 1. Transactions matching Search Query & Date Filter (base scope for payment breakdown)
   const basePeriodTransactions = useMemo(() => {
-    return posTransactions.filter((tx) => {
+    return allTransactions.filter((tx) => {
       const matchesSearch =
         !q ||
         (tx.id || '').toLowerCase().includes(q) ||

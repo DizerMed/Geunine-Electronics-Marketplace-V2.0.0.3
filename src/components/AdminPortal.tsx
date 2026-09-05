@@ -1,5 +1,6 @@
 import { AdminDashboardTab } from './admin/tabs/AdminDashboardTab';
 import { AdminOrdersTab } from './admin/tabs/AdminOrdersTab';
+import { POSOrdersManager } from './POSOrdersManager';
 import { AdminStaffTab } from './admin/tabs/AdminStaffTab';
 import { AdminCustomersTab } from './admin/tabs/AdminCustomersTab';
 import { AdminOffersTab } from './admin/tabs/AdminOffersTab';
@@ -683,6 +684,8 @@ interface AdminPortalProps {
 
   orders: Order[];
 
+  createOrder?: (orderData: any) => Promise<any> | any;
+
   updateOrderStatus: (orderId: string, status: Order['status']) => void;
 
   updateOrder?: (order: Order) => void;
@@ -1112,6 +1115,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   orders,
 
+  createOrder,
+
   updateOrderStatus,
 
   updateOrder,
@@ -1179,6 +1184,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const orderLoans = (orders || []).filter(ord => isLoanTransaction(ord as any)).length;
     return posLoans + orderLoans;
   }, [posTransactions, orders]);
+
+  const pendingPosOrdersCount = useMemo(() => {
+    return (orders || []).filter(o => {
+      const pStat = (o.paymentStatus || o.payment_status || '').toLowerCase();
+      const oStat = (o.status || '').toLowerCase();
+      return pStat !== 'paid' && oStat !== 'cancelled';
+    }).length;
+  }, [orders]);
 
   // Auto show POS submenus when POS is active, auto hide when user navigates away
   useEffect(() => {
@@ -2778,6 +2791,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [posLoanGuarantorPhone, setPosLoanGuarantorPhone] = useState('');
   const [posOrderNotes, setPosOrderNotes] = useState('');
   const [posViewMode, setPosViewMode] = useState<'grid' | 'inline' | 'compact'>('grid');
+  const [posActivePage, setPosActivePage] = useState<'register' | 'orders'>('register');
   const [posMobileTab, setPosMobileTab] = useState<'catalog' | 'cart'>('catalog');
   const [posFilterInStockOnly, setPosFilterInStockOnly] = useState(false);
   const [posParkedOrders, setPosParkedOrders] = useState<{
@@ -3852,6 +3866,223 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setPosCustomerTin('');
   };
 
+  // ==========================================
+  // POS PRE-SALE ORDERS & QUOTATIONS HANDLERS
+  // ==========================================
+  const handleSavePosPreSaleOrder = async () => {
+    if (posCart.length === 0) {
+      showAlert('Empty Cart', 'Please add at least one product to the POS cart to save a pre-sale order.', 'warning');
+      return;
+    }
+
+    const orderId = `ORD-POS-${Date.now().toString().slice(-6)}`;
+    const quotationNum = `Q-${Math.floor(100000 + Math.random() * 900000)}`;
+    const activeCashier = profile?.fullName || profile?.displayName || profile?.full_name || user?.email || 'Counter Cashier';
+
+    const newOrder: Order = {
+      id: orderId,
+      createdAt: new Date().toISOString(),
+      customerName: posCustomerName.trim() || 'Counter Customer',
+      customer_name: posCustomerName.trim() || 'Counter Customer',
+      customerPhone: posCustomerPhone.trim() || '',
+      customer_phone: posCustomerPhone.trim() || '',
+      phone: posCustomerPhone.trim() || '',
+      customerEmail: posCustomerEmail.trim() || '',
+      customer_email: posCustomerEmail.trim() || '',
+      shippingAddress: 'In-Store Counter Pickup',
+      shipping_address: 'In-Store Counter Pickup',
+      items: posCart.map(item => ({
+        product: item.product,
+        quantity: item.quantity,
+        price: getPosItemUnitPrice(item)
+      })),
+      totalAmount: posTotal,
+      total_amount: posTotal,
+      subtotal: posSubtotal,
+      tax: posTax,
+      discount: posDiscountClamped,
+      extraCosts: posExtraCosts.filter(c => c.name.trim() && Number(c.amount) > 0),
+      includeVat: posIncludeVat,
+      vatPercentage: posIncludeVat ? posVatPct : 0,
+      status: 'Pending',
+      paymentMethod: posPaymentMethod || 'Pending Verification',
+      paymentStatus: 'Pending',
+      orderType: 'pos_pre_sale',
+      order_type: 'pos_pre_sale',
+      orderSource: 'pos',
+      order_source: 'pos',
+      cashierName: activeCashier,
+      cashier_name: activeCashier,
+      quotationNumber: quotationNum,
+      quotation_number: quotationNum,
+      customerTin: posCustomerTin.trim() || undefined,
+      notes: posOrderNotes.trim() || 'Pre-sale order saved from POS register awaiting customer payment/confirmation',
+    };
+
+    try {
+      if (createOrder) {
+        await createOrder(newOrder);
+      } else {
+        await fetch('/api/data/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newOrder)
+        });
+      }
+
+      triggerHaptic('success');
+      showAlert(
+        'Pre-Sale Order Saved!',
+        `Order ${orderId} (Quote #${quotationNum}) is saved in POS Orders waiting for customer payment or confirmation.`,
+        'alert'
+      );
+
+      const shouldPrint = await customConfirm(
+        `Pre-sale Order ${orderId} is saved! Would you like to preview or print the official Proforma Invoice (A4) now?`,
+        'Pre-Sale Order Saved',
+        'alert',
+        'Print Proforma (A4)'
+      );
+
+      if (shouldPrint) {
+        setSelectedOrderForInvoice(newOrder);
+      } else {
+        setPosActivePage('orders');
+      }
+
+      handleClearCartPOS();
+    } catch (err: any) {
+      console.error('Error saving POS pre-sale order:', err);
+      showAlert('Error Saving Order', err?.message || 'Failed to save pre-sale order.', 'error');
+    }
+  };
+
+  const handleLoadOrderIntoPosCart = (order: Order) => {
+    const reconstructedCart = (order.items || []).map(item => {
+      const existingProduct = products.find(p => p.id === item.product?.id) || item.product;
+      return {
+        product: existingProduct,
+        quantity: item.quantity,
+        price: item.price || existingProduct.price
+      };
+    });
+    setPosCart(reconstructedCart);
+    setPosCustomerName(order.customerName || order.customer_name || '');
+    setPosCustomerPhone(order.customerPhone || order.customer_phone || order.phone || '');
+    if (order.customerTin) setPosCustomerTin(order.customerTin);
+    if (order.discount) setPosDiscount(Number(order.discount));
+    if (order.includeVat !== undefined) setPosIncludeVat(Boolean(order.includeVat));
+    setPosActivePage('register');
+    showAlert('Order Loaded', `Order ${order.id} loaded into POS Register cart for editing.`, 'alert');
+  };
+
+  const handleCompleteOrderPaymentFromPos = async (
+    order: Order,
+    tenderDetails: { method: string; tenderedAmount: number; changeAmount: number; notes?: string }
+  ) => {
+    const eat = getEATCurrentParts();
+    const uniqueSuffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
+    const receiptNumber = `REC-${eat.yy}${eat.mm}${eat.dd}-${eat.hh}${eat.mn}${eat.ss}-${uniqueSuffix}`;
+    const activeCashier = profile?.fullName || profile?.displayName || profile?.full_name || user?.email || 'Counter Cashier';
+
+    const newTx: POSTransaction = {
+      id: receiptNumber,
+      receiptNumber,
+      createdAt: new Date().toISOString(),
+      items: (order.items || []).map(item => ({
+        product: item.product,
+        quantity: item.quantity,
+        price: item.price || item.product?.price || 0
+      })),
+      total: Number(order.totalAmount || 0),
+      totalAmount: Number(order.totalAmount || 0),
+      subtotal: Number(order.subtotal || order.totalAmount || 0),
+      tax: Number(order.tax || 0),
+      discount: Number(order.discount || 0),
+      paymentMethod: tenderDetails.method,
+      cashierName: activeCashier,
+      customerName: order.customerName || order.customer_name || 'Walk-in Customer',
+      customerPhone: order.customerPhone || order.customer_phone || order.phone || '',
+      includeVat: order.includeVat ?? true,
+      vatPercentage: order.vatPercentage ?? (order.includeVat ? 18 : 0),
+      tenderedAmount: tenderDetails.tenderedAmount,
+      changeAmount: tenderDetails.changeAmount,
+      status: 'Completed',
+      notes: tenderDetails.notes || `Completed pre-sale order ${order.id}`
+    };
+
+    try {
+      if (completePOSTransaction) {
+        await completePOSTransaction(newTx);
+      } else {
+        const stockAdjustments = (order.items || []).map(item => ({
+          productId: item.product?.id,
+          delta: -item.quantity,
+          reason: 'pos_sale',
+          txId: newTx.id
+        }));
+        queueStockDelta(stockAdjustments);
+        await addPOSTransaction(newTx);
+      }
+
+      // Update Order status
+      const updatedOrder: Order = {
+        ...order,
+        paymentStatus: 'Paid',
+        payment_status: 'Paid',
+        status: 'Completed',
+        paidAmount: order.totalAmount,
+        paid_amount: order.totalAmount,
+        updatedAt: new Date().toISOString()
+      };
+
+      if (updateOrder) {
+        await updateOrder(updatedOrder);
+      } else {
+        updateOrderStatus(order.id, 'Completed');
+      }
+
+      try {
+        await fetch(`/api/data/orders/${order.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedOrder)
+        });
+      } catch (_) {}
+
+      triggerHaptic('success');
+      setLastReceipt(newTx);
+      showAlert('Payment Completed', `Payment confirmed! Official thermal receipt generated for Order ${order.id}.`, 'alert');
+    } catch (err: any) {
+      console.error('Error completing order payment from POS:', err);
+      showAlert('Payment Failed', err?.message || 'Could not complete payment for this order.', 'error');
+    }
+  };
+
+  const handleUpdateOrderFromPos = async (updatedOrder: Order) => {
+    if (updateOrder) {
+      await updateOrder(updatedOrder);
+    }
+    try {
+      await fetch(`/api/data/orders/${updatedOrder.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedOrder)
+      });
+    } catch (_) {}
+  };
+
+  const handleCancelOrderFromPos = async (orderId: string, reason?: string) => {
+    updateOrderStatus(orderId, 'Cancelled');
+    try {
+      await fetch(`/api/data/orders/${orderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Cancelled', notes: reason })
+      });
+    } catch (_) {}
+  };
+
   const handleParkCurrentCart = () => {
     if (posCart.length === 0) {
       showAlert('Empty Cart', 'Add at least one item before holding/parking a sale.', 'warning');
@@ -4891,15 +5122,35 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     }`}>
                       <button
                         type="button"
-                        onClick={() => { setActiveTab('pos'); setPosSubTab('register'); setIsMobileMenuOpen(false); }}
+                        onClick={() => { setActiveTab('pos'); setPosActivePage('register'); setPosSubTab('register'); setIsMobileMenuOpen(false); }}
                         className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                          activeTab === 'pos'
+                          activeTab === 'pos' && posActivePage === 'register'
                             ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
                             : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
                         }`}
                       >
                         <ShoppingCart className="w-3.5 h-3.5" />
                         <span>Register</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setActiveTab('pos'); setPosActivePage('orders'); setIsMobileMenuOpen(false); }}
+                        className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          activeTab === 'pos' && posActivePage === 'orders'
+                            ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
+                            : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>Pre-Sale Orders</span>
+                        </div>
+                        {pendingPosOrdersCount > 0 && (
+                          <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-400">
+                            {pendingPosOrdersCount}
+                          </span>
+                        )}
                       </button>
 
                       <button
@@ -5520,7 +5771,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                 <h1 className={`text-2xl font-extrabold tracking-tight ${textTitle}`}>Admin Settings & Store Templates</h1>
 
-                <p className={`text-sm mt-1 ${textSub}`}>Manage client storefront UI templates, announcements, TRA invoice metadata, banking details, and admin theme preferences.</p>
+                <p className={`text-sm mt-1 ${textSub}`}>Manage client storefront UI templates, announcements, invoice metadata, banking details, and admin theme preferences.</p>
 
               </div>
 
@@ -6068,7 +6319,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                   <ShieldCheck className="w-5 h-5 text-emerald-500" />
 
-                  <h3 className={`font-bold text-base ${textTitle}`}>TRA Invoice & Payment Info</h3>
+                  <h3 className={`font-bold text-base ${textTitle}`}>Invoice & Payment Info</h3>
 
                 </div>
 
@@ -8343,8 +8594,39 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
         )}
 
+        {/* POS PRE-SALE ORDERS MANAGER (Quotations, Pre-Sales, Awaiting Customer Confirmation) */}
+        {activeTab === 'pos' && posActivePage === 'orders' && (
+          <POSOrdersManager
+            orders={orders}
+            posTransactions={posTransactions}
+            storeSettings={settingsForm}
+            onOpenInvoice={(order) => setSelectedOrderForInvoice(order)}
+            onOpenReceipt={(tx) => setLastReceipt(tx)}
+            onLoadOrderIntoPosCart={handleLoadOrderIntoPosCart}
+            onCompletePayment={handleCompleteOrderPaymentFromPos}
+            onUpdateOrder={handleUpdateOrderFromPos}
+            onCancelOrder={handleCancelOrderFromPos}
+            onDeleteOrder={deleteOrder}
+            onSwitchToRegister={() => setPosActivePage('register')}
+            onGoToSalesHistory={() => {
+              setActiveTab('pos-sales');
+              setPosSubTab('history');
+            }}
+            isDark={isDark}
+            cardBg={cardBg}
+            textTitle={textTitle}
+            textSub={textSub}
+            inputBg={inputBg}
+            modalBg={modalBg}
+            formatTZS={formatTZS}
+            formatToGMT3={formatToGMT3}
+            activeCashierName={profile?.fullName || profile?.displayName || profile?.full_name || user?.email || 'Counter Cashier'}
+            showAlert={showAlert}
+          />
+        )}
+
         {/* POS REGISTER (Direct Single Screen, No Internal Submenus) */}
-        {activeTab === 'pos' && (
+        {activeTab === 'pos' && posActivePage === 'register' && (
           <div className="space-y-4">
             {/* Tight Top Header Bar */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-slate-200/80 dark:border-slate-800/80">
@@ -8365,6 +8647,43 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
+                {/* View Switcher: Register vs Pre-Sale Orders Tab */}
+                <div className="flex items-center rounded-xl border p-0.5 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPosActivePage('register');
+                      triggerHaptic('light');
+                    }}
+                    className={`px-3 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                      posActivePage === 'register'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <ShoppingCart className="w-3.5 h-3.5" />
+                    <span>Register</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPosActivePage('orders');
+                      triggerHaptic('light');
+                    }}
+                    className={`px-3 py-1 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all ${
+                      isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Orders Tab</span>
+                    {pendingPosOrdersCount > 0 && (
+                      <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-indigo-500 text-white">
+                        {pendingPosOrdersCount}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
                 {/* Wholesale / Retail Price Tier Selector */}
                 <div className="flex items-center rounded-xl border p-0.5 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-xs">
                   <button
@@ -8435,7 +8754,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <span>Z-Report</span>
                 </button>
 
-                {/* TRA Tax Journal Export */}
+                {/* Tax Journal Export */}
                 <button
                   type="button"
                   onClick={() => {
@@ -8446,7 +8765,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   title="Export Tax Journal (CSV)"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">TRA Tax Journal</span>
+                  <span className="hidden sm:inline">Tax Journal</span>
                 </button>
 
                 {posParkedOrders.length > 0 && (
@@ -9570,9 +9889,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                 {/* Bottom Financials, Discounts, Payment & Tendered */}
                 <div className="space-y-3 pt-3 mt-3 border-t border-slate-200 dark:border-slate-800">
-                  {/* Quick Discounts & TRA VAT Controls */}
+                  {/* Quick Discounts & VAT Controls */}
                   <div className="grid grid-cols-2 gap-2 text-xs">
-                    {/* TRA VAT Toggle */}
+                    {/* VAT Toggle */}
                     <label className="flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
                       <div className="flex items-center gap-1.5">
                         <input
@@ -9581,7 +9900,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           onChange={(e) => setPosIncludeVat(e.target.checked)}
                           className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
                         />
-                        <span className="text-[11px] font-bold">TRA VAT ({posVatPct}%)</span>
+                        <span className="text-[11px] font-bold">VAT ({posVatPct}%)</span>
                       </div>
                       <span className={`text-[9px] font-black uppercase px-1.5 py-0.2 rounded ${posIncludeVat ? 'bg-emerald-600 text-white' : 'bg-slate-500 text-white'}`}>
                         {posIncludeVat ? 'Active' : 'Off'}
@@ -9758,7 +10077,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                     {posIncludeVat && posTax > 0 && (
                       <div className="flex justify-between text-slate-400 text-[11px]">
-                        <span>{posVatInclusiveGross < posCartGross ? `TRA VAT (${posVatPct}% on Taxable Items)` : `TRA VAT (${posVatPct}% Included)`}</span>
+                        <span>{posVatInclusiveGross < posCartGross ? `VAT (${posVatPct}% on Taxable Items)` : `VAT (${posVatPct}% Included)`}</span>
                         <span className="font-semibold">{formatTZS(posTax)}</span>
                       </div>
                     )}
@@ -10008,15 +10327,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   {/* Complete Sale & Print Receipt Button */}
                   <div className="space-y-2">
                     <button
+                      type="button"
                       onClick={() => setShowPOSSalePreview(true)}
                       disabled={posCart.length === 0}
-                      className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-extrabold py-3.5 rounded-2xl shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 text-sm active:scale-[0.99]"
+                      className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-extrabold py-3.5 rounded-2xl shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 text-sm active:scale-[0.99] cursor-pointer"
                     >
                       <Printer className="w-4 h-4" />
                       <span>Preview Sale & Checkout</span>
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSavePosPreSaleOrder()}
+                      disabled={posCart.length === 0}
+                      className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-extrabold py-3.5 rounded-2xl shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2 text-sm active:scale-[0.99] cursor-pointer"
+                    >
+                      <FileText className="w-4 h-4" />
+                      <span>Save Pre-Sale Order & Quotation</span>
+                    </button>
                     
                     <button
+                      type="button"
                       onClick={() => {
                         if (posCart.length === 0) return;
                         const dummyOrder: Order = {
@@ -10041,10 +10372,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         setSelectedOrderForInvoice(dummyOrder);
                       }}
                       disabled={posCart.length === 0}
-                      className={`w-full ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200' : 'bg-slate-800 hover:bg-slate-700 text-white'} disabled:opacity-50 font-extrabold py-3.5 rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 text-sm active:scale-[0.99]`}
+                      className={`w-full ${isDark ? 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'} border disabled:opacity-50 font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 text-xs active:scale-[0.99] cursor-pointer`}
                     >
-                      <FileText className="w-4 h-4" />
-                      <span>Generate Proforma Invoice (A4)</span>
+                      <Eye className="w-3.5 h-3.5 opacity-70" />
+                      <span>Quick Proforma Preview (A4)</span>
                     </button>
                   </div>
                 </div>
@@ -10241,6 +10572,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         {activeTab === 'pos-sales' && (
           <POSSalesHistory
             posTransactions={posTransactions}
+            orders={orders}
             storeSettings={storeSettings}
             onOpenReceipt={(tx) => setLastReceipt(tx)}
             onDeleteTransaction={deletePOSTransaction}
@@ -11853,7 +12185,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
 
 
-                    {/* TRA VAT Configuration Box */}
+                    {/* VAT Configuration Box */}
 
                     <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between gap-3">
 
@@ -11875,7 +12207,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                           <span className={`text-xs font-black ${textTitle}`}>
 
-                            Product Subject to TRA VAT ({settingsForm.vatPercentage ?? 18}%)
+                            Product Subject to VAT ({settingsForm.vatPercentage ?? 18}%)
 
                           </span>
 

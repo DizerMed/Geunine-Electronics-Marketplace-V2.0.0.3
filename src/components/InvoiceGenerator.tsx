@@ -280,7 +280,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
 
     const docTitle = docType === 'proforma' 
       ? 'PROFORMA INVOICE / PRICE QUOTATION' 
-      : (includeVat && activeVatPercentage > 0 && calculatedTax > 0 ? 'OFFICIAL TRA TAX INVOICE' : 'COMMERCIAL SALES INVOICE');
+      : (includeVat && activeVatPercentage > 0 && calculatedTax > 0 ? 'COMMERCIAL TAX INVOICE' : 'COMMERCIAL SALES INVOICE');
 
     let msg = `🧾 *${docTitle}*\n`;
     msg += `*${storeSettings?.storeName || 'Genuine Electronics Tanzania Ltd'}*\n`;
@@ -312,7 +312,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     msg += `----------------------------------------\n`;
     if (includeVat && activeVatPercentage > 0 && calculatedTax > 0) {
       msg += `Net Subtotal: ${formatTZS(calculatedSubtotal)}\n`;
-      msg += `TRA VAT (${activeVatPercentage}%): ${formatTZS(calculatedTax)}\n`;
+      msg += `VAT (${activeVatPercentage}%): ${formatTZS(calculatedTax)}\n`;
     } else {
       msg += `Subtotal: ${formatTZS(calculatedSubtotal)}\n`;
     }
@@ -590,7 +590,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
               </div>
               <p className="text-[10px] text-slate-400">
                 {docType === 'tax' 
-                  ? (includeVat && activeVatPercentage > 0 && calculatedTax > 0 ? `TRA-Compliant Fiscal Sales Invoice (${activeVatPercentage}% VAT Included)` : 'Commercial Sales Invoice')
+                  ? (includeVat && activeVatPercentage > 0 && calculatedTax > 0 ? `Commercial Tax Invoice (${activeVatPercentage}% VAT Included)` : 'Commercial Sales Invoice')
                   : docType === 'proforma'
                   ? 'Formal Price Quotation & Proforma (Valid for 14 Days)'
                   : 'Official Consignment Packing Slip & Delivery Verification'}
@@ -632,10 +632,10 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
               </div>
             )}
 
-            {/* TRA VAT Toggle Switch */}
+            {/* VAT Toggle Switch */}
             {!hideTypeSwitcher && docType !== 'delivery' && (
               <label 
-                title="Toggle TRA VAT (18%) Inclusion like in POS Checkout"
+                title={`Toggle VAT (${baseOrderVatPct}%) Inclusion`}
                 className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700/80 px-2.5 py-1.5 rounded-xl text-xs cursor-pointer select-none border border-slate-700 transition-all active:scale-95"
               >
                 <input
@@ -647,7 +647,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                 <div className="flex items-center gap-1">
                   <Percent className="w-3 h-3 text-slate-400" />
                   <span className="font-bold text-[11px] text-slate-200">
-                    TRA VAT ({baseOrderVatPct}%)
+                    VAT ({baseOrderVatPct}%)
                   </span>
                 </div>
                 <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded transition-colors ${
@@ -797,7 +797,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
             <div className="text-[11px] text-slate-700 mt-2 space-y-0.5">
               <p className="font-bold text-slate-900">{storeSettings?.storeName || 'Genuine Electronics Tanzania Ltd'} • {storeSettings?.address || 'Kariakoo / Ndanda na Masasi Street, Dar es Salaam Tanzania'}</p>
               <p>Hotline: {storeSettings?.phone || '+255 768 929 203'} | Email: {storeSettings?.email || 'sales@genuine-electronics.com'}</p>
-              <p className="font-mono text-[10px] text-slate-600">TRA TIN: {storeSettings?.tin || '104-982-371'}</p>
+              <p className="font-mono text-[10px] text-slate-600">TIN: {storeSettings?.tin || '104-982-371'}{storeSettings?.vrn ? ` | VRN: ${storeSettings.vrn}` : ''}</p>
             </div>
           </div>
 
@@ -825,7 +825,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                 <p>
                   <span className="font-semibold text-slate-600">VAT Status:</span>{' '}
                   <strong className="text-emerald-700">
-                    TRA VAT {activeVatPercentage}% Included
+                    VAT {activeVatPercentage}% Included
                   </strong>
                 </p>
               )}
@@ -843,12 +843,12 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
               {docType === 'delivery' ? (
                 <>
                   <Truck className="w-3.5 h-3.5 text-emerald-700" />
-                  DELIVERY DESTINATION & CONSIGNEE:
+                  DELIVER TO / CONSIGNEE:
                 </>
               ) : (
                 <>
                   <Building2 className="w-3.5 h-3.5 text-blue-700" />
-                  {docType === 'proforma' ? 'QUOTED & ISSUED TO:' : 'BILLED & SHIPPED TO:'}
+                  {docType === 'proforma' ? 'QUOTED TO:' : 'BILL TO / SHIP TO:'}
                 </>
               )}
             </p>
@@ -945,7 +945,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                   <div className="flex justify-between items-center">
                     <span className="text-slate-600 font-medium">Tax Status:</span>
                     <span className="font-bold text-slate-900">
-                      TRA VAT {activeVatPercentage}% Included
+                      VAT {activeVatPercentage}% Included
                     </span>
                   </div>
                 )}
@@ -1199,7 +1199,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                     <span className="font-bold text-slate-900">{formatTZS(taxAnalysis.exemptSubtotal)}</span>
                   </div>
                   <div className="flex justify-between text-slate-700">
-                    <span className="font-medium">TRA VAT ({activeVatPercentage}% on Taxable):</span>
+                    <span className="font-medium">VAT ({activeVatPercentage}% on Taxable):</span>
                     <span className="font-bold text-slate-900">{formatTZS(taxAnalysis.taxAmount)}</span>
                   </div>
                   <div className="flex justify-between text-slate-800 pt-1 border-t border-dotted border-slate-300 font-bold">
@@ -1216,10 +1216,10 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                     <span className="font-bold text-slate-900">{formatTZS(calculatedSubtotal)}</span>
                   </div>
 
-                  {/* TRA VAT Line Item (Only show if VAT is enabled, percentage > 0 and tax > 0) */}
+                  {/* VAT Line Item (Only show if VAT is enabled, percentage > 0 and tax > 0) */}
                   {includeVat && activeVatPercentage > 0 && calculatedTax > 0 && (
                     <div className="flex justify-between text-slate-700">
-                      <span className="font-medium">TRA VAT ({activeVatPercentage}% Incl.):</span>
+                      <span className="font-medium">VAT ({activeVatPercentage}% Incl.):</span>
                       <span className="font-bold text-slate-900">{formatTZS(calculatedTax)}</span>
                     </div>
                   )}
@@ -1263,7 +1263,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                 <CheckCircle2 className="w-4 h-4 text-blue-700" />
                 {docType === 'proforma' 
                   ? 'PROFORMA PAYMENT & REMITTANCE CHANNELS' 
-                  : 'OFFICIAL SETTLEMENT & REMITTANCE CHANNELS (TRA Verified)'}
+                  : 'OFFICIAL SETTLEMENT & REMITTANCE CHANNELS'}
               </span>
               <span className="text-[9px] font-black bg-blue-100 text-blue-900 border border-blue-300 px-2.5 py-0.5 rounded uppercase">
                 {docType === 'proforma' ? 'Quote Reference' : 'Payment Method'}: {order.paymentMethod || 'Selected at Checkout'}
@@ -1461,7 +1461,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
               </p>
               <p className="text-[9px] text-slate-500">
                 {docType === 'tax' 
-                  ? (includeVat && activeVatPercentage > 0 && calculatedTax > 0 ? 'TRA Compliant Commercial Electronic Tax Invoice' : 'Commercial Electronic Sales Invoice')
+                  ? (includeVat && activeVatPercentage > 0 && calculatedTax > 0 ? 'Commercial Electronic Tax Invoice' : 'Commercial Electronic Sales Invoice')
                   : docType === 'proforma'
                   ? 'Official Proforma Quotation Document (Valid for 14 Days)'
                   : 'Official Consignment & Delivery Manifest'}

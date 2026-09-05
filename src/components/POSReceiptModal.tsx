@@ -707,7 +707,7 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
                 />
               </div>
               <div>
-                <label htmlFor="receipt-buyer-tin" className="block text-[10px] text-slate-400 font-bold mb-1">Buyer TIN (Optional for B2B/TRA)</label>
+                <label htmlFor="receipt-buyer-tin" className="block text-[10px] text-slate-400 font-bold mb-1">Buyer TIN (Optional for B2B / Tax)</label>
                 <input
                   id="receipt-buyer-tin"
                   type="text"

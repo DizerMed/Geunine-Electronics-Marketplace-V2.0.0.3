@@ -450,7 +450,7 @@ export const ExpressBuyDrawer: React.FC<ExpressBuyDrawerProps> = ({
                               <span className="font-semibold text-slate-800">{formatTZS(netSubtotal)}</span>
                             </div>
                             <div className="flex justify-between text-slate-600">
-                              <span>TRA VAT ({effectiveVatPct}% INCL):</span>
+                              <span>VAT ({effectiveVatPct}% INCL):</span>
                               <span className="font-semibold text-slate-800">{formatTZS(vatTax)}</span>
                             </div>
                           </>
@@ -522,7 +522,7 @@ export const ExpressBuyDrawer: React.FC<ExpressBuyDrawerProps> = ({
                         <div>
                           <p className="font-bold">Official Receipt Note:</p>
                           <p className="text-amber-800">
-                            This is a <strong>Proforma Invoice</strong>. Your official TRA Fiscal Cash Receipt will be issued once our store staff verifies your payment.
+                            This is a <strong>Proforma Invoice</strong>. Your official Cash Receipt will be issued once our store staff verifies your payment.
                           </p>
                         </div>
                       </div>
@@ -930,7 +930,7 @@ export const ExpressBuyDrawer: React.FC<ExpressBuyDrawerProps> = ({
 
                     {product.isVatInclusive !== false && Number(storeSettings?.vatPercentage ?? 18) > 0 && (
                       <div className="flex justify-between text-slate-400">
-                        <span>TRA VAT ({Number(storeSettings?.vatPercentage ?? 18)}% Included)</span>
+                        <span>VAT ({Number(storeSettings?.vatPercentage ?? 18)}% Included)</span>
                         <span className="font-bold">
                           {formatTZS(Math.round(subtotal * (Number(storeSettings?.vatPercentage ?? 18) / (100 + Number(storeSettings?.vatPercentage ?? 18)))))}
                         </span>

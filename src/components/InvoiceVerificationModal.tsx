@@ -158,7 +158,7 @@ export const InvoiceVerificationModal: React.FC<InvoiceVerificationModalProps> =
                   OFFICIAL ONLINE DOCUMENT VERIFICATION
                 </span>
                 <span className="text-[9px] font-bold text-slate-300 bg-slate-800/80 border border-slate-700 px-2 py-0.5 rounded-full">
-                  TRA TIN: {store?.tin || '104-982-371'}
+                  TIN: {store?.tin || '104-982-371'}
                 </span>
               </div>
               <h2 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-2 mt-0.5">
@@ -175,7 +175,7 @@ export const InvoiceVerificationModal: React.FC<InvoiceVerificationModalProps> =
                 ) : (
                   <span className="flex items-center gap-1.5 text-indigo-300">
                     <Award className="w-4 h-4" />
-                    Official TRA Tax Invoice
+                    Commercial Tax Invoice
                   </span>
                 )}
                 <span className="text-xs font-mono text-slate-400 font-normal">({activeInvoiceNo})</span>

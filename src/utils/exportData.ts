@@ -181,7 +181,7 @@ export function exportTaxJournalToCSV(transactions: POSTransaction[], vatRatePer
     'Discount (TZS)',
     'Net Taxable Base (TZS)',
     'VAT Rate (%)',
-    'TRA VAT Output (TZS)',
+    'VAT Output (TZS)',
     'Grand Total Paid (TZS)',
     'Payment Tender',
     'Serial / IMEI Numbers',

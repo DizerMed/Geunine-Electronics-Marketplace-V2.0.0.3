@@ -2632,7 +2632,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                     </div>
                     {isVatApplied && tax > 0 && (
                       <div className="flex justify-between gap-2">
-                        <span>{vatInclusiveGross < cartSubtotal ? `TRA VAT (${vatPct}% on Taxable Items)` : `TRA VAT (${vatPct}% Incl.)`}</span>
+                        <span>{vatInclusiveGross < cartSubtotal ? `VAT (${vatPct}% on Taxable Items)` : `VAT (${vatPct}% Incl.)`}</span>
                         <span className="font-semibold text-slate-900 dark:text-white break-words">{formatTZS(tax)}</span>
                       </div>
                     )}
@@ -3538,7 +3538,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                           <span className="font-semibold text-slate-800">{formatTZS(netSubtotal)}</span>
                         </div>
                         <div className="flex justify-between text-slate-600">
-                          <span>TRA VAT ({effectiveVatPct}% INCLUDED):</span>
+                          <span>VAT ({effectiveVatPct}% INCLUDED):</span>
                           <span className="font-semibold text-slate-800">{formatTZS(vatTax)}</span>
                         </div>
                       </>
@@ -3610,7 +3610,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                     <div>
                       <p className="font-bold">Official Receipt Note:</p>
                       <p className="text-amber-800">
-                        This is a <strong>Proforma Invoice</strong>. Your official TRA Fiscal Cash Receipt will be issued and unlocked as soon as our store staff verifies your payment.
+                        This is a <strong>Proforma Invoice</strong>. Your official Cash Receipt will be issued and unlocked as soon as our store staff verifies your payment.
                       </p>
                     </div>
                   </div>

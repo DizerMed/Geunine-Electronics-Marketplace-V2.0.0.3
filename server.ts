@@ -1340,7 +1340,7 @@ app.get("/api/verify-invoice", async (req, res) => {
         ? 'Delivery Note & Packing Slip'
         : resolvedDocType === 'proforma'
         ? 'Proforma Invoice / Quotation'
-        : 'Official TRA Tax Invoice';
+        : 'Commercial Tax Invoice';
 
       return res.json({
         isVerified: true,
@@ -3385,6 +3385,28 @@ function preparePayloadForSupabase(sqlTable: string, item: any): any {
     payload.loanrepayments = cleanReps;
     payload.partialPayments = cleanReps;
     payload.partial_payments = cleanReps;
+
+    // Normalize orderType & orderSource for POS Pre-sale orders and quotations
+    if (payload.orderType !== undefined || payload.order_type !== undefined || payload.ordertype !== undefined) {
+      const ot = String(payload.orderType ?? payload.order_type ?? payload.ordertype ?? 'standard');
+      payload.orderType = ot;
+      payload.order_type = ot;
+    }
+    if (payload.orderSource !== undefined || payload.order_source !== undefined || payload.ordersource !== undefined) {
+      const os = String(payload.orderSource ?? payload.order_source ?? payload.ordersource ?? 'web');
+      payload.orderSource = os;
+      payload.order_source = os;
+    }
+    if (payload.quotationNumber !== undefined || payload.quotation_number !== undefined || payload.quotationnumber !== undefined) {
+      const qn = String(payload.quotationNumber ?? payload.quotation_number ?? payload.quotationnumber ?? '');
+      payload.quotationNumber = qn;
+      payload.quotation_number = qn;
+    }
+    if (payload.invoiceNumber !== undefined || payload.invoice_number !== undefined || payload.invoicenumber !== undefined) {
+      const inv = String(payload.invoiceNumber ?? payload.invoice_number ?? payload.invoicenumber ?? '');
+      payload.invoiceNumber = inv;
+      payload.invoice_number = inv;
+    }
   }
 
   return payload;

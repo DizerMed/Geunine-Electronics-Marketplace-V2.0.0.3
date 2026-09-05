@@ -140,6 +140,18 @@ export interface Order {
   trackingTimeline?: TrackingTimelineEvent[];
   notes?: string;
   deliveryNotes?: string;
+  orderType?: 'standard' | 'pos_pre_sale' | 'quotation' | 'proforma';
+  order_type?: string;
+  orderSource?: 'web' | 'pos' | 'direct';
+  order_source?: string;
+  cashierName?: string;
+  cashier_name?: string;
+  cashierId?: string;
+  cashier_id?: string;
+  quotationNumber?: string;
+  quotation_number?: string;
+  invoiceNumber?: string;
+  invoice_number?: string;
   customerTin?: string;
   vatPercentage?: number;
   includeVat?: boolean;

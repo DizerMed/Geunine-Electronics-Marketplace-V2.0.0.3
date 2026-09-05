@@ -134,7 +134,7 @@ export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
                   <span className="font-bold">{formatTZS(taxAnalysis.exemptSubtotal)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>TRA VAT (On Taxable Items)</span>
+                  <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>VAT (On Taxable Items)</span>
                   <span className="font-bold">{formatTZS(tax)}</span>
                 </div>
                 <div className={`pt-2 border-t border-dashed flex justify-between text-xs font-semibold ${isDark ? 'border-slate-800 text-slate-400' : 'border-slate-300 text-slate-600'}`}>
@@ -152,7 +152,7 @@ export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
                 </div>
                 {tax > 0 && (
                   <div className="flex justify-between text-sm">
-                    <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>TRA VAT (Included)</span>
+                    <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>VAT (Included)</span>
                     <span className="font-bold">{formatTZS(tax)}</span>
                   </div>
                 )}

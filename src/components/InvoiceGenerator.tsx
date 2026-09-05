@@ -9,7 +9,7 @@ import { jsPDF } from 'jspdf';
 import { toCanvas } from 'html-to-image';
 import { QRCodeSVG } from 'qrcode.react';
 import { groupCartItemsByTaxStatus } from '../utils/taxUtils';
-import { buildReceiptVerificationUrl } from '../services/receiptQrService';
+import { buildReceiptVerificationUrl, buildInvoiceVerificationUrl } from '../services/receiptQrService';
 import { customAlert, customConfirm } from '../utils/dialog';
 
 export interface InvoiceGeneratorProps {
@@ -38,6 +38,12 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
   hideTypeSwitcher = false,
 }) => {
   const [docType, setDocType] = useState<'tax' | 'proforma' | 'delivery'>(defaultDocType);
+
+  useEffect(() => {
+    if (defaultDocType) {
+      setDocType(defaultDocType);
+    }
+  }, [defaultDocType]);
   const [showStamp, setShowStamp] = useState<boolean>(true);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [copiedInvoiceNo, setCopiedInvoiceNo] = useState(false);
@@ -229,22 +235,59 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
   const grandTotal = taxAnalysis.totalBeforeExtra + extraCostsTotal;
 
   const cleanOrderNo = (order.id || 'ORDER').replace('#', '');
-  const invoiceNo = `INV-${cleanOrderNo}`;
+  const currentDocRef = docType === 'delivery' 
+    ? `DN-${cleanOrderNo}` 
+    : docType === 'proforma' 
+    ? `PRO-${cleanOrderNo}` 
+    : `INV-${cleanOrderNo}`;
+  const invoiceNo = currentDocRef;
+  const totalUnits = (order.items || []).reduce((sum, item) => sum + (item.quantity || 1), 0);
   const orderDate = order.createdAt ? formatToGMT3(order.createdAt) : new Date().toLocaleDateString('en-GB');
 
   const getInvoiceText = () => {
-    const docTitle = docType === 'tax' 
-      ? (includeVat && activeVatPercentage > 0 ? 'OFFICIAL TRA TAX INVOICE' : 'COMMERCIAL SALES INVOICE')
-      : docType === 'proforma' 
+    // Delivery Note Share Text (Strictly no prices, no VAT, no loan debts, no payment accounts)
+    if (docType === 'delivery') {
+      let msg = `📦 *OFFICIAL DELIVERY NOTE & PACKING SLIP*\n`;
+      msg += `*${storeSettings?.storeName || 'Genuine Electronics Tanzania Ltd'}*\n`;
+      msg += `📍 ${storeSettings?.address || 'Kariakoo, Dar es Salaam Tanzania'}\n`;
+      msg += `📞 Hotline: ${storeSettings?.phone || '+255 768 929 203'} | Dispatch & Logistics Dept.\n`;
+      msg += `----------------------------------------\n`;
+      msg += `📄 *Consignment Ref:* ${currentDocRef}\n`;
+      msg += `📅 *Date:* ${orderDate}\n`;
+      if (order.customerName) msg += `👤 *Consignee / Recipient:* ${order.customerName}\n`;
+      if (order.customerPhone) msg += `📞 *Phone:* ${order.customerPhone}\n`;
+      if (order.shippingAddress) msg += `📍 *Delivery Address:* ${order.shippingAddress}${order.city ? `, ${order.city}` : ''}\n`;
+      if (order.courierName) msg += `🚚 *Carrier / Courier:* ${order.courierName}\n`;
+      if (order.trackingNumber) msg += `🔖 *Waybill / Tracking:* ${order.trackingNumber}\n`;
+      if (order.deliveryNotes) msg += `📝 *Delivery Notes:* ${order.deliveryNotes}\n`;
+      msg += `----------------------------------------\n*DISPATCHED ITEMS (PACKING LIST):*\n`;
+      
+      (order.items || []).forEach((item, idx) => {
+        const qty = item.quantity || 1;
+        msg += `${idx + 1}. ${item.product?.name || 'Item'} (Qty: ${qty} Unit${qty > 1 ? 's' : ''}) [SKU: ${item.product?.sku || 'N/A'}]\n`;
+      });
+      
+      msg += `----------------------------------------\n`;
+      msg += `📦 *Total Packages Dispatched:* ${totalUnits} Units (${(order.items || []).length} Line Items)\n`;
+      msg += `📋 *Inspection Status:* Verified & intact prior to dispatch.\n`;
+      msg += `✍️ *Notice:* Consignee must inspect all packages and sign physical delivery note upon receipt.\n`;
+      if (showStamp) {
+        msg += `★ OFFICIALLY DISPATCHED & VERIFIED - Genuine Electronics Tanzania Ltd ★\n`;
+      }
+      msg += `\nVerify Consignment Authenticity Online: ${buildInvoiceVerificationUrl({ orderNo: cleanOrderNo, invoiceNo: currentDocRef, docType: 'delivery' })}\n`;
+      return msg;
+    }
+
+    const docTitle = docType === 'proforma' 
       ? 'PROFORMA INVOICE / PRICE QUOTATION' 
-      : 'DELIVERY NOTE & PACKING SLIP';
+      : (includeVat && activeVatPercentage > 0 && calculatedTax > 0 ? 'OFFICIAL TRA TAX INVOICE' : 'COMMERCIAL SALES INVOICE');
 
     let msg = `🧾 *${docTitle}*\n`;
     msg += `*${storeSettings?.storeName || 'Genuine Electronics Tanzania Ltd'}*\n`;
     msg += `📍 ${storeSettings?.address || 'Kariakoo, Dar es Salaam Tanzania'}\n`;
     msg += `📞 Hotline: ${storeSettings?.phone || '+255 768 929 203'} | TIN: ${storeSettings?.tin || '104-982-371'}\n`;
     msg += `----------------------------------------\n`;
-    msg += `📄 *Doc Reference:* ${invoiceNo}\n`;
+    msg += `📄 *Doc Reference:* ${currentDocRef}\n`;
     msg += `📅 *Date & Time:* ${orderDate}\n`;
     if (order.customerName) msg += `👤 *Customer / Buyer:* ${order.customerName}\n`;
     if (order.customerPhone) msg += `📞 *Phone:* ${order.customerPhone}\n`;
@@ -276,7 +319,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     if (discountAmount > 0) {
       msg += `Discount Applied: -${formatTZS(discountAmount)}\n`;
     }
-    msg += `💰 *GRAND TOTAL:* ${formatTZS(grandTotal)}\n`;
+    msg += `💰 *${docType === 'proforma' ? 'QUOTED TOTAL' : 'GRAND TOTAL'}:* ${formatTZS(grandTotal)}\n`;
 
     if (order.isLoan) {
       const total = Number(order.totalAmount ?? grandTotal);
@@ -294,19 +337,30 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
       if (order.loanDueDate) msg += `Repayment Due: ${order.loanDueDate}\n`;
     }
     
-    if (docType !== 'delivery' && selectedMethod) {
-      msg += `----------------------------------------\n*OFFICIAL SETTLEMENT ACCOUNT:*\n`;
+    if (selectedMethod) {
+      msg += `----------------------------------------\n*${docType === 'proforma' ? 'QUOTATION REMITTANCE CHANNEL' : 'OFFICIAL SETTLEMENT ACCOUNT'}:*\n`;
       msg += `Payment Type: ${selectedMethod.provider} (${selectedMethod.type})\n`;
       msg += `Account / Till: ${selectedMethod.accountNumber}\n`;
       msg += `Account Name: ${selectedMethod.accountName}\n`;
       if (selectedMethod.instructions) msg += `Instructions: ${selectedMethod.instructions}\n`;
     }
 
+    if (docType === 'proforma') {
+      msg += `\n*Notice:* This Proforma Quotation is valid for 14 calendar days from the date of issue.\n`;
+    }
+
     if (showStamp) {
       msg += `\n★ OFFICIALLY STAMPED & AUTHORIZED - Genuine Electronics Tanzania Ltd ★\n`;
     }
 
-    msg += `\nVerify Authenticity Online: https://genuine-electronics.com/verify-invoice?id=${invoiceNo}\n`;
+    msg += `\nVerify Authenticity Online: ${buildInvoiceVerificationUrl({
+      orderNo: cleanOrderNo,
+      invoiceNo: currentDocRef,
+      docType,
+      totalAmount: grandTotal,
+      customerName: order.customerName,
+      paymentStatus: order.paymentStatus
+    })}\n`;
     msg += `Thank you for choosing Genuine Electronics!`;
 
     return msg;
@@ -545,13 +599,13 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
           </div>
           
           <div className="flex items-center flex-wrap gap-2">
-            {/* Document Type Switcher (Hidden in client view or when hideTypeSwitcher is true) */}
-            {!isClientView && !hideTypeSwitcher && (
+            {/* Document Type Switcher */}
+            {!hideTypeSwitcher && (
               <div className="flex bg-slate-800 p-0.5 rounded-xl border border-slate-700 text-[11px] font-bold">
                 <button
                   type="button"
                   onClick={() => setDocType('tax')}
-                  className={`px-2.5 py-1 rounded-lg transition-all ${
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     docType === 'tax' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
                   }`}
                 >
@@ -560,7 +614,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                 <button
                   type="button"
                   onClick={() => setDocType('proforma')}
-                  className={`px-2.5 py-1 rounded-lg transition-all ${
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     docType === 'proforma' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
                   }`}
                 >
@@ -569,7 +623,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                 <button
                   type="button"
                   onClick={() => setDocType('delivery')}
-                  className={`px-2.5 py-1 rounded-lg transition-all ${
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     docType === 'delivery' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
                   }`}
                 >
@@ -578,8 +632,8 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
               </div>
             )}
 
-            {/* TRA VAT Toggle Switch (Hidden in client view or when hideTypeSwitcher is true) */}
-            {!isClientView && !hideTypeSwitcher && docType !== 'delivery' && (
+            {/* TRA VAT Toggle Switch */}
+            {!hideTypeSwitcher && docType !== 'delivery' && (
               <label 
                 title="Toggle TRA VAT (18%) Inclusion like in POS Checkout"
                 className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700/80 px-2.5 py-1.5 rounded-xl text-xs cursor-pointer select-none border border-slate-700 transition-all active:scale-95"
@@ -786,66 +840,130 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3.5 rounded-xl border border-slate-300 keep-together">
           <div>
             <p className="text-[10px] font-extrabold text-slate-900 uppercase tracking-wider mb-1 flex items-center gap-1">
-              <Building2 className="w-3.5 h-3.5 text-blue-700" />
-              BILLED & SHIPPED TO:
+              {docType === 'delivery' ? (
+                <>
+                  <Truck className="w-3.5 h-3.5 text-emerald-700" />
+                  DELIVERY DESTINATION & CONSIGNEE:
+                </>
+              ) : (
+                <>
+                  <Building2 className="w-3.5 h-3.5 text-blue-700" />
+                  {docType === 'proforma' ? 'QUOTED & ISSUED TO:' : 'BILLED & SHIPPED TO:'}
+                </>
+              )}
             </p>
-            <p className="font-bold text-slate-900 text-sm">{order.customerName || 'Valued Customer'}</p>
-            {order.customerTin && (
+            <p className="font-bold text-slate-900 text-sm">{order.customerName || (docType === 'delivery' ? 'Valued Consignee' : 'Valued Customer')}</p>
+            {docType !== 'delivery' && order.customerTin && (
               <p className="text-slate-900 text-[11px] font-mono font-bold">
                 <span className="text-slate-600 font-sans font-semibold">Buyer TIN:</span> {order.customerTin}
               </p>
             )}
-            <p className="text-slate-600 text-[11px]">{order.customerEmail || 'N/A'}</p>
-            <p className="text-slate-600 text-[11px] font-medium">{order.customerPhone || order.phone || 'N/A'}</p>
-            <p className="text-slate-800 mt-1 font-medium bg-slate-50 p-2 rounded-lg border border-slate-200 text-[11px]">
+            {order.customerEmail && <p className="text-slate-600 text-[11px]">{order.customerEmail}</p>}
+            <p className="text-slate-600 text-[11px] font-medium">
+              <span className="font-semibold text-slate-700">Phone:</span> {order.customerPhone || order.phone || 'N/A'}
+            </p>
+            <div className="text-slate-800 mt-1 font-medium bg-slate-50 p-2 rounded-lg border border-slate-200 text-[11px]">
+              <span className="text-[9px] uppercase font-bold text-slate-500 block">
+                {docType === 'delivery' ? 'Physical Consignment Destination:' : 'Physical Delivery Address:'}
+              </span>
               {order.shippingAddress || 'Dar es Salaam, Tanzania'}
               {order.city ? `, ${order.city}` : ''}
-            </p>
+            </div>
             {order.deliveryNotes && (
-              <p className="text-slate-600 text-[10px] mt-1 italic">
-                <span className="font-bold not-italic">Delivery Instructions:</span> {order.deliveryNotes}
-              </p>
+              <div className="text-slate-800 text-[10px] mt-1 bg-amber-50/80 p-2 rounded-lg border border-amber-200">
+                <span className="font-bold text-amber-900 block uppercase text-[9px]">Special Handling & Dispatch Notes:</span>
+                {order.deliveryNotes}
+              </div>
             )}
           </div>
 
-          <div className="space-y-1.5">
-            <p className="text-[10px] font-extrabold text-slate-900 uppercase tracking-wider mb-1 flex items-center gap-1">
-              <FileText className="w-3.5 h-3.5 text-blue-700" />
-              ORDER & SETTLEMENT DETAILS:
-            </p>
-            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-1.5 text-[11px]">
-              <div className="flex justify-between items-center">
-                <span className="text-slate-600 font-medium">Payment Method:</span>
-                <span className="font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-300">
-                  {order.paymentMethod || 'Mobile Money'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-600 font-medium">Payment Status:</span>
-                <span className={`font-black px-2 py-0.5 rounded border ${
-                  (order.paymentStatus === 'Paid' || order.status === 'Delivered')
-                    ? 'text-emerald-800 bg-emerald-50 border-emerald-300'
-                    : 'text-amber-800 bg-amber-50 border-amber-300'
-                }`}>
-                  {(order.paymentStatus || order.status || 'Pending').toUpperCase()}
-                </span>
-              </div>
-              {includeVat && activeVatPercentage > 0 && calculatedTax > 0 && (
+          {docType === 'delivery' ? (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-extrabold text-slate-900 uppercase tracking-wider mb-1 flex items-center gap-1">
+                <FileText className="w-3.5 h-3.5 text-emerald-700" />
+                DISPATCH & CONSIGNMENT DETAILS:
+              </p>
+              <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-1.5 text-[11px]">
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-600 font-medium">Tax Calculation:</span>
-                  <span className="font-bold text-slate-900">
-                    Tax Included ({activeVatPercentage}%)
+                  <span className="text-slate-600 font-medium">Consignment Status:</span>
+                  <span className="font-black px-2 py-0.5 rounded border text-emerald-800 bg-emerald-50 border-emerald-300">
+                    DISPATCHED & VERIFIED
                   </span>
                 </div>
-              )}
-              {order.courierName && (
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-600 font-medium">Dispatched Courier:</span>
-                  <span className="font-bold text-slate-900">{order.courierName}</span>
+                  <span className="text-slate-600 font-medium">Carrier / Courier:</span>
+                  <span className="font-bold text-slate-900">
+                    {order.courierName || 'Store Logistics / Express Courier'}
+                  </span>
                 </div>
-              )}
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 font-medium">Waybill / Tracking No:</span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {order.trackingNumber || `WB-${cleanOrderNo}`}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 font-medium">Total Packages:</span>
+                  <span className="font-bold text-slate-900">
+                    {totalUnits} Units ({(order.items || []).length} Line Items)
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 font-medium">Packaging Condition:</span>
+                  <span className="font-bold text-emerald-700">
+                    Factory Sealed & Tamper-Evident
+                  </span>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-extrabold text-slate-900 uppercase tracking-wider mb-1 flex items-center gap-1">
+                <FileText className="w-3.5 h-3.5 text-blue-700" />
+                {docType === 'proforma' ? 'QUOTATION & TERMS DETAILS:' : 'ORDER & SETTLEMENT DETAILS:'}
+              </p>
+              <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-1.5 text-[11px]">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 font-medium">{docType === 'proforma' ? 'Proposed Payment:' : 'Payment Method:'}</span>
+                  <span className="font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-300">
+                    {order.paymentMethod || 'Mobile Money'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 font-medium">{docType === 'proforma' ? 'Quotation Status:' : 'Payment Status:'}</span>
+                  <span className={`font-black px-2 py-0.5 rounded border ${
+                    docType === 'proforma'
+                      ? 'text-blue-800 bg-blue-50 border-blue-300'
+                      : (order.paymentStatus === 'Paid' || order.status === 'Delivered')
+                      ? 'text-emerald-800 bg-emerald-50 border-emerald-300'
+                      : 'text-amber-800 bg-amber-50 border-amber-300'
+                  }`}>
+                    {docType === 'proforma' ? 'PROFORMA (PENDING REMITTANCE)' : (order.paymentStatus || order.status || 'Pending').toUpperCase()}
+                  </span>
+                </div>
+                {includeVat && activeVatPercentage > 0 && calculatedTax > 0 && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600 font-medium">Tax Status:</span>
+                    <span className="font-bold text-slate-900">
+                      TRA VAT {activeVatPercentage}% Included
+                    </span>
+                  </div>
+                )}
+                {docType === 'proforma' && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600 font-medium">Quotation Validity:</span>
+                    <span className="font-bold text-blue-900">14 Calendar Days</span>
+                  </div>
+                )}
+                {order.courierName && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600 font-medium">Designated Courier:</span>
+                    <span className="font-bold text-slate-900">{order.courierName}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Itemized Order Line Items Table */}
@@ -853,11 +971,24 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
           <table className="w-full text-left border-collapse text-[11px]">
             <thead>
               <tr className="bg-slate-100 text-slate-900 border-b-2 border-slate-900 font-black">
-                <th className="p-2.5">Item Description & Specifications</th>
-                <th className="p-2.5 text-center">Category</th>
-                <th className="p-2.5 text-center">Qty</th>
-                <th className="p-2.5 text-right">Unit Price</th>
-                <th className="p-2.5 text-right">Total (TZS)</th>
+                {docType === 'delivery' ? (
+                  <>
+                    <th className="p-2.5 w-10 text-center">#</th>
+                    <th className="p-2.5">Item Description & Specifications</th>
+                    <th className="p-2.5 text-center">Category</th>
+                    <th className="p-2.5 text-center">Dispatched Qty</th>
+                    <th className="p-2.5 text-center">Unit / Packaging</th>
+                    <th className="p-2.5 text-center">Inspection Status</th>
+                  </>
+                ) : (
+                  <>
+                    <th className="p-2.5">Item Description & Specifications</th>
+                    <th className="p-2.5 text-center">Category</th>
+                    <th className="p-2.5 text-center">Qty</th>
+                    <th className="p-2.5 text-right">Unit Price</th>
+                    <th className="p-2.5 text-right">{docType === 'proforma' ? 'Quoted Total (TZS)' : 'Total (TZS)'}</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -866,32 +997,66 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                 const lineTotal = unitPrice * item.quantity;
                 return (
                   <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'}>
-                    <td className="p-2.5">
-                      <div className="font-bold text-slate-900">{item.product?.name || 'Product Item'}</div>
-                      <div className="flex flex-wrap items-center gap-1.5 text-[9px] text-slate-500 font-mono">
-                        <span>SKU: {item.product?.sku || `SKU-${idx + 1}`}</span>
-                        {item.product?.brand && <span>• Brand: {item.product.brand}</span>}
-                        {includeVat && activeVatPercentage > 0 && calculatedTax > 0 && (
-                          item.product?.isVatInclusive !== false ? (
-                            <span className="text-[8px] font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1 py-0.2 rounded">
-                              VAT Applicable
-                            </span>
-                          ) : (
-                            <span className="text-[8px] font-extrabold text-slate-700 bg-slate-100 border border-slate-300 px-1 py-0.2 rounded">
-                              Non-VAT / Exempt
-                            </span>
-                          )
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-2.5 text-center text-slate-700">
-                      <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-[10px] font-semibold">
-                        {item.product?.category || 'Electronics'}
-                      </span>
-                    </td>
-                    <td className="p-2.5 text-center font-bold text-slate-900">{item.quantity}</td>
-                    <td className="p-2.5 text-right text-slate-800">{formatTZS(unitPrice)}</td>
-                    <td className="p-2.5 text-right font-black text-slate-900">{formatTZS(lineTotal)}</td>
+                    {docType === 'delivery' ? (
+                      <>
+                        <td className="p-2.5 text-center font-bold text-slate-500">{idx + 1}</td>
+                        <td className="p-2.5">
+                          <div className="font-bold text-slate-900">{item.product?.name || 'Product Item'}</div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[9px] text-slate-500 font-mono">
+                            <span>SKU: {item.product?.sku || `SKU-${idx + 1}`}</span>
+                            {item.product?.brand && <span>• Brand: {item.product.brand}</span>}
+                          </div>
+                        </td>
+                        <td className="p-2.5 text-center text-slate-700">
+                          <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-[10px] font-semibold">
+                            {item.product?.category || 'Electronics'}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-center">
+                          <span className="font-black text-xs text-slate-900 bg-slate-100 border border-slate-300 px-2.5 py-0.5 rounded">
+                            {item.quantity} Unit{item.quantity > 1 ? 's' : ''}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-center text-slate-600 font-medium">
+                          Factory Sealed Box
+                        </td>
+                        <td className="p-2.5 text-center">
+                          <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            Inspected & Intact
+                          </span>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="p-2.5">
+                          <div className="font-bold text-slate-900">{item.product?.name || 'Product Item'}</div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[9px] text-slate-500 font-mono">
+                            <span>SKU: {item.product?.sku || `SKU-${idx + 1}`}</span>
+                            {item.product?.brand && <span>• Brand: {item.product.brand}</span>}
+                            {includeVat && activeVatPercentage > 0 && calculatedTax > 0 && (
+                              item.product?.isVatInclusive !== false ? (
+                                <span className="text-[8px] font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1 py-0.2 rounded">
+                                  VAT Applicable
+                                </span>
+                              ) : (
+                                <span className="text-[8px] font-extrabold text-slate-700 bg-slate-100 border border-slate-300 px-1 py-0.2 rounded">
+                                  Non-VAT / Exempt
+                                </span>
+                              )
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-2.5 text-center text-slate-700">
+                          <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-[10px] font-semibold">
+                            {item.product?.category || 'Electronics'}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-center font-bold text-slate-900">{item.quantity}</td>
+                        <td className="p-2.5 text-right text-slate-800">{formatTZS(unitPrice)}</td>
+                        <td className="p-2.5 text-right font-black text-slate-900">{formatTZS(lineTotal)}</td>
+                      </>
+                    )}
                   </tr>
                 );
               })}
@@ -899,8 +1064,8 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
           </table>
         </div>
 
-        {/* Loan / Credit Repayment Details (if applicable) */}
-        {order.isLoan && (() => {
+        {/* Loan / Credit Repayment Details (Hide completely on Delivery Note) */}
+        {docType !== 'delivery' && order.isLoan && (() => {
           const total = Number(order.totalAmount ?? 0);
           const repayments = order.loanRepayments || [];
           const repaymentsSum = repayments.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
@@ -927,7 +1092,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
           return (
             <div className="p-3.5 bg-amber-50/90 rounded-2xl border border-amber-200 text-[11px] keep-together space-y-2.5">
               <div className="flex items-center justify-between font-extrabold text-amber-950">
-                <span>CREDIT & INSTALLMENT LOAN AGREEMENT</span>
+                <span>{docType === 'proforma' ? 'PROPOSED CREDIT & INSTALLMENT STRUCTURE' : 'CREDIT & INSTALLMENT LOAN AGREEMENT'}</span>
                 <span className={`text-[10px] uppercase px-2 py-0.5 rounded border font-black ${badgeClass}`}>
                   {statusLabel}
                 </span>
@@ -964,211 +1129,293 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                   </div>
                 </div>
               )}
-
-              {/* Credit Sale Summary */}
             </div>
           );
         })()}
 
-        {/* Warranty Statement & Financial Totals Breakdown */}
-        <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pt-1 keep-together">
-          <div className="text-[11px] text-slate-700 max-w-sm bg-slate-50 p-3 rounded-xl border border-slate-300 space-y-1">
-            <p className="font-bold text-slate-900 flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-blue-700" />
-              1-Year Genuine Warranty & Service Guarantee
-            </p>
-            <p className="text-[10px] text-slate-600 leading-relaxed">
-              All Genuine Electronics products include an official 1-Year manufacturer warranty and local Dar es Salaam service support. Please retain this physical tax invoice for servicing, warranty verifications, and insurance claims.
-            </p>
-          </div>
+        {/* Warranty Statement & Financial Totals Breakdown OR Delivery Consignment Summary */}
+        {docType === 'delivery' ? (
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pt-1 keep-together">
+            <div className="text-[11px] text-slate-700 flex-1 bg-slate-50 p-3.5 rounded-xl border border-slate-300 space-y-1.5">
+              <p className="font-bold text-slate-900 flex items-center gap-1.5">
+                <Truck className="w-4 h-4 text-emerald-700" />
+                Goods Acceptance & Consignment Delivery Terms
+              </p>
+              <ul className="text-[10px] text-slate-600 space-y-1 list-disc list-inside leading-relaxed">
+                <li>Goods listed in this Delivery Note have been inspected and dispatched in complete, factory-sealed condition.</li>
+                <li>The consignee or carrier must verify outer package seal integrity before signing physical acceptance below.</li>
+                <li>Any discrepancies, quantity shortages, or external damage must be reported to Genuine Electronics Dispatch within 24 hours.</li>
+              </ul>
+            </div>
 
-          <div className="w-full sm:w-80 bg-white p-3.5 rounded-xl border-2 border-slate-900 space-y-2 text-[11px]">
-            {taxAnalysis.isMixed && taxAnalysis.taxAmount > 0 ? (
-              <>
-                <div className="flex justify-between text-slate-700">
-                  <span className="font-medium">1. Taxable Subtotal (Net):</span>
-                  <span className="font-bold text-slate-900">{formatTZS(taxAnalysis.taxableNetSubtotal)}</span>
-                </div>
-                <div className="flex justify-between text-slate-700">
-                  <span className="font-medium">2. Non-VAT / Exempt Subtotal:</span>
-                  <span className="font-bold text-slate-900">{formatTZS(taxAnalysis.exemptSubtotal)}</span>
-                </div>
-                <div className="flex justify-between text-slate-700">
-                  <span className="font-medium">TRA VAT ({activeVatPercentage}% on Taxable):</span>
-                  <span className="font-bold text-slate-900">{formatTZS(taxAnalysis.taxAmount)}</span>
-                </div>
-                <div className="flex justify-between text-slate-800 pt-1 border-t border-dotted border-slate-300 font-bold">
-                  <span>Total Net Subtotal:</span>
-                  <span>{formatTZS(taxAnalysis.netSubtotal)}</span>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex justify-between text-slate-700">
-                  <span className="font-medium">
-                    {includeVat && activeVatPercentage > 0 && calculatedTax > 0 ? 'Subtotal (Excl. Tax):' : 'Subtotal:'}
-                  </span>
-                  <span className="font-bold text-slate-900">{formatTZS(calculatedSubtotal)}</span>
-                </div>
-
-                {/* TRA VAT Line Item (Only show if VAT is enabled, percentage > 0 and tax > 0) */}
-                {includeVat && activeVatPercentage > 0 && calculatedTax > 0 && (
-                  <div className="flex justify-between text-slate-700">
-                    <span className="font-medium">TRA VAT ({activeVatPercentage}% Incl.):</span>
-                    <span className="font-bold text-slate-900">{formatTZS(calculatedTax)}</span>
-                  </div>
-                )}
-              </>
-            )}
-
-            {discountAmount > 0 && (
-              <div className="flex justify-between text-emerald-700">
-                <span className="font-medium">Discount Applied:</span>
-                <span className="font-bold">-{formatTZS(discountAmount)}</span>
+            <div className="w-full sm:w-80 bg-white p-3.5 rounded-xl border-2 border-slate-900 space-y-2 text-[11px]">
+              <div className="font-black text-slate-900 text-xs border-b border-slate-200 pb-1 flex items-center justify-between">
+                <span>CONSIGNMENT SUMMARY</span>
+                <span className="text-[9px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-black">VERIFIED</span>
               </div>
-            )}
-
-            {orderExtraCosts.length > 0 ? (
-              orderExtraCosts.map((cost, cIdx) => (
-                <div key={cIdx} className="flex justify-between text-slate-700">
-                  <span className="font-medium">{cost.name || 'Additional Service'}:</span>
-                  <span className="font-bold text-slate-900">+{formatTZS(cost.amount)}</span>
-                </div>
-              ))
-            ) : extraCostsTotal > 0 ? (
               <div className="flex justify-between text-slate-700">
-                <span className="font-medium">Delivery & Handling:</span>
-                <span className="font-bold text-slate-900">+{formatTZS(extraCostsTotal)}</span>
+                <span className="font-medium">Total Line Items:</span>
+                <span className="font-bold text-slate-900">{(order.items || []).length} Product Lines</span>
               </div>
-            ) : null}
-            
-            <div className="flex justify-between pt-2 border-t-2 border-slate-900 font-black text-base text-slate-900 bg-slate-100 p-2 rounded">
-              <span>GRAND TOTAL:</span>
-              <span>{formatTZS(grandTotal)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Payment Remittance & Instructions Box */}
-        <div className="border border-slate-300 rounded-xl p-3.5 bg-slate-50 space-y-2.5 text-[11px] keep-together">
-          <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-            <span className="font-extrabold text-slate-900 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-blue-700" />
-              OFFICIAL SETTLEMENT & REMITTANCE CHANNELS (TRA Verified)
-            </span>
-            <span className="text-[9px] font-black bg-blue-100 text-blue-900 border border-blue-300 px-2.5 py-0.5 rounded uppercase">
-              Method: {order.paymentMethod || 'Selected at Checkout'}
-            </span>
-          </div>
-
-          {selectedMethod ? (
-            <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <div className="text-slate-900 font-extrabold text-xs flex items-center gap-1.5">
-                  {selectedMethod.type === 'Mobile Money' ? (
-                    <Smartphone className="w-4 h-4 text-emerald-600 shrink-0" />
-                  ) : selectedMethod.type === 'Orbi Pay' ? (
-                    <QrCode className="w-4 h-4 text-purple-600 shrink-0" />
-                  ) : (
-                    <Building2 className="w-4 h-4 text-blue-700 shrink-0" />
-                  )}
-                  <span>{selectedMethod.provider} ({selectedMethod.type})</span>
-                </div>
-                <span className="text-[9px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-300">
-                  Verified Merchant Account
+              <div className="flex justify-between text-slate-700">
+                <span className="font-medium">Total Units Dispatched:</span>
+                <span className="font-black text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">
+                  {totalUnits} Units
                 </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                  <span className="text-slate-500 text-[9px] font-bold block uppercase">Account / Till Number:</span>
-                  <span className="font-mono font-black text-slate-900 text-xs sm:text-sm">{selectedMethod.accountNumber}</span>
-                </div>
-                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                  <span className="text-slate-500 text-[9px] font-bold block uppercase">Account Name:</span>
-                  <span className="font-bold text-slate-900 text-xs">{selectedMethod.accountName}</span>
-                </div>
+              <div className="flex justify-between text-slate-700">
+                <span className="font-medium">Carton Security:</span>
+                <span className="font-bold text-emerald-700">Tamper-Evident Seals</span>
               </div>
-              {selectedMethod.instructions && (
-                <div className="text-slate-600 text-[10px] pt-1 border-t border-slate-100 mt-1">
-                  <span className="font-bold text-slate-800">Payment Instructions:</span> {selectedMethod.instructions}
-                </div>
-              )}
+              <div className="flex justify-between pt-2 border-t-2 border-slate-900 font-black text-xs text-slate-900 bg-slate-50 p-2 rounded">
+                <span>DELIVERY STATUS:</span>
+                <span className="text-emerald-800">READY / DISPATCHED</span>
+              </div>
             </div>
-          ) : (
-            <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-1">
-              <div className="flex items-center justify-between">
-                <div className="text-slate-900 font-extrabold text-xs flex items-center gap-1.5">
-                  <CreditCard className="w-4 h-4 text-blue-700" />
-                  <span>{order.paymentMethod || 'Selected Payment Method'}</span>
-                </div>
-                <span className="bg-blue-50 text-blue-800 text-[9px] font-bold px-2 py-0.5 rounded border border-blue-200">
-                  Direct Payment
-                </span>
-              </div>
-              <p className="text-slate-600 text-[10px] pt-1">
-                Selected payment option: <strong className="text-slate-900">{order.paymentMethod}</strong>. Please quote invoice reference <strong className="text-slate-900">{invoiceNo}</strong> during deposit.
+          </div>
+        ) : (
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pt-1 keep-together">
+            <div className="text-[11px] text-slate-700 max-w-sm bg-slate-50 p-3 rounded-xl border border-slate-300 space-y-1">
+              <p className="font-bold text-slate-900 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-blue-700" />
+                {docType === 'proforma' ? 'Proforma Quotation Terms & Service Guarantee' : '1-Year Genuine Warranty & Service Guarantee'}
+              </p>
+              <p className="text-[10px] text-slate-600 leading-relaxed">
+                {docType === 'proforma'
+                  ? 'This quotation is valid for 14 calendar days from the date of issue. Prices are subject to product availability. Final fiscal tax invoice is issued upon payment confirmation.'
+                  : 'All Genuine Electronics products include an official 1-Year manufacturer warranty and local Dar es Salaam service support. Please retain this physical tax invoice for servicing, warranty verifications, and insurance claims.'}
               </p>
             </div>
-          )}
 
-          <div className="pt-1.5 border-t border-slate-200 flex items-center justify-between text-[10px]">
-            <span className="text-slate-700">Please quote Invoice Number <strong className="text-slate-900">{invoiceNo}</strong> as payment reference for automated reconciliation.</span>
-            <div className="relative no-print">
-              <button
-                type="button"
-                onClick={handleShareMenuClick}
-                disabled={isSharing}
-                className="shrink-0 bg-slate-900 hover:bg-slate-800 text-white font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 shadow-sm cursor-pointer disabled:opacity-50"
-              >
-                <Share2 className="w-3 h-3" />
-                <span>Share Invoice</span>
-              </button>
-
-              {/* Share Format Selection Dropdown */}
-              {showShareFormatModal && (
-                <div className="absolute bottom-full mb-2 right-0 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
-                  <div className="p-2 flex flex-col gap-1">
-                    <div className="text-[10px] font-black text-slate-500 uppercase px-2 mb-1">Select Format</div>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); shareNative('image'); }}
-                      className="text-left px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
-                    >
-                      📸 Share as Image
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); shareNative('pdf'); }}
-                      className="text-left px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
-                    >
-                      📄 Share as PDF
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); shareNative('text'); }}
-                      className="text-left px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
-                    >
-                      📝 Share as Text
-                    </button>
+            <div className="w-full sm:w-80 bg-white p-3.5 rounded-xl border-2 border-slate-900 space-y-2 text-[11px]">
+              {taxAnalysis.isMixed && taxAnalysis.taxAmount > 0 ? (
+                <>
+                  <div className="flex justify-between text-slate-700">
+                    <span className="font-medium">1. Taxable Subtotal (Net):</span>
+                    <span className="font-bold text-slate-900">{formatTZS(taxAnalysis.taxableNetSubtotal)}</span>
                   </div>
+                  <div className="flex justify-between text-slate-700">
+                    <span className="font-medium">2. Non-VAT / Exempt Subtotal:</span>
+                    <span className="font-bold text-slate-900">{formatTZS(taxAnalysis.exemptSubtotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-700">
+                    <span className="font-medium">TRA VAT ({activeVatPercentage}% on Taxable):</span>
+                    <span className="font-bold text-slate-900">{formatTZS(taxAnalysis.taxAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-800 pt-1 border-t border-dotted border-slate-300 font-bold">
+                    <span>Total Net Subtotal:</span>
+                    <span>{formatTZS(taxAnalysis.netSubtotal)}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between text-slate-700">
+                    <span className="font-medium">
+                      {includeVat && activeVatPercentage > 0 && calculatedTax > 0 ? 'Subtotal (Excl. Tax):' : 'Subtotal:'}
+                    </span>
+                    <span className="font-bold text-slate-900">{formatTZS(calculatedSubtotal)}</span>
+                  </div>
+
+                  {/* TRA VAT Line Item (Only show if VAT is enabled, percentage > 0 and tax > 0) */}
+                  {includeVat && activeVatPercentage > 0 && calculatedTax > 0 && (
+                    <div className="flex justify-between text-slate-700">
+                      <span className="font-medium">TRA VAT ({activeVatPercentage}% Incl.):</span>
+                      <span className="font-bold text-slate-900">{formatTZS(calculatedTax)}</span>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {discountAmount > 0 && (
+                <div className="flex justify-between text-emerald-700">
+                  <span className="font-medium">Discount Applied:</span>
+                  <span className="font-bold">-{formatTZS(discountAmount)}</span>
                 </div>
               )}
+
+              {orderExtraCosts.length > 0 ? (
+                orderExtraCosts.map((cost, cIdx) => (
+                  <div key={cIdx} className="flex justify-between text-slate-700">
+                    <span className="font-medium">{cost.name || 'Additional Service'}:</span>
+                    <span className="font-bold text-slate-900">+{formatTZS(cost.amount)}</span>
+                  </div>
+                ))
+              ) : extraCostsTotal > 0 ? (
+                <div className="flex justify-between text-slate-700">
+                  <span className="font-medium">Delivery & Handling:</span>
+                  <span className="font-bold text-slate-900">+{formatTZS(extraCostsTotal)}</span>
+                </div>
+              ) : null}
+              
+              <div className="flex justify-between pt-2 border-t-2 border-slate-900 font-black text-base text-slate-900 bg-slate-100 p-2 rounded">
+                <span>{docType === 'proforma' ? 'QUOTED TOTAL:' : 'GRAND TOTAL:'}</span>
+                <span>{formatTZS(grandTotal)}</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Payment Remittance & Instructions Box (Strictly hidden on Delivery Note) */}
+        {docType !== 'delivery' && (
+          <div className="border border-slate-300 rounded-xl p-3.5 bg-slate-50 space-y-2.5 text-[11px] keep-together">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+              <span className="font-extrabold text-slate-900 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-blue-700" />
+                {docType === 'proforma' 
+                  ? 'PROFORMA PAYMENT & REMITTANCE CHANNELS' 
+                  : 'OFFICIAL SETTLEMENT & REMITTANCE CHANNELS (TRA Verified)'}
+              </span>
+              <span className="text-[9px] font-black bg-blue-100 text-blue-900 border border-blue-300 px-2.5 py-0.5 rounded uppercase">
+                {docType === 'proforma' ? 'Quote Reference' : 'Payment Method'}: {order.paymentMethod || 'Selected at Checkout'}
+              </span>
+            </div>
+
+            {selectedMethod ? (
+              <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="text-slate-900 font-extrabold text-xs flex items-center gap-1.5">
+                    {selectedMethod.type === 'Mobile Money' ? (
+                      <Smartphone className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : selectedMethod.type === 'Orbi Pay' ? (
+                      <QrCode className="w-4 h-4 text-purple-600 shrink-0" />
+                    ) : (
+                      <Building2 className="w-4 h-4 text-blue-700 shrink-0" />
+                    )}
+                    <span>{selectedMethod.provider} ({selectedMethod.type})</span>
+                  </div>
+                  <span className="text-[9px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-300">
+                    Verified Merchant Account
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                    <span className="text-slate-500 text-[9px] font-bold block uppercase">Account / Till Number:</span>
+                    <span className="font-mono font-black text-slate-900 text-xs sm:text-sm">{selectedMethod.accountNumber}</span>
+                  </div>
+                  <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                    <span className="text-slate-500 text-[9px] font-bold block uppercase">Account Name:</span>
+                    <span className="font-bold text-slate-900 text-xs">{selectedMethod.accountName}</span>
+                  </div>
+                </div>
+                {selectedMethod.instructions && (
+                  <div className="text-slate-600 text-[10px] pt-1 border-t border-slate-100 mt-1">
+                    <span className="font-bold text-slate-800">Payment Instructions:</span> {selectedMethod.instructions}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="text-slate-900 font-extrabold text-xs flex items-center gap-1.5">
+                    <CreditCard className="w-4 h-4 text-blue-700" />
+                    <span>{order.paymentMethod || 'Selected Payment Method'}</span>
+                  </div>
+                  <span className="bg-blue-50 text-blue-800 text-[9px] font-bold px-2 py-0.5 rounded border border-blue-200">
+                    Direct Payment
+                  </span>
+                </div>
+                <p className="text-slate-600 text-[10px] pt-1">
+                  Selected payment option: <strong className="text-slate-900">{order.paymentMethod}</strong>. Please quote reference <strong className="text-slate-900">{currentDocRef}</strong> during deposit.
+                </p>
+              </div>
+            )}
+
+            <div className="pt-1.5 border-t border-slate-200 flex items-center justify-between text-[10px]">
+              <span className="text-slate-700">
+                Please quote Reference <strong className="text-slate-900">{currentDocRef}</strong> as payment reference for automated reconciliation.
+              </span>
+              <div className="relative no-print">
+                <button
+                  type="button"
+                  onClick={handleShareMenuClick}
+                  disabled={isSharing}
+                  className="shrink-0 bg-slate-900 hover:bg-slate-800 text-white font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  <Share2 className="w-3 h-3" />
+                  <span>Share {docType === 'proforma' ? 'Quotation' : 'Invoice'}</span>
+                </button>
+
+                {/* Share Format Selection Dropdown */}
+                {showShareFormatModal && (
+                  <div className="absolute bottom-full mb-2 right-0 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
+                    <div className="p-2 flex flex-col gap-1">
+                      <div className="text-[10px] font-black text-slate-500 uppercase px-2 mb-1">Select Format</div>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); shareNative('image'); }}
+                        className="text-left px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
+                      >
+                        📸 Share as Image
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); shareNative('pdf'); }}
+                        className="text-left px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
+                      >
+                        📄 Share as PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); shareNative('text'); }}
+                        className="text-left px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
+                      >
+                        📝 Share as Text
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Goods Dispatch & Reception Signatures (For Delivery Note) */}
         {docType === 'delivery' && (
-          <div className="grid grid-cols-2 gap-4 p-3 rounded-xl border border-slate-300 bg-slate-50 text-[10px] keep-together">
-            <div className="space-y-4">
-              <p className="font-bold uppercase text-slate-800">Dispatched by (Warehouse/Store Cashier):</p>
-              <div className="border-b border-dashed border-slate-400 pt-4" />
-              <p className="text-slate-600">Name & Signature / Date</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl border-2 border-slate-900 bg-slate-50 text-[10px] keep-together">
+            <div className="space-y-3 bg-white p-3 rounded-lg border border-slate-300">
+              <p className="font-black uppercase text-slate-900 flex items-center gap-1.5">
+                <Truck className="w-3.5 h-3.5 text-emerald-700" />
+                Dispatched by (Store / Warehouse Officer):
+              </p>
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-semibold w-24">Officer Name:</span>
+                  <span className="border-b border-dotted border-slate-400 flex-1 font-bold text-slate-800">Genuine Electronics Dispatch Officer</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-semibold w-24">Signature:</span>
+                  <div className="border-b border-dashed border-slate-400 flex-1 h-5" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-semibold w-24">Date & Time:</span>
+                  <span className="font-mono text-slate-700">{orderDate}</span>
+                </div>
+              </div>
             </div>
-            <div className="space-y-4">
-              <p className="font-bold uppercase text-slate-800">Received in Good Order by Customer/Carrier:</p>
-              <div className="border-b border-dashed border-slate-400 pt-4" />
-              <p className="text-slate-600">Recipient Name & Signature / Date</p>
+
+            <div className="space-y-3 bg-white p-3 rounded-lg border border-slate-300">
+              <p className="font-black uppercase text-slate-900 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-blue-700" />
+                Received in Good Order by (Customer / Carrier):
+              </p>
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-semibold w-24">Recipient Name:</span>
+                  <div className="border-b border-dotted border-slate-400 flex-1 font-bold text-slate-800">{order.customerName || ''}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-semibold w-24">Signature & ID:</span>
+                  <div className="border-b border-dashed border-slate-400 flex-1 h-5" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-semibold w-24">Date & Time:</span>
+                  <div className="border-b border-dotted border-slate-400 flex-1" />
+                </div>
+                <div className="flex items-center gap-1.5 text-[9px] text-slate-600 pt-1 font-semibold">
+                  <input type="checkbox" defaultChecked className="accent-emerald-600 rounded" />
+                  <span>All packages verified complete, undamaged, and received in good order.</span>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -1176,25 +1423,47 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         {/* Official Electronic Verification QR Code & Authorized Seal / Stamp Footer */}
         <div className="pt-3 flex justify-between items-center text-[10px] text-slate-600 border-t-2 border-slate-900 keep-together">
           <div className="flex items-center gap-3">
-            <div className="p-1.5 bg-white rounded-lg border-2 border-slate-900 shadow-sm">
+            <a 
+              href={buildInvoiceVerificationUrl({
+                orderNo: (order as any).orderNumber || order.id || cleanOrderNo,
+                invoiceNo: currentDocRef,
+                docType: docType,
+                totalAmount: docType === 'delivery' ? undefined : (order.totalAmount || grandTotal || 0),
+                customerName: order.customerName,
+                paymentStatus: order.paymentStatus
+              })}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Click or scan to verify official electronic document online"
+              className="p-1.5 bg-white rounded-lg border-2 border-slate-900 shadow-sm hover:ring-2 hover:ring-blue-500 transition-all cursor-pointer block shrink-0"
+            >
               <QRCodeSVG 
-                value={buildReceiptVerificationUrl({
-                  orderNo: (order as any).orderNumber || order.id || invoiceNo,
-                  receiptNo: invoiceNo,
-                  totalAmount: order.totalAmount || 0
+                value={buildInvoiceVerificationUrl({
+                  orderNo: (order as any).orderNumber || order.id || cleanOrderNo,
+                  invoiceNo: currentDocRef,
+                  docType: docType,
+                  totalAmount: docType === 'delivery' ? undefined : (order.totalAmount || grandTotal || 0),
+                  customerName: order.customerName,
+                  paymentStatus: order.paymentStatus
                 })} 
                 size={52} 
                 level="M" 
               />
-            </div>
+            </a>
             <div>
               <p className="font-black text-slate-900 text-xs">Genuine Electronics Tanzania Ltd</p>
-              <p className="text-[10px] text-slate-600">Scan QR Code to verify document authenticity & fiscal status online.</p>
+              <p className="text-[10px] text-slate-600">
+                {docType === 'delivery'
+                  ? 'Scan QR Code to verify consignment dispatch & authentic packing slip online.'
+                  : docType === 'proforma'
+                  ? 'Scan QR Code to verify official quotation & validity terms online.'
+                  : 'Scan QR Code to verify document authenticity & fiscal status online.'}
+              </p>
               <p className="text-[9px] text-slate-500">
                 {docType === 'tax' 
                   ? (includeVat && activeVatPercentage > 0 && calculatedTax > 0 ? 'TRA Compliant Commercial Electronic Tax Invoice' : 'Commercial Electronic Sales Invoice')
                   : docType === 'proforma'
-                  ? 'Official Proforma Quotation Document'
+                  ? 'Official Proforma Quotation Document (Valid for 14 Days)'
                   : 'Official Consignment & Delivery Manifest'}
               </p>
             </div>
@@ -1209,13 +1478,13 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                     ★ GENUINE ELEC. ★
                   </span>
                   <span className="text-[7px] font-black border-y border-[#0033a0] py-0.5 my-0.5 uppercase tracking-widest text-[#002270] w-full">
-                    {docType === 'tax' ? 'TAX INVOICE' : docType === 'proforma' ? 'QUOTATION' : 'DISPATCHED'}
+                    {docType === 'tax' ? 'TAX INVOICE' : docType === 'proforma' ? 'QUOTATION' : 'DELIVERY NOTE'}
                   </span>
                   <span className="text-[6.5px] font-bold font-mono leading-none text-[#0033a0]">
                     {orderDate.split(' ')[0] || 'VERIFIED'}
                   </span>
                   <span className="text-[6px] font-black text-emerald-800 uppercase tracking-tighter mt-0.5">
-                    {order.paymentStatus === 'Paid' ? 'PAID & VERIFIED' : 'OFFICIAL SEAL'}
+                    {docType === 'delivery' ? 'GOODS DISPATCHED' : (order.paymentStatus === 'Paid' ? 'PAID & VERIFIED' : 'OFFICIAL SEAL')}
                   </span>
                 </div>
               </div>
@@ -1227,7 +1496,9 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                   APPROVED & AUTHORIZED
                 </span>
               </div>
-              <p className="font-bold text-slate-800 text-[10px]">Financial Operations & Logistics Dept.</p>
+              <p className="font-bold text-slate-800 text-[10px]">
+                {docType === 'delivery' ? 'Store Logistics & Dispatch Dept.' : 'Financial Operations & Audit Dept.'}
+              </p>
               <p className="text-[9px] text-slate-500">Dar es Salaam, Tanzania</p>
             </div>
           </div>

@@ -8,17 +8,42 @@ import { useLoanAlerts } from './hooks/useLoanAlerts';
 import { ShieldCheck, Sparkles, Bot, MessageSquareText } from 'lucide-react';
 import { customAlert, customConfirm } from './utils/dialog';
 
-const ClientApp = lazy(() => import('./components/ClientShop').then(m => ({ default: m.ClientShop })));
-const InternetConnectionBanner = lazy(() => import('./components/InternetConnectionBanner').then(m => ({ default: m.InternetConnectionBanner })));
-const WhatsAppFloatingButton = lazy(() => import('./components/WhatsAppFloatingButton').then(m => ({ default: m.WhatsAppFloatingButton })));
-const CookieConsentBanner = lazy(() => import('./components/CookieConsentBanner').then(m => ({ default: m.CookieConsentBanner })));
-const AIChatWidget = lazy(() => import('./components/AIChatWidget').then(m => ({ default: m.AIChatWidget })));
-const InstallPwaBanner = lazy(() => import('./components/InstallPwaBanner').then(m => ({ default: m.InstallPwaBanner })));
-const Footer = lazy(() => import('./components/Footer').then(m => ({ default: m.Footer })));
-const ClientProfileModal = lazy(() => import('./components/ClientProfileModal').then(m => ({ default: m.ClientProfileModal })));
+function lazyWithRetry<T extends React.ComponentType<any>>(
+  factory: () => Promise<{ default: T }>,
+  retries = 2,
+  interval = 500
+): React.LazyExoticComponent<T> {
+  return lazy(() =>
+    new Promise<{ default: T }>((resolve, reject) => {
+      const attempt = (remaining: number) => {
+        factory()
+          .then(resolve)
+          .catch((error) => {
+            if (remaining <= 0) {
+              reject(error);
+              return;
+            }
+            setTimeout(() => {
+              attempt(remaining - 1);
+            }, interval);
+          });
+      };
+      attempt(retries);
+    })
+  );
+}
 
-const AdminApp = lazy(() => import('./components/AdminPortal').then(m => ({ default: m.AdminPortal })));
-const AuthScreen = lazy(() => import('./components/AuthScreen').then(m => ({ default: m.AuthScreen })));
+const ClientApp = lazyWithRetry(() => import('./components/ClientShop').then(m => ({ default: m.ClientShop })));
+const InternetConnectionBanner = lazyWithRetry(() => import('./components/InternetConnectionBanner').then(m => ({ default: m.InternetConnectionBanner })));
+const WhatsAppFloatingButton = lazyWithRetry(() => import('./components/WhatsAppFloatingButton').then(m => ({ default: m.WhatsAppFloatingButton })));
+const CookieConsentBanner = lazyWithRetry(() => import('./components/CookieConsentBanner').then(m => ({ default: m.CookieConsentBanner })));
+const AIChatWidget = lazyWithRetry(() => import('./components/AIChatWidget').then(m => ({ default: m.AIChatWidget })));
+const InstallPwaBanner = lazyWithRetry(() => import('./components/InstallPwaBanner').then(m => ({ default: m.InstallPwaBanner })));
+const Footer = lazyWithRetry(() => import('./components/Footer').then(m => ({ default: m.Footer })));
+const ClientProfileModal = lazyWithRetry(() => import('./components/ClientProfileModal').then(m => ({ default: m.ClientProfileModal })));
+
+const AdminApp = lazyWithRetry(() => import('./components/AdminPortal').then(m => ({ default: m.AdminPortal })));
+const AuthScreen = lazyWithRetry(() => import('./components/AuthScreen').then(m => ({ default: m.AuthScreen })));
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'client' | 'admin'>('client');
@@ -889,31 +914,33 @@ export default function App() {
               </Suspense>
 
               {/* Client Profile & Orders Tracking Modal */}
-              <Suspense fallback={null}>
-              <ClientProfileModal
-                storeSettings={storeSettings} 
-                isOpen={isProfileModalOpen}
-                onClose={() => setIsProfileModalOpen(false)}
-                user={user}
-                profile={profile}
-                orders={orders}
-                onUpdateProfile={(updated) => {
-                  if (user || profile) {
-                    updateCustomerProfile({
-                      ...(profile || {}),
-                      ...updated,
-                      id: user?.id || profile?.id || 'client-profile'
-                    });
-                  }
-                }}
-                initialTab={profileModalTab}
-                onLogout={() => {
-                  handleAdminLogout();
-                  setIsProfileModalOpen(false);
-                }}
-                isDark={effectiveClientTheme === 'dark'}
-              />
-              </Suspense>
+              {isProfileModalOpen && (
+                <Suspense fallback={null}>
+                  <ClientProfileModal
+                    storeSettings={storeSettings} 
+                    isOpen={isProfileModalOpen}
+                    onClose={() => setIsProfileModalOpen(false)}
+                    user={user}
+                    profile={profile}
+                    orders={orders}
+                    onUpdateProfile={(updated) => {
+                      if (user || profile) {
+                        updateCustomerProfile({
+                          ...(profile || {}),
+                          ...updated,
+                          id: user?.id || profile?.id || 'client-profile'
+                        });
+                      }
+                    }}
+                    initialTab={profileModalTab}
+                    onLogout={() => {
+                      handleAdminLogout();
+                      setIsProfileModalOpen(false);
+                    }}
+                    isDark={effectiveClientTheme === 'dark'}
+                  />
+                </Suspense>
+              )}
 
               {/* Storefront Auth Screen Modal */}
               {isAuthModalOpen && (

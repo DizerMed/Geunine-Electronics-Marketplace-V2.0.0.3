@@ -2777,7 +2777,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [posLoanGuarantorName, setPosLoanGuarantorName] = useState('');
   const [posLoanGuarantorPhone, setPosLoanGuarantorPhone] = useState('');
   const [posOrderNotes, setPosOrderNotes] = useState('');
-  const [posViewMode, setPosViewMode] = useState<'grid' | 'compact'>('grid');
+  const [posViewMode, setPosViewMode] = useState<'grid' | 'inline' | 'compact'>('grid');
+  const [posMobileTab, setPosMobileTab] = useState<'catalog' | 'cart'>('catalog');
   const [posFilterInStockOnly, setPosFilterInStockOnly] = useState(false);
   const [posParkedOrders, setPosParkedOrders] = useState<{
     id: string;
@@ -3985,6 +3986,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const posChangeAmount = isSplitPaymentMode
     ? (posSplitTotalPaid > posTotal ? posSplitTotalPaid - posTotal : 0)
     : (posPaymentMethod === 'Cash' && posTenderedAmount > posTotal ? posTenderedAmount - posTotal : 0);
+
+  const posCartItemCount = posCart.reduce((sum, item) => sum + item.quantity, 0);
+
+  const posFilteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      const matchesCategory = selectedPOSCategory === 'All' || p.category === selectedPOSCategory;
+      const q = (posBarcodeQuery || '').toLowerCase().trim();
+      const matchesQuery =
+        !q ||
+        (p.name && String(p.name).toLowerCase().includes(q)) ||
+        (p.barcode && p.barcode.includes(posBarcodeQuery)) ||
+        (p.sku && String(p.sku).toLowerCase().includes(q)) ||
+        (p.brand && String(p.brand).toLowerCase().includes(q));
+      const matchesStock = !posFilterInStockOnly || Number(p.stock || 0) > 0;
+      const matchesLocalOnly = !posFilterLocalOnly || Boolean(p.isLocalOnly);
+      return matchesCategory && matchesQuery && matchesStock && matchesLocalOnly;
+    });
+  }, [products, selectedPOSCategory, posBarcodeQuery, posFilterInStockOnly, posFilterLocalOnly]);
 
   const handleCompletePOS = async () => {
     if (posCart.length === 0) return;
@@ -8474,10 +8493,49 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </div>
             )}
 
+            {/* Mobile View Switcher: Products vs Cart */}
+            <div className="lg:hidden flex items-center p-1 rounded-2xl border bg-slate-100 dark:bg-slate-800/90 border-slate-200 dark:border-slate-700 shadow-xs mb-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setPosMobileTab('catalog');
+                  triggerHaptic('light');
+                }}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all ${
+                  posMobileTab === 'catalog'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Package className="w-4 h-4" />
+                <span>Products ({posFilteredProducts.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPosMobileTab('cart');
+                  triggerHaptic('light');
+                }}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all relative ${
+                  posMobileTab === 'cart'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <ShoppingCart className="w-4 h-4" />
+                <span>Register Cart</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                  posMobileTab === 'cart' ? 'bg-white/25 text-white' : 'bg-blue-600 text-white shadow-xs'
+                }`}>
+                  {posCartItemCount} · {formatTZS(posTotal)}
+                </span>
+              </button>
+            </div>
+
             {/* POS Main Grid: Left Catalog + Right Full-Height Selling Card */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch pb-20 lg:pb-0 min-h-[calc(100vh-220px)]">
               {/* Product Selector / Scanner / Catalog (Cols 7 on lg, 8 on 2xl) */}
-              <div className="lg:col-span-7 xl:col-span-7 2xl:col-span-8 flex flex-col space-y-4">
+              <div className={`lg:col-span-7 xl:col-span-7 2xl:col-span-8 flex-col space-y-4 ${posMobileTab === 'cart' ? 'hidden lg:flex' : 'flex'}`}>
                 {/* Search, Filter Bar & Controls */}
                 <div className={`p-4 rounded-2xl border space-y-3 ${cardBg}`}>
                   <div className="flex items-center gap-2">
@@ -8514,7 +8572,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <span className="hidden sm:inline">Camera Scanner</span>
                     </button>
 
-                    {/* View Switcher: Grid vs Compact */}
+                    {/* View Switcher: Grid vs Inline Cards vs Compact */}
                     <div className="flex items-center rounded-xl border p-0.5 shrink-0 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700">
                       <button
                         onClick={() => setPosViewMode('grid')}
@@ -8522,6 +8580,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         title="Visual Grid View"
                       >
                         <Grid className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setPosViewMode('inline')}
+                        className={`p-2 rounded-lg transition-all ${posViewMode === 'inline' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                        title="Inline Cards View"
+                      >
+                        <Layers className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => setPosViewMode('compact')}
@@ -8591,21 +8656,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                 </div>
 
-                {/* Product Catalog Display (Grid / Compact) */}
+                {/* Product Catalog Display (Grid / Inline / Compact) */}
                 {(() => {
-                  const filteredProducts = products.filter((p) => {
-                    const matchesCategory = selectedPOSCategory === 'All' || p.category === selectedPOSCategory;
-                    const q = (posBarcodeQuery || '').toLowerCase().trim();
-                    const matchesQuery =
-                      !q ||
-                      (p.name && String(p.name).toLowerCase().includes(q)) ||
-                      (p.barcode && p.barcode.includes(posBarcodeQuery)) ||
-                      (p.sku && String(p.sku).toLowerCase().includes(q)) ||
-                      (p.brand && String(p.brand).toLowerCase().includes(q));
-                    const matchesStock = !posFilterInStockOnly || Number(p.stock || 0) > 0;
-                    const matchesLocalOnly = !posFilterLocalOnly || Boolean(p.isLocalOnly);
-                    return matchesCategory && matchesQuery && matchesStock && matchesLocalOnly;
-                  });
+                  const filteredProducts = posFilteredProducts;
 
                   if (filteredProducts.length === 0) {
                     return (
@@ -8627,10 +8680,100 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     );
                   }
 
+                  const renderInlineCard = (p: Product) => {
+                    const stock = Number(p.stock || 0);
+                    const inCart = posCart.find(i => i.product.id === p.id);
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => handleAddToCartPOS(p)}
+                        className={`p-2.5 sm:p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 relative group ${
+                          isDark
+                            ? 'bg-slate-900/90 border-slate-800 hover:border-blue-500 hover:bg-slate-850'
+                            : 'bg-white border-slate-200 hover:border-blue-500 hover:shadow-md'
+                        } ${inCart ? 'ring-2 ring-blue-500/50 border-blue-500 bg-blue-50/20 dark:bg-blue-950/20' : ''}`}
+                      >
+                        <div className="relative shrink-0">
+                          <img
+                            src={p.image}
+                            alt={p.name}
+                            className={`w-12 h-12 sm:w-14 sm:h-14 object-cover rounded-xl border ${isDark ? 'border-slate-700' : 'border-slate-200'}`}
+                          />
+                          {inCart && (
+                            <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-black flex items-center justify-center shadow-md">
+                              {inCart.quantity}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                            <span className="text-[10px] text-emerald-500 font-bold uppercase truncate max-w-[120px]">{p.brand || p.category}</span>
+                            {p.isLocalOnly && (
+                              <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-0.5 shrink-0">
+                                <Store className="w-2.5 h-2.5" />
+                                Local Stock
+                              </span>
+                            )}
+                            <span className={`px-1.5 py-0.2 rounded text-[8.5px] font-black shrink-0 ${
+                              stock <= 0
+                                ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                                : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                            }`}>
+                              {stock <= 0 ? 'Empty (0)' : `${stock} left`}
+                            </span>
+                          </div>
+                          <h4 className={`font-bold text-xs truncate ${textTitle}`} title={p.name}>{p.name}</h4>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs font-black text-blue-500">{formatTZS(p.price)}</span>
+                            {(p.sku || p.barcode) && <span className="text-[9.5px] font-mono text-slate-400 truncate hidden xs:inline">#{p.sku || p.barcode}</span>}
+                          </div>
+                        </div>
+
+                        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                          {inCart ? (
+                            <div className="flex items-center gap-1 bg-blue-50 dark:bg-blue-950/40 p-1 rounded-xl border border-blue-200 dark:border-blue-900/60">
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateQuantityPOS(p.id, inCart.quantity - 1)}
+                                className="w-7 h-7 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center font-bold text-xs border border-slate-200 dark:border-slate-700 active:scale-95 transition-all shadow-2xs"
+                                title="Decrease quantity"
+                              >
+                                <Minus className="w-3 h-3" />
+                              </button>
+                              <span className="w-6 text-center text-xs font-black text-blue-600 dark:text-blue-400">
+                                {inCart.quantity}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleAddToCartPOS(p)}
+                                disabled={stock <= inCart.quantity}
+                                className="w-7 h-7 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white flex items-center justify-center font-bold text-xs active:scale-95 transition-all shadow-2xs"
+                                title="Increase quantity"
+                              >
+                                <Plus className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handleAddToCartPOS(p)}
+                              disabled={stock <= 0}
+                              className="px-3 py-2 rounded-xl bg-blue-600/10 hover:bg-blue-600 text-blue-600 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed font-bold text-xs transition-all flex items-center gap-1 active:scale-95"
+                              title={stock <= 0 ? 'Cannot sell empty stock' : 'Add to register'}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>{stock <= 0 ? 'Empty' : 'Add'}</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  };
+
                   if (posViewMode === 'compact') {
                     return (
                       <div className={`flex-1 rounded-2xl border overflow-hidden ${cardBg}`}>
-                        <div className="overflow-x-auto max-h-[calc(100vh-320px)] overflow-y-auto">
+                        <div className="overflow-x-auto max-h-[calc(100vh-270px)] sm:max-h-[calc(100vh-320px)] overflow-y-auto">
                           <table className="w-full text-left text-xs">
                             <thead className={`sticky top-0 z-10 uppercase text-[10px] font-black tracking-wider ${isDark ? 'bg-slate-800/90 text-slate-400 border-b border-slate-700' : 'bg-slate-100 text-slate-600 border-b border-slate-200'}`}>
                               <tr>
@@ -8705,77 +8848,93 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     );
                   }
 
+                  if (posViewMode === 'inline') {
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 overflow-y-auto max-h-[calc(100vh-270px)] sm:max-h-[calc(100vh-320px)] pr-1 scrollbar-thin">
+                        {filteredProducts.map(renderInlineCard)}
+                      </div>
+                    );
+                  }
+
                   return (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5 overflow-y-auto max-h-[calc(100vh-320px)] pr-1">
-                      {filteredProducts.map((p) => {
-                        const stock = Number(p.stock || 0);
-                        const inCart = posCart.find(i => i.product.id === p.id);
-                        return (
-                          <div
-                            key={p.id}
-                            onClick={() => handleAddToCartPOS(p)}
-                            className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between relative group ${
-                              isDark
-                                ? 'bg-slate-900 border-slate-800 hover:border-blue-500 hover:bg-slate-850'
-                                : 'bg-white border-slate-200 hover:border-blue-500 hover:shadow-md'
-                            } ${inCart ? 'ring-2 ring-blue-500/50 border-blue-500' : ''}`}
-                          >
-                            <div className="flex gap-3 items-start">
-                              <div className="relative shrink-0">
-                                <img
-                                  src={p.image}
-                                  alt={p.name}
-                                  className={`w-16 h-16 object-cover rounded-xl border ${isDark ? 'border-slate-700' : 'border-slate-200'}`}
-                                />
-                                {inCart && (
-                                  <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-black flex items-center justify-center shadow-md">
-                                    {inCart.quantity}
-                                  </span>
-                                )}
-                              </div>
+                    <div className="space-y-3">
+                      {/* Mobile layout: clean inline cards with limited scroll */}
+                      <div className="sm:hidden space-y-2.5 overflow-y-auto max-h-[calc(100vh-270px)] pr-1 scrollbar-thin">
+                        {filteredProducts.map(renderInlineCard)}
+                      </div>
 
-                              <div className="flex-1 min-w-0 overflow-hidden">
-                                <div className="flex items-center justify-between gap-1 mb-0.5">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <span className="text-[10px] text-emerald-500 font-bold uppercase truncate">{p.brand || p.category}</span>
-                                    {p.isLocalOnly && (
-                                      <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-0.5 shrink-0">
-                                        <Store className="w-2.5 h-2.5" />
-                                        Local
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-black shrink-0 ${
-                                    stock <= 0
-                                      ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
-                                      : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
-                                  }`}>
-                                    {stock <= 0 ? 'Empty (0)' : `${stock} left`}
-                                  </span>
+                      {/* Tablet/Desktop layout: responsive multi-column visual grid */}
+                      <div className="hidden sm:grid sm:grid-cols-2 xl:grid-cols-3 gap-3.5 overflow-y-auto max-h-[calc(100vh-320px)] pr-1">
+                        {filteredProducts.map((p) => {
+                          const stock = Number(p.stock || 0);
+                          const inCart = posCart.find(i => i.product.id === p.id);
+                          return (
+                            <div
+                              key={p.id}
+                              onClick={() => handleAddToCartPOS(p)}
+                              className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between relative group ${
+                                isDark
+                                  ? 'bg-slate-900 border-slate-800 hover:border-blue-500 hover:bg-slate-850'
+                                  : 'bg-white border-slate-200 hover:border-blue-500 hover:shadow-md'
+                              } ${inCart ? 'ring-2 ring-blue-500/50 border-blue-500' : ''}`}
+                            >
+                              <div className="flex gap-3 items-start">
+                                <div className="relative shrink-0">
+                                  <img
+                                    src={p.image}
+                                    alt={p.name}
+                                    className={`w-16 h-16 object-cover rounded-xl border ${isDark ? 'border-slate-700' : 'border-slate-200'}`}
+                                  />
+                                  {inCart && (
+                                    <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-black flex items-center justify-center shadow-md">
+                                      {inCart.quantity}
+                                    </span>
+                                  )}
                                 </div>
-                                <h4 className={`font-bold text-xs line-clamp-2 leading-snug ${textTitle}`}>{p.name}</h4>
-                                <div className="text-[10px] font-mono text-slate-400 mt-1 truncate">SKU: {p.sku || p.barcode}</div>
+
+                                <div className="flex-1 min-w-0 overflow-hidden">
+                                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <span className="text-[10px] text-emerald-500 font-bold uppercase truncate">{p.brand || p.category}</span>
+                                      {p.isLocalOnly && (
+                                        <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-0.5 shrink-0">
+                                          <Store className="w-2.5 h-2.5" />
+                                          Local Stock
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-black shrink-0 ${
+                                      stock <= 0
+                                        ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                                        : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                                    }`}>
+                                      {stock <= 0 ? 'Empty (0)' : `${stock} left`}
+                                    </span>
+                                  </div>
+                                  <h4 className={`font-bold text-xs line-clamp-2 leading-snug ${textTitle}`}>{p.name}</h4>
+                                  <div className="text-[10px] font-mono text-slate-400 mt-1 truncate">SKU: {p.sku || p.barcode}</div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                                <div className="text-xs font-black text-blue-500 whitespace-nowrap">{formatTZS(p.price)}</div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAddToCartPOS(p);
+                                  }}
+                                  disabled={stock <= 0}
+                                  className="px-2.5 py-1 rounded-lg bg-blue-600/10 hover:bg-blue-600 text-blue-600 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[10px] transition-all flex items-center gap-1"
+                                  title={stock <= 0 ? 'Cannot sell empty stock' : 'Add to register'}
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>{stock <= 0 ? 'Empty' : 'Add'}</span>
+                                </button>
                               </div>
                             </div>
-
-                            <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
-                              <div className="text-xs font-black text-blue-500 whitespace-nowrap">{formatTZS(p.price)}</div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAddToCartPOS(p);
-                                }}
-                                disabled={stock <= 0}
-                                className="px-2.5 py-1 rounded-lg bg-blue-600/10 hover:bg-blue-600 text-blue-600 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[10px] transition-all flex items-center gap-1"
-                                title={stock <= 0 ? 'Cannot sell empty stock' : 'Add to register'}
-                              >
-                                <Plus className="w-3 h-3" />
-                                <span>{stock <= 0 ? 'Empty' : 'Add'}</span>
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })()}
@@ -8784,9 +8943,31 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               {/* POS Cart & Stretched Checkout Section (Cols 5 on lg, 4 on 2xl) */}
               <div
                 id="pos-cart-section"
-                className={`lg:col-span-5 xl:col-span-5 2xl:col-span-4 rounded-3xl border p-5 sm:p-6 flex flex-col justify-between sticky top-4 lg:min-h-[calc(100vh-140px)] lg:max-h-[calc(100vh-100px)] overflow-y-auto ${cardBg} shadow-xl`}
+                className={`lg:col-span-5 xl:col-span-5 2xl:col-span-4 rounded-3xl border p-4 sm:p-6 flex flex-col justify-between sticky top-4 lg:min-h-[calc(100vh-140px)] lg:max-h-[calc(100vh-100px)] overflow-y-auto ${cardBg} shadow-xl ${
+                  posMobileTab === 'catalog' ? 'hidden lg:flex' : 'flex'
+                }`}
               >
                 <div className="space-y-4">
+                  {/* Mobile Back Button to Products */}
+                  <div className="lg:hidden pb-3 border-b border-slate-200 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPosMobileTab('catalog');
+                        triggerHaptic('light');
+                      }}
+                      className="w-full py-2.5 px-4 rounded-xl bg-blue-600/10 hover:bg-blue-600/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-bold text-xs flex items-center justify-between transition-all active:scale-98"
+                    >
+                      <div className="flex items-center gap-2">
+                        <ArrowLeft className="w-4 h-4" />
+                        <span>← Back to Products Catalog</span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-600 text-white font-black">
+                        {posFilteredProducts.length} Items Available
+                      </span>
+                    </button>
+                  </div>
+
                   {/* Cart Header */}
                   <div className={`pb-3 border-b flex items-center justify-between ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
                     <div>
@@ -9870,36 +10051,72 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </div>
             </div>
 
-            {/* Mobile Floating POS Bar */}
-            <div className="lg:hidden fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-slate-950/80 via-slate-950/40 to-transparent z-30 pointer-events-none">
-              <div className={`p-4 rounded-2xl border shadow-2xl flex items-center justify-between gap-4 pointer-events-auto ${isDark ? 'bg-slate-900/90 border-slate-700 backdrop-blur-md' : 'bg-white/90 border-slate-200 backdrop-blur-md'}`}>
-                <div className="flex-1 min-w-0">
-                  <div className={`text-[10px] font-bold uppercase tracking-wider ${textSub}`}>POS Cart</div>
-                  <div className={`text-lg font-black text-blue-500`}>{formatTZS(posTotal)}</div>
-                  <div className={`text-[10px] ${textSub}`}>{posCart.reduce((a, c) => a + c.quantity, 0)} items</div>
-                </div>
-
-                <div className="flex gap-2">
+            {/* Mobile Floating POS Bar (Persisted at Bottom) */}
+            {posMobileTab === 'catalog' && (
+              <div className="lg:hidden fixed bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-slate-950/90 via-slate-950/60 to-transparent z-40 pointer-events-none">
+                <div className={`p-3 rounded-2xl border shadow-2xl flex items-center justify-between gap-3 pointer-events-auto ${isDark ? 'bg-slate-900/95 border-slate-700/80 backdrop-blur-md' : 'bg-white/95 border-slate-200/90 backdrop-blur-md'}`}>
                   <button
+                    type="button"
                     onClick={() => {
-                      document.getElementById('pos-cart-section')?.scrollIntoView({ behavior: 'smooth' });
+                      setPosMobileTab('cart');
+                      triggerHaptic('light');
                     }}
-                    className={`p-3 rounded-xl border transition-all ${isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
+                    className="flex-1 min-w-0 text-left flex items-center gap-2.5 cursor-pointer group active:scale-98 transition-all"
                   >
-                    <ShoppingCart className="w-5 h-5" />
+                    <div className="relative p-2.5 rounded-xl bg-blue-600 text-white shadow-md shrink-0">
+                      <ShoppingCart className="w-4 h-4" />
+                      {posCartItemCount > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] font-black flex items-center justify-center shadow-xs">
+                          {posCartItemCount}
+                        </span>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-[10px] font-black uppercase tracking-wider ${textSub}`}>POS Cart</span>
+                        <span className="text-[10px] text-blue-500 font-bold flex items-center">
+                          View Items <ChevronRight className="w-3 h-3" />
+                        </span>
+                      </div>
+                      <div className="text-base font-black text-blue-500 truncate">
+                        {formatTZS(posTotal)}
+                      </div>
+                    </div>
                   </button>
 
-                  <button
-                    onClick={() => setShowPOSSalePreview(true)}
-                    disabled={posCart.length === 0}
-                    className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold px-6 py-3 rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-all active:scale-95 text-xs"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span>Checkout</span>
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPosMobileTab('cart');
+                        triggerHaptic('light');
+                      }}
+                      className={`px-3 py-2 rounded-xl border text-xs font-black transition-all ${
+                        isDark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <span>Cart ({posCartItemCount})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (posCart.length === 0) {
+                          showAlert('Cart is Empty', 'Please add products to the register cart first before checking out.', 'warning');
+                          return;
+                        }
+                        setShowPOSSalePreview(true);
+                      }}
+                      disabled={posCart.length === 0}
+                      className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-black px-4 py-2 rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 transition-all active:scale-95 text-xs"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Checkout</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Parked Orders Modal */}
             <AnimatePresence>
@@ -14951,7 +15168,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
                 <div>
                   <h3 className={`font-black text-lg ${textTitle}`}>Register & Sell Local Stock</h3>
-                  <p className={`text-xs ${textSub}`}>Add in-store physical items to POS cart and persist to database</p>
+                  <p className={`text-xs ${textSub}`}>Add in-store items to the cart and track physical shop stock</p>
                 </div>
               </div>
               <button
@@ -15005,7 +15222,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                 <div>
                   <label className={`block text-xs font-bold mb-1.5 ${textSub}`}>
-                    Cost Price (TZS) <span className="text-slate-400 font-normal">(for profit/Z-report)</span>
+                    Cost Price (TZS) <span className="text-slate-400 font-normal">(optional, for profit tracking)</span>
                   </label>
                   <input
                     type="number"
@@ -15129,7 +15346,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               </div>
 
-              {/* Database Persistence Box */}
+              {/* Store Inventory Toggle Box */}
               <div className={`p-3.5 rounded-2xl border transition-all ${
                 posCustomItemSaveToInventory
                   ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10'
@@ -15144,24 +15361,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   />
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <span className={`text-xs font-bold ${textTitle}`}>Save to Database (Local Inventory)</span>
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-500/20 text-amber-600 dark:text-amber-400">
+                      <span className={`text-xs font-bold ${textTitle}`}>Save to Store Inventory</span>
+                      <span className="px-2 py-0.5 rounded text-[9px] font-black bg-amber-500/20 text-amber-600 dark:text-amber-400">
                         In-Store Only
                       </span>
                     </div>
                     <p className={`text-[11px] leading-relaxed mt-1 ${textSub}`}>
                       {posCustomItemSaveToInventory ? (
                         <>
-                          Persists this item into PostgreSQL/Supabase <strong>products</strong> table with <code className="font-mono text-amber-600 dark:text-amber-400 font-bold">is_local_only = true</code>.
+                          Saves this product in your register so you can easily sell it again, scan its barcode, and track remaining stock.
                           {parseInt(posCustomItemStock, 10) > (parseInt(posCustomItemQty, 10) || 1) ? (
-                            <span> After selling {posCustomItemQty} now, <strong>{Math.max(0, (parseInt(posCustomItemStock, 10) || 1) - (parseInt(posCustomItemQty, 10) || 1))} units</strong> will remain in your local store catalog for future sales and barcode scans.</span>
+                            <span> After selling {posCustomItemQty} now, you will have <strong>{Math.max(0, (parseInt(posCustomItemStock, 10) || 1) - (parseInt(posCustomItemQty, 10) || 1))} units</strong> left on your shop shelves.</span>
                           ) : (
-                            <span> Registered in your catalog for re-stocking and future transactions.</span>
+                            <span> Keeps this item in your shop list for future sales and easy restocking.</span>
                           )}
-                          <br /><span className="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Excluded from public online storefront & Google Shopping feed.</span>
+                          <br /><span className="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Only visible in the POS register — will never appear on your online website.</span>
                         </>
                       ) : (
-                        <span>Quick ad-hoc sale: items will be sold in this cart session without saving to your permanent product catalog.</span>
+                        <span>One-time quick sale: adds the item directly to this receipt without saving it to your store inventory.</span>
                       )}
                     </p>
                   </div>
@@ -15257,7 +15474,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       setPosCustomItemStock('1');
                       setPosCustomItemBarcode('');
                     } catch (err: any) {
-                      customAlert(err.message || 'Failed to register local stock product');
+                      customAlert(err.message || 'Failed to save product to store stock');
                     } finally {
                       setPosCustomItemIsSubmitting(false);
                     }
@@ -15270,7 +15487,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     <PackagePlus className="w-4 h-4" />
                   )}
                   <span>
-                    {posCustomItemSaveToInventory ? 'Add to Cart & Save Stock' : 'Add to Cart (One-Time)'}
+                    {posCustomItemSaveToInventory ? 'Add to Cart & Save Stock' : 'Add to Cart (One-Time Sale)'}
                   </span>
                 </button>
               </div>

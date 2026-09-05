@@ -16,6 +16,16 @@ export default defineConfig(() => {
       },
       dedupe: ['react', 'react-dom'],
     },
+    optimizeDeps: {
+      include: [
+        'react',
+        'react-dom',
+        'lucide-react',
+        'jspdf',
+        'html-to-image',
+        'qrcode.react',
+      ],
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       hmr: process.env.DISABLE_HMR !== 'true',

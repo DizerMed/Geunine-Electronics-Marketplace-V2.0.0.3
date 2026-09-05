@@ -965,3 +965,5 @@ export const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
     </div>
   );
 };
+
+export default ClientProfileModal;

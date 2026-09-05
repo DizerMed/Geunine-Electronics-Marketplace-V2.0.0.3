@@ -215,6 +215,168 @@ export function parseReceiptQueryParams(
   };
 }
 
+export interface InvoiceVerificationData {
+  orderNo: string;
+  invoiceNo?: string;
+  docType?: 'tax' | 'proforma' | 'delivery';
+  totalAmount?: number;
+  customerName?: string;
+  paymentStatus?: string;
+  verificationHash?: string;
+}
+
+/**
+ * Builds the online invoice verification URL for Invoices, Proforma & Delivery Notes:
+ * .../invoice/?orderNo=abce3467&invoiceNo=INV-abce3467&type=tax
+ */
+export function buildInvoiceVerificationUrl(
+  summary: InvoiceVerificationData,
+  baseUrl?: string
+): string {
+  const cleanOrderNo = (summary.orderNo || '').replace(/^#/, '').trim();
+  const cleanInvoiceNo = (summary.invoiceNo || cleanOrderNo).replace(/^#/, '').trim();
+  const docType = summary.docType || 'tax';
+
+  let origin = baseUrl;
+  if (!origin) {
+    if (typeof window !== 'undefined' && window.location && window.location.origin) {
+      origin = window.location.origin;
+    } else {
+      origin = 'https://genuine-electronics.com';
+    }
+  }
+
+  // Ensure origin doesn't end with slash
+  origin = origin.replace(/\/+$/, '');
+
+  const params = new URLSearchParams();
+  params.set('doc', 'invoice');
+  params.set('orderNo', cleanOrderNo);
+  params.set('invoiceNo', cleanInvoiceNo);
+  params.set('type', docType);
+
+  // Derivery Note should not display prices or payment totals
+  if (docType !== 'delivery' && summary.totalAmount) {
+    params.set('total', Math.round(summary.totalAmount).toString());
+  }
+
+  if (summary.customerName) {
+    params.set('customer', summary.customerName.trim());
+  }
+
+  const hash = summary.verificationHash || generateReceiptSecurityHash({
+    orderNo: cleanOrderNo,
+    receiptNo: cleanInvoiceNo,
+    totalAmount: docType === 'delivery' ? 0 : (summary.totalAmount || 0)
+  });
+  params.set('v', hash);
+
+  return `${origin}/invoice/?${params.toString()}`;
+}
+
+/**
+ * Parses query parameters specifically for Invoice / Delivery Note verification:
+ * e.g., /invoice/?orderNo=abce3467&invoiceNo=INV-abce3467&type=delivery
+ */
+export function parseInvoiceQueryParams(
+  urlOrParams?: string | URLSearchParams
+): {
+  orderNo: string | null;
+  invoiceNo: string | null;
+  docType: 'tax' | 'proforma' | 'delivery';
+  total: number | null;
+  customer: string | null;
+  hash: string | null;
+} {
+  let searchParams: URLSearchParams;
+
+  if (urlOrParams instanceof URLSearchParams) {
+    searchParams = urlOrParams;
+  } else if (typeof urlOrParams === 'string') {
+    if (urlOrParams.includes('?')) {
+      const queryString = urlOrParams.split('?')[1];
+      searchParams = new URLSearchParams(queryString);
+    } else {
+      searchParams = new URLSearchParams(urlOrParams);
+    }
+  } else if (typeof window !== 'undefined') {
+    searchParams = new URLSearchParams(window.location.search);
+  } else {
+    searchParams = new URLSearchParams('');
+  }
+
+  const orderNo = searchParams.get('orderNo') || searchParams.get('order') || searchParams.get('id') || searchParams.get('order_id');
+  const invoiceNo = searchParams.get('invoiceNo') || searchParams.get('invoice') || searchParams.get('inv') || searchParams.get('receipt') || orderNo;
+  const rawType = (searchParams.get('type') || searchParams.get('docType') || searchParams.get('doc_type') || '').toLowerCase();
+
+  let docType: 'tax' | 'proforma' | 'delivery' = 'tax';
+  const cleanInvUpper = (invoiceNo || '').toUpperCase();
+  if (rawType.includes('delivery') || rawType === 'dn' || cleanInvUpper.startsWith('DN-') || cleanInvUpper.startsWith('DN_')) {
+    docType = 'delivery';
+  } else if (rawType.includes('proforma') || rawType === 'pro' || cleanInvUpper.startsWith('PRO-') || cleanInvUpper.startsWith('PRO_')) {
+    docType = 'proforma';
+  }
+
+  const totalRaw = searchParams.get('total') || searchParams.get('amount');
+  const customer = searchParams.get('customer') || searchParams.get('name');
+  const hash = searchParams.get('v') || searchParams.get('hash') || searchParams.get('sig');
+
+  return {
+    orderNo: orderNo ? orderNo.trim() : null,
+    invoiceNo: invoiceNo ? invoiceNo.trim() : null,
+    docType,
+    total: docType === 'delivery' ? null : (totalRaw ? parseFloat(totalRaw) : null),
+    customer: customer ? customer.trim() : null,
+    hash: hash ? hash.trim() : null
+  };
+}
+
+/**
+ * Client-side helper to call the online invoice verification API endpoint
+ */
+export async function fetchOnlineInvoiceVerification(
+  orderNo: string,
+  invoiceNo: string,
+  docType?: string,
+  extraParams?: { customer?: string; total?: number | null }
+): Promise<{
+  isVerified: boolean;
+  status: 'VERIFIED' | 'MATCH_FOUND' | 'UNVERIFIED_DEMO' | 'NOT_FOUND';
+  docType: 'tax' | 'proforma' | 'delivery';
+  order: any | null;
+  storeInfo: any | null;
+  message: string;
+}> {
+  try {
+    const cleanOrder = encodeURIComponent(orderNo || '');
+    const cleanInvoice = encodeURIComponent(invoiceNo || '');
+    const cleanType = encodeURIComponent(docType || 'tax');
+    let url = `/api/verify-invoice?orderNo=${cleanOrder}&invoiceNo=${cleanInvoice}&docType=${cleanType}`;
+    if (extraParams?.customer) {
+      url += `&customer=${encodeURIComponent(extraParams.customer)}`;
+    }
+    if (extraParams?.total !== undefined && extraParams?.total !== null) {
+      url += `&total=${encodeURIComponent(extraParams.total.toString())}`;
+    }
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch (err) {
+    console.warn('Failed to fetch online invoice verification:', err);
+  }
+
+  return {
+    isVerified: false,
+    status: 'NOT_FOUND',
+    docType: (docType as any) || 'tax',
+    order: null,
+    storeInfo: null,
+    message: 'Could not connect to online invoice verification service.'
+  };
+}
+
 /**
  * Client-side helper to call the online verification API endpoint
  */

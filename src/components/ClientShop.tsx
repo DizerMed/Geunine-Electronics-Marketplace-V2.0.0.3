@@ -68,6 +68,7 @@ const ProductCompareModal = React.lazy(() => import('./ProductCompareModal').the
 const CompareFloatingBar = React.lazy(() => import('./ProductCompareModal').then(m => ({ default: m.CompareFloatingBar })));
 const ExpressBuyDrawer = React.lazy(() => import('./ExpressBuyDrawer').then(m => ({ default: m.ExpressBuyDrawer })));
 const ReceiptVerificationModal = React.lazy(() => import('./ReceiptVerificationModal').then(m => ({ default: m.ReceiptVerificationModal })));
+const InvoiceVerificationModal = React.lazy(() => import('./InvoiceVerificationModal').then(m => ({ default: m.InvoiceVerificationModal })));
 const ReviewForm = React.lazy(() => import('./ReviewForm').then(m => ({ default: m.ReviewForm })));
 import { customAlert, customConfirm } from '../utils/dialog';
 
@@ -293,6 +294,14 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
   const [isReceiptVerificationOpen, setIsReceiptVerificationOpen] = useState(false);
   const [receiptVerificationParams, setReceiptVerificationParams] = useState<{ orderNo?: string; receiptNo?: string } | null>(null);
 
+  // Invoice / Proforma / Delivery Note Online Verification State
+  const [isInvoiceVerificationOpen, setIsInvoiceVerificationOpen] = useState(false);
+  const [invoiceVerificationParams, setInvoiceVerificationParams] = useState<{
+    orderNo?: string;
+    invoiceNo?: string;
+    docType?: 'tax' | 'proforma' | 'delivery';
+  } | null>(null);
+
   // Toast Notification State
   const [toasts, setToasts] = useState<{ id: string; message: string; type: 'success' | 'error' | 'info' }[]>([]);
 
@@ -435,19 +444,45 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
       const searchParams = new URLSearchParams(window.location.search);
       const productIdFromQuery = searchParams.get('product') || searchParams.get('id');
 
-      // 0. Dedicated Receipt Verification route matching (.../receipt/?orderNo=abce3467&receipt=xewfghuii)
-      const isReceiptPath = pathname.startsWith('/receipt') || pathname.includes('/verify-receipt');
-      const orderNoFromQuery = searchParams.get('orderNo') || searchParams.get('order');
-      const receiptNoFromQuery = searchParams.get('receipt') || searchParams.get('receiptNo') || orderNoFromQuery;
+      // 0a. Dedicated Invoice / Proforma / Delivery Note Verification route matching
+      const isInvoicePath = pathname.startsWith('/invoice') || pathname.includes('/verify-invoice');
+      const invoiceNoFromQuery = searchParams.get('invoiceNo') || searchParams.get('inv');
+      const docTypeParam = searchParams.get('type') || searchParams.get('docType') || searchParams.get('doc_type');
+      const isExplicitInvoiceDoc = searchParams.get('doc') === 'invoice' || !!invoiceNoFromQuery;
 
-      if (isReceiptPath || (orderNoFromQuery && receiptNoFromQuery)) {
-        setIsReceiptVerificationOpen(true);
-        if (orderNoFromQuery || receiptNoFromQuery) {
-          setReceiptVerificationParams({
-            orderNo: orderNoFromQuery || undefined,
-            receiptNo: receiptNoFromQuery || undefined
-          });
+      if (isInvoicePath || isExplicitInvoiceDoc) {
+        const orderNoFromQuery = searchParams.get('orderNo') || searchParams.get('order') || searchParams.get('id');
+        const rawType = (docTypeParam || '').toLowerCase();
+        let docType: 'tax' | 'proforma' | 'delivery' = 'tax';
+        const cleanInvUpper = (invoiceNoFromQuery || '').toUpperCase();
+        if (rawType.includes('delivery') || rawType === 'dn' || cleanInvUpper.startsWith('DN-') || cleanInvUpper.startsWith('DN_')) {
+          docType = 'delivery';
+        } else if (rawType.includes('proforma') || rawType === 'pro' || cleanInvUpper.startsWith('PRO-') || cleanInvUpper.startsWith('PRO_')) {
+          docType = 'proforma';
         }
+
+        setIsInvoiceVerificationOpen(true);
+        setInvoiceVerificationParams({
+          orderNo: orderNoFromQuery || undefined,
+          invoiceNo: invoiceNoFromQuery || orderNoFromQuery || undefined,
+          docType
+        });
+        return;
+      }
+
+      // 0b. Dedicated Receipt Verification route matching (.../receipt/?orderNo=abce3467&receipt=xewfghuii)
+      const isReceiptPath = pathname.startsWith('/receipt') || pathname.includes('/verify-receipt');
+      const receiptNoParam = searchParams.get('receipt') || searchParams.get('receiptNo') || searchParams.get('rct');
+      const isExplicitReceiptDoc = searchParams.get('doc') === 'receipt';
+      const orderNoFromQuery = searchParams.get('orderNo') || searchParams.get('order');
+
+      if (isReceiptPath || isExplicitReceiptDoc || (orderNoFromQuery && receiptNoParam)) {
+        setIsReceiptVerificationOpen(true);
+        setReceiptVerificationParams({
+          orderNo: orderNoFromQuery || undefined,
+          receiptNo: receiptNoParam || orderNoFromQuery || undefined
+        });
+        return;
       }
 
       // Check for /deals route or #deals hash
@@ -3837,6 +3872,22 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
         orderNo={receiptVerificationParams?.orderNo}
         receiptNo={receiptVerificationParams?.receiptNo}
         storeSettings={storeSettings}
+      />
+</React.Suspense>
+
+      {/* Online Invoice / Delivery Note / Proforma Verification Modal */}
+      <React.Suspense fallback={null}>
+<InvoiceVerificationModal
+        isOpen={isInvoiceVerificationOpen}
+        onClose={() => {
+          setIsInvoiceVerificationOpen(false);
+          setInvoiceVerificationParams(null);
+        }}
+        orderNo={invoiceVerificationParams?.orderNo}
+        invoiceNo={invoiceVerificationParams?.invoiceNo}
+        docType={invoiceVerificationParams?.docType}
+        storeSettings={storeSettings}
+        clientOrders={orders}
       />
 </React.Suspense>
 

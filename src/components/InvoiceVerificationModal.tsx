@@ -111,7 +111,16 @@ export const InvoiceVerificationModal: React.FC<InvoiceVerificationModalProps> =
   if (!isOpen) return null;
 
   const orderData: Order | null = verificationResult?.order;
-  const store = verificationResult?.storeInfo || storeSettings;
+  const store = {
+    ...storeSettings,
+    ...(verificationResult?.storeInfo
+      ? Object.fromEntries(
+          Object.entries(verificationResult.storeInfo).filter(
+            ([_, v]) => v !== null && v !== undefined && v !== ''
+          )
+        )
+      : {})
+  };
   const isVerified = verificationResult?.isVerified !== false;
 
   const handleCopyLink = () => {
@@ -157,9 +166,13 @@ export const InvoiceVerificationModal: React.FC<InvoiceVerificationModalProps> =
                 <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950/80 border border-emerald-500/40 px-2 py-0.5 rounded-full">
                   OFFICIAL ONLINE DOCUMENT VERIFICATION
                 </span>
-                <span className="text-[9px] font-bold text-slate-300 bg-slate-800/80 border border-slate-700 px-2 py-0.5 rounded-full">
-                  TIN: {store?.tin || '104-982-371'}
-                </span>
+                {(store?.tin || store?.vrn) ? (
+                  <span className="text-[9px] font-bold text-slate-300 bg-slate-800/80 border border-slate-700 px-2 py-0.5 rounded-full">
+                    {store?.tin ? `TIN: ${store.tin}` : ''}
+                    {store?.tin && store?.vrn ? ' | ' : ''}
+                    {store?.vrn ? `VRN: ${store.vrn}` : ''}
+                  </span>
+                ) : null}
               </div>
               <h2 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-2 mt-0.5">
                 {activeDocType === 'delivery' ? (

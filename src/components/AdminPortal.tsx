@@ -1633,9 +1633,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
     tagline: 'Authorized Consumer & Enterprise Technology Retailer',
 
-    tin: '104-982-371',
+    tin: '',
 
-    vrn: '40-029182-Z',
+    vrn: '',
 
     address: 'Kariakoo / Ndanda na Masasi Street, Dar es Salaam Tanzania',
 

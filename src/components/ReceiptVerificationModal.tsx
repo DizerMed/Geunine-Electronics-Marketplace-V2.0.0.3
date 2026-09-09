@@ -71,7 +71,16 @@ export const ReceiptVerificationModal: React.FC<ReceiptVerificationModalProps> =
   if (!isOpen) return null;
 
   const rawReceipt = verificationResult?.receipt;
-  const store = verificationResult?.storeInfo || storeSettings;
+  const store = {
+    ...storeSettings,
+    ...(verificationResult?.storeInfo
+      ? Object.fromEntries(
+          Object.entries(verificationResult.storeInfo).filter(
+            ([_, v]) => v !== null && v !== undefined && v !== ''
+          )
+        )
+      : {})
+  };
   const isVerified = verificationResult?.isVerified !== false;
 
   // Language helpers
@@ -369,10 +378,13 @@ export const ReceiptVerificationModal: React.FC<ReceiptVerificationModalProps> =
                 <p className="text-[10px] text-black font-black">
                   TEL: {store?.phone || '+255 768 929 203'}
                 </p>
-                <div className="text-[9.5px] font-black text-black border-t border-b border-black py-0.5 mt-1 tracking-wide">
-                  <span>TIN: {store?.tin || '104-982-371'}</span>
-                  <span className="mx-1.5 font-black">|</span>
+                {(store?.tin || store?.vrn) ? (
+                  <div className="text-[9.5px] font-black text-black border-t border-b border-black py-0.5 mt-1 tracking-wide">
+                    {store?.tin ? <span>TIN: {store.tin}</span> : null}
+                    {store?.tin && store?.vrn ? <span className="mx-1.5 font-black">|</span> : null}
+                    {store?.vrn ? <span>VRN: {store.vrn}</span> : null}
                   </div>
+                ) : null}
               </div>
 
               {/* Transaction Metadata & Buyer Info */}

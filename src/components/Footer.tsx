@@ -32,7 +32,13 @@ export const Footer: React.FC<FooterProps> = ({ categoriesList = [], storeSettin
                 {t('footer.description')}
               </p>
               <div className="pt-1 text-[10px] font-mono text-slate-400 space-y-0.5">
-                <p>TIN: {storeSettings?.tin || '104-982-371'}</p>
+                {(storeSettings?.tin || storeSettings?.vrn) ? (
+                  <p>
+                    {storeSettings?.tin ? `TIN: ${storeSettings.tin}` : ''}
+                    {storeSettings?.tin && storeSettings?.vrn ? ' | ' : ''}
+                    {storeSettings?.vrn ? `VRN: ${storeSettings.vrn}` : ''}
+                  </p>
+                ) : null}
                 <p>Authorized Technology Partner</p>
               </div>
             </div>

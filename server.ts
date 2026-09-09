@@ -1011,6 +1011,42 @@ app.get("/api/config/supabase", (req, res) => {
   });
 });
 
+// Helper to fetch active store settings from database or memoryStore without hardcoded fallbacks
+async function getActiveStoreSettings(): Promise<any> {
+  let settings = memoryStore['settings']?.['main'] || memoryStore['settings']?.['store'];
+  if (!settings || !settings.tin) {
+    const supabase = getSupabaseAdmin();
+    if (supabase) {
+      try {
+        const queryPromise = supabase.from('store_settings').select('*').eq('id', 'main').maybeSingle();
+        const { data, error }: any = await withTimeout(queryPromise, 1200);
+        if (!error && data?.settings) {
+          if (!memoryStore['settings']) memoryStore['settings'] = {};
+          memoryStore['settings']['main'] = data.settings;
+          settings = data.settings;
+        }
+      } catch (_) {}
+    }
+  }
+  const s = settings || memoryStore['settings']?.['main'] || {};
+  return {
+    storeName: s.storeName || 'Genuine Electronics',
+    tagline: s.tagline || '',
+    tin: s.tin || '',
+    vrn: s.vrn || '',
+    phone: s.phone || '',
+    address: s.address || '',
+    email: s.email || '',
+    bankName: s.bankName || '',
+    bankAccount: s.bankAccount || '',
+    bankSwift: s.bankSwift || '',
+    mobileMoneyNumber: s.mobileMoneyNumber || '',
+    mobileMoneyName: s.mobileMoneyName || '',
+    whatsappNumber: s.whatsappNumber || '',
+    paymentMethods: s.paymentMethods || []
+  };
+}
+
 // Online Receipt Verification Endpoint
 app.get("/api/verify-receipt", async (req, res) => {
   try {
@@ -1106,13 +1142,7 @@ app.get("/api/verify-receipt", async (req, res) => {
       }
     }
 
-    const storeSettings = memoryStore['settings']?.['store'] || {
-      storeName: 'Genuine Electronics',
-      tin: '104-982-371',
-      vrn: '40-029182-Z',
-      phone: '+255 768 929 203',
-      address: 'Kariakoo / Ndanda na Masasi Street, Dar es Salaam Tanzania'
-    };
+    const storeSettings = await getActiveStoreSettings();
 
     if (matchedItem) {
       return res.json({
@@ -1288,13 +1318,7 @@ app.get("/api/verify-invoice", async (req, res) => {
       }
     }
 
-    const storeSettings = memoryStore['settings']?.['store'] || {
-      storeName: 'Genuine Electronics',
-      tin: '104-982-371',
-      vrn: '40-029182-Z',
-      phone: '+255 768 929 203',
-      address: 'Kariakoo / Ndanda na Masasi Street, Dar es Salaam Tanzania'
-    };
+    const storeSettings = await getActiveStoreSettings();
 
     if (matchedItem) {
       // If docType wasn't explicitly delivery or proforma, deduce from payment status

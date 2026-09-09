@@ -136,7 +136,8 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
       `  ${(storeSettings?.storeName || 'GENUINE ELECTRONICS').toUpperCase()}  `,
       showLoanBreakdown ? `  RISITI YA MKOPO / CREDIT RECEIPT  ` : `  RISITI YA MAUZO / CASH RECEIPT  `,
       `========================================`,
-      `TIN: ${storeSettings?.tin || '104-982-371'}`,
+      ...(storeSettings?.tin ? [`TIN: ${storeSettings.tin}`] : []),
+      ...(storeSettings?.vrn ? [`VRN: ${storeSettings.vrn}`] : []),
       `Simu / Tel: ${storeSettings?.phone || '+255 768 929 203'}`,
       `Eneo / Address: ${storeSettings?.address || 'Kariakoo, Dar es Salaam'}`,
       `----------------------------------------`,
@@ -715,7 +716,7 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
                   inputMode="text"
                   name="tax-id"
                   spellCheck={false}
-                  placeholder="e.g. 104-982-371"
+                  placeholder="e.g. 9-digit TIN"
                   value={buyerTin}
                   onChange={(e) => setBuyerTin(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-semibold"
@@ -769,10 +770,13 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
               <p className="text-[10px] text-black font-black">
                 TEL: {storeSettings?.phone || '+255 768 929 203'}
               </p>
-              <div className="text-[9.5px] font-black text-black border-t border-b border-black py-0.5 mt-1 tracking-wide">
-                <span>TIN: {storeSettings?.tin || '104-982-371'}</span>
-                <span className="mx-1.5 font-black">|</span>
+              {(storeSettings?.tin || storeSettings?.vrn) ? (
+                <div className="text-[9.5px] font-black text-black border-t border-b border-black py-0.5 mt-1 tracking-wide">
+                  {storeSettings?.tin ? <span>TIN: {storeSettings.tin}</span> : null}
+                  {storeSettings?.tin && storeSettings?.vrn ? <span className="mx-1.5 font-black">|</span> : null}
+                  {storeSettings?.vrn ? <span>VRN: {storeSettings.vrn}</span> : null}
                 </div>
+              ) : null}
             </div>
 
             {/* Transaction Metadata & Customer / Buyer Business Info */}

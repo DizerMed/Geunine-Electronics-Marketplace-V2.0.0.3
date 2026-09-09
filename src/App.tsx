@@ -139,36 +139,45 @@ export default function App() {
     return typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
   
-  const [storeSettings, setStoreSettings] = useState<StoreSettings>({
-    storeName: 'Genuine Electronics',
-    tagline: 'Authorized Consumer & Enterprise Technology Retailer',
-    tin: '104-982-371',
-    vrn: '40-029182-Z',
-    address: 'Kariakoo / Ndanda na Masasi Street, Dar es Salaam Tanzania',
-    phone: '+255 624 057 166',
-    email: 'sales@genuine-electronics.com',
-    bankName: 'CRDB Bank Tanzania PLC',
-    bankAccount: '0150 8829 4100',
-    bankSwift: 'CORUTZTZ',
-    mobileMoneyNumber: '0624 057 166',
-    mobileMoneyName: 'Genuine Electronics Ltd',
-    whatsappNumber: '+255 624 057 166',
-    announcementText: '🎉 Special Offer: Free Express Delivery across Dar es Salaam on orders over TZS 500,000!',
-    showAnnouncement: true,
-    heroBadge: 'Authorized Dealer • 100% Genuine Guarantee',
-    heroTitle: 'Next-Gen Technology & Home Appliances in Tanzania',
-    heroSubtitle: 'Shop top global brands with official local warranty, official receipts, and same-day delivery.',
-    heroImage: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&q=80&w=800',
-    logoUrl: BRAND_LOGO_URL,
-    paymentMethods: [
-      { id: '1', type: 'Bank Transfer', provider: 'Bank / CRDB / NMB', accountName: 'Genuine Electronics Ltd', accountNumber: '0150 8829 4100', instructions: 'Use Order ID as reference.', isActive: true },
-      { id: '2', type: 'Mobile Money', provider: 'M-Pesa', accountName: 'Genuine Electronics', accountNumber: '0768 929 203', instructions: 'Send money to this till number.', isActive: true },
-      { id: '3', type: 'Mobile Money', provider: 'Mixx By Yas', accountName: 'Genuine Electronics', accountNumber: '0658 929 203', instructions: 'Send money to this till number.', isActive: true },
-      { id: '4', type: 'Mobile Money', provider: 'Airtel Money', accountName: 'Genuine Electronics', accountNumber: '0688 929 203', instructions: 'Send money to this till number.', isActive: true },
-      { id: '5', type: 'Mobile Money', provider: 'Halotel HaloPesa', accountName: 'Genuine Electronics', accountNumber: '0628 929 203', instructions: 'Send money to this till number.', isActive: true },
-      { id: '6', type: 'Cash', provider: 'Cash on Delivery', accountName: 'Cash', accountNumber: 'N/A', instructions: 'Pay cash to delivery personnel.', isActive: true },
-      { id: '7', type: 'Orbi Pay', provider: 'Orbi Pay', accountName: 'Orbi Merchant', accountNumber: 'ORBI-9901', instructions: 'Instant Escrow Gateway from Orbi Fintech', isActive: false }
-    ],
+  const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => {
+    let cached: any = null;
+    try {
+      const stored = localStorage.getItem('genuine_store_settings');
+      if (stored) cached = JSON.parse(stored);
+    } catch (_) {}
+
+    return {
+      storeName: cached?.storeName || 'Genuine Electronics',
+      tagline: cached?.tagline || 'Authorized Consumer & Enterprise Technology Retailer',
+      tin: cached?.tin || '',
+      vrn: cached?.vrn || '',
+      address: cached?.address || 'Kariakoo / Ndanda na Masasi Street, Dar es Salaam Tanzania',
+      phone: cached?.phone || '+255 624 057 166',
+      email: cached?.email || 'sales@genuine-electronics.com',
+      bankName: cached?.bankName || 'CRDB Bank Tanzania PLC',
+      bankAccount: cached?.bankAccount || '0150 8829 4100',
+      bankSwift: cached?.bankSwift || 'CORUTZTZ',
+      mobileMoneyNumber: cached?.mobileMoneyNumber || '0624 057 166',
+      mobileMoneyName: cached?.mobileMoneyName || 'Genuine Electronics Ltd',
+      whatsappNumber: cached?.whatsappNumber || '+255 624 057 166',
+      announcementText: cached?.announcementText || '🎉 Special Offer: Free Express Delivery across Dar es Salaam on orders over TZS 500,000!',
+      showAnnouncement: cached?.showAnnouncement ?? true,
+      heroBadge: cached?.heroBadge || 'Authorized Dealer • 100% Genuine Guarantee',
+      heroTitle: cached?.heroTitle || 'Next-Gen Technology & Home Appliances in Tanzania',
+      heroSubtitle: cached?.heroSubtitle || 'Shop top global brands with official local warranty, official receipts, and same-day delivery.',
+      heroImage: cached?.heroImage || 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&q=80&w=800',
+      logoUrl: cached?.logoUrl || BRAND_LOGO_URL,
+      paymentMethods: cached?.paymentMethods || [
+        { id: '1', type: 'Bank Transfer', provider: 'Bank / CRDB / NMB', accountName: 'Genuine Electronics Ltd', accountNumber: '0150 8829 4100', instructions: 'Use Order ID as reference.', isActive: true },
+        { id: '2', type: 'Mobile Money', provider: 'M-Pesa', accountName: 'Genuine Electronics', accountNumber: '0768 929 203', instructions: 'Send money to this till number.', isActive: true },
+        { id: '3', type: 'Mobile Money', provider: 'Mixx By Yas', accountName: 'Genuine Electronics', accountNumber: '0658 929 203', instructions: 'Send money to this till number.', isActive: true },
+        { id: '4', type: 'Mobile Money', provider: 'Airtel Money', accountName: 'Genuine Electronics', accountNumber: '0688 929 203', instructions: 'Send money to this till number.', isActive: true },
+        { id: '5', type: 'Mobile Money', provider: 'Halotel HaloPesa', accountName: 'Genuine Electronics', accountNumber: '0628 929 203', instructions: 'Send money to this till number.', isActive: true },
+        { id: '6', type: 'Cash', provider: 'Cash on Delivery', accountName: 'Cash', accountNumber: 'N/A', instructions: 'Pay cash to delivery personnel.', isActive: true },
+        { id: '7', type: 'Orbi Pay', provider: 'Orbi Pay', accountName: 'Orbi Merchant', accountNumber: 'ORBI-9901', instructions: 'Instant Escrow Gateway from Orbi Fintech', isActive: false }
+      ],
+      ...(cached || {})
+    };
   });
 
 
@@ -185,7 +194,13 @@ export default function App() {
         const data = await res.json();
         if (data && data.settings) {
           const { id, updated_at, ...rest } = data.settings;
-          setStoreSettings(prev => ({ ...prev, ...rest }));
+          setStoreSettings(prev => {
+            const next = { ...prev, ...rest };
+            try {
+              localStorage.setItem('genuine_store_settings', JSON.stringify(next));
+            } catch (_) {}
+            return next;
+          });
         }
       } catch (err) {
         // Ignored
@@ -201,7 +216,13 @@ export default function App() {
 
       if (payload.type === 'SETTINGS_CHANGED' && payload.settings) {
         const { id, updated_at, ...rest } = payload.settings;
-        setStoreSettings(prev => ({ ...prev, ...rest }));
+        setStoreSettings(prev => {
+          const next = { ...prev, ...rest };
+          try {
+            localStorage.setItem('genuine_store_settings', JSON.stringify(next));
+          } catch (_) {}
+          return next;
+        });
       }
     };
 
@@ -242,6 +263,9 @@ export default function App() {
   }, []);
 
   const handleUpdateStoreSettings = async (newSettings: StoreSettings) => {
+    try {
+      localStorage.setItem('genuine_store_settings', JSON.stringify(newSettings));
+    } catch (_) {}
     setStoreSettings(newSettings);
     const settingsToSave = { ...newSettings, adminThemeMode };
 

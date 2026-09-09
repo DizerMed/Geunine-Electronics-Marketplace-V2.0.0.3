@@ -185,7 +185,13 @@ export const POSZReportModal: React.FC<POSZReportModalProps> = ({
               <h2 className="font-black text-base uppercase tracking-wider">{storeSettings?.storeName || 'GENUINE ELECTRONICS'}</h2>
               <p className="font-bold text-[11px]">END OF DAY REGISTER CLOSURE (Z-REPORT)</p>
               <p className="text-[10px] font-bold">{storeSettings?.address || 'Kariakoo, Dar es Salaam'}</p>
-              <p className="text-[10px] font-black">TIN: {storeSettings?.tin || '104-982-371'}</p>
+              {(storeSettings?.tin || storeSettings?.vrn) ? (
+                <p className="text-[10px] font-black">
+                  {storeSettings?.tin ? `TIN: ${storeSettings.tin}` : ''}
+                  {storeSettings?.tin && storeSettings?.vrn ? ' | ' : ''}
+                  {storeSettings?.vrn ? `VRN: ${storeSettings.vrn}` : ''}
+                </p>
+              ) : null}
             </div>
 
             {/* Shift & Time Details */}

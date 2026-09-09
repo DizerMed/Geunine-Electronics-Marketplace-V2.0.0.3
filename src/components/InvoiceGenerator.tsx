@@ -123,18 +123,96 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
 
   /**
    * Unified, high-fidelity canvas generation builder for A4 Invoices.
-   * Standardizes element width, font rendering, resolution scale, and removes no-print items.
+   * Standardizes element width to canonical A4 (794px at 96dpi), font rendering, resolution scale,
+   * and preserves pristine horizontal desktop layout even on mobile devices.
    */
   const generateInvoiceCanvas = async (element: HTMLElement): Promise<HTMLCanvasElement> => {
-    return await toCanvas(element, {
-      pixelRatio: 2.5,
-      backgroundColor: '#ffffff',
-      filter: (node) => { if (node instanceof HTMLElement && node.classList.contains('no-print')) return false; return true; },
+    // Clone element to render at standard desktop A4 document width (794px = 210mm at 96dpi)
+    // This completely prevents mobile viewports from collapsing rows/grids into multi-page vertical stacks!
+    const clone = element.cloneNode(true) as HTMLElement;
+
+    clone.style.width = '794px';
+    clone.style.minWidth = '794px';
+    clone.style.maxWidth = '794px';
+    clone.style.position = 'fixed';
+    clone.style.left = '-9999px';
+    clone.style.top = '0';
+    clone.style.transform = 'none';
+    clone.style.margin = '0';
+    clone.style.padding = '24px 30px';
+    clone.style.boxShadow = 'none';
+    clone.style.borderRadius = '0';
+    clone.style.border = 'none';
+    clone.style.backgroundColor = '#ffffff';
+
+    // Force horizontal flex on all elements marked as sm:flex-row or row layout
+    const flexRows = clone.querySelectorAll('.sm\\:flex-row, [data-print-layout="row"]');
+    flexRows.forEach((el) => {
+      const h = el as HTMLElement;
+      h.style.display = 'flex';
+      h.style.flexDirection = 'row';
+      h.style.alignItems = 'flex-start';
+      h.style.justifyContent = 'space-between';
     });
+
+    // Force 2-column grid on all elements marked as sm:grid-cols-2 or grid-2
+    const gridCols2 = clone.querySelectorAll('.sm\\:grid-cols-2, [data-print-layout="grid-2"]');
+    gridCols2.forEach((el) => {
+      const h = el as HTMLElement;
+      h.style.display = 'grid';
+      h.style.gridTemplateColumns = 'repeat(2, minmax(0, 1fr))';
+    });
+
+    // Force 4-column grid on all elements marked as sm:grid-cols-4 or grid-4
+    const gridCols4 = clone.querySelectorAll('.sm\\:grid-cols-4, [data-print-layout="grid-4"]');
+    gridCols4.forEach((el) => {
+      const h = el as HTMLElement;
+      h.style.display = 'grid';
+      h.style.gridTemplateColumns = 'repeat(4, minmax(0, 1fr))';
+    });
+
+    // Force fixed width on totals container
+    const totalsContainers = clone.querySelectorAll('.sm\\:w-80, [data-print-layout="w-80"]');
+    totalsContainers.forEach((el) => {
+      const h = el as HTMLElement;
+      h.style.width = '20rem';
+    });
+
+    // Force header metadata alignment
+    const headerMetas = clone.querySelectorAll('[data-print-layout="header-meta"]');
+    headerMetas.forEach((el) => {
+      const h = el as HTMLElement;
+      h.style.width = 'auto';
+      h.style.textAlign = 'right';
+    });
+
+    // Hide any no-print elements
+    const noPrintElements = clone.querySelectorAll('.no-print');
+    noPrintElements.forEach((el) => {
+      (el as HTMLElement).style.display = 'none';
+    });
+
+    document.body.appendChild(clone);
+
+    try {
+      return await toCanvas(clone, {
+        pixelRatio: 2.5,
+        backgroundColor: '#ffffff',
+        filter: (node) => {
+          if (node instanceof HTMLElement && node.classList.contains('no-print')) return false;
+          return true;
+        },
+      });
+    } finally {
+      if (clone.parentNode) {
+        clone.parentNode.removeChild(clone);
+      }
+    }
   };
 
   /**
    * Unified PDF document builder that converts a high-res canvas to an A4 PDF.
+   * Guarantees single-page output for mobile and desktop generated invoices.
    */
   const buildInvoicePDFDoc = (canvas: HTMLCanvasElement): jsPDF => {
     const imgData = canvas.toDataURL('image/png', 1.0);
@@ -150,9 +228,14 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     const imgWidth = pdfWidth;
     const imgHeight = (canvas.height * pdfWidth) / canvas.width;
 
-    // Single-page A4 document check: if height is close to A4 (up to 25% taller), scale to fit 1 page cleanly
-    if (imgHeight <= pdfHeight * 1.25) {
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, Math.min(pdfHeight, imgHeight));
+    // Single-page A4 document check:
+    // If height fits within or close to A4 (up to 35% extra), scale proportionally to fit 1 page cleanly without breaking
+    if (imgHeight <= pdfHeight * 1.35) {
+      const scale = Math.min(1, (pdfHeight - 6) / imgHeight);
+      const renderWidth = pdfWidth * scale;
+      const renderHeight = imgHeight * scale;
+      const xOffset = (pdfWidth - renderWidth) / 2;
+      pdf.addImage(imgData, 'PNG', xOffset, 3, renderWidth, renderHeight);
     } else {
       let heightLeft = imgHeight;
       let position = 0;
@@ -290,7 +373,12 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     let msg = `🧾 *${docTitle}*\n`;
     msg += `*${storeSettings?.storeName || 'Genuine Electronics Tanzania Ltd'}*\n`;
     msg += `📍 ${storeSettings?.address || 'Kariakoo, Dar es Salaam Tanzania'}\n`;
-    msg += `📞 Hotline: ${storeSettings?.phone || '+255 768 929 203'} | TIN: ${storeSettings?.tin || '104-982-371'}\n`;
+    const contactParts = [
+      `Hotline: ${storeSettings?.phone || '+255 768 929 203'}`,
+      ...(storeSettings?.tin ? [`TIN: ${storeSettings.tin}`] : []),
+      ...(storeSettings?.vrn ? [`VRN: ${storeSettings.vrn}`] : [])
+    ];
+    msg += `📞 ${contactParts.join(' | ')}\n`;
     msg += `----------------------------------------\n`;
     msg += `📄 *Doc Reference:* ${currentDocRef}\n`;
     msg += `📅 *Date & Time:* ${orderDate}\n`;
@@ -521,7 +609,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         @media print {
           @page {
             size: A4 portrait;
-            margin: 10mm 12mm;
+            margin: 8mm 10mm;
           }
           
           body {
@@ -538,11 +626,43 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
 
           .printable-invoice-root {
             width: 100% !important;
-            max-width: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
+            max-width: 210mm !important;
+            margin: 0 auto !important;
+            padding: 18px 24px !important;
             box-shadow: none !important;
             border: none !important;
+            font-size: 11px !important;
+          }
+
+          /* Force horizontal rows and multi-column grid during printing on all devices including mobile */
+          .printable-invoice-root [data-print-layout="row"],
+          .printable-invoice-root .sm\\:flex-row {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: flex-start !important;
+            justify-content: space-between !important;
+          }
+
+          .printable-invoice-root [data-print-layout="grid-2"],
+          .printable-invoice-root .sm\\:grid-cols-2 {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          }
+
+          .printable-invoice-root [data-print-layout="grid-4"],
+          .printable-invoice-root .sm\\:grid-cols-4 {
+            display: grid !important;
+            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+          }
+
+          .printable-invoice-root [data-print-layout="header-meta"] {
+            width: auto !important;
+            text-align: right !important;
+          }
+
+          .printable-invoice-root [data-print-layout="w-80"],
+          .printable-invoice-root .sm\\:w-80 {
+            width: 20rem !important;
           }
 
           .keep-together {
@@ -778,7 +898,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
           style={{ width: '100%', maxWidth: '210mm' }}
         >
           {/* Header Section: Brand Logo, Legal Company Info & Invoice Metadata */}
-        <div className="flex flex-col sm:flex-row justify-between items-start pb-4 border-b-2 border-slate-900 gap-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start pb-4 border-b-2 border-slate-900 gap-4" data-print-layout="row">
           <div>
             <div className="flex items-center gap-3">
               <div className="h-12 w-auto flex items-center justify-center shrink-0">
@@ -802,11 +922,17 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
             <div className="text-[11px] text-slate-700 mt-2 space-y-0.5">
               <p className="font-bold text-slate-900">{storeSettings?.storeName || 'Genuine Electronics Tanzania Ltd'} • {storeSettings?.address || 'Kariakoo / Ndanda na Masasi Street, Dar es Salaam Tanzania'}</p>
               <p>Hotline: {storeSettings?.phone || '+255 768 929 203'} | Email: {storeSettings?.email || 'sales@genuine-electronics.com'}</p>
-              <p className="font-mono text-[10px] text-slate-600">TIN: {storeSettings?.tin || '104-982-371'}{storeSettings?.vrn ? ` | VRN: ${storeSettings.vrn}` : ''}</p>
+              {(storeSettings?.tin || storeSettings?.vrn) ? (
+                <p className="font-mono text-[10px] text-slate-600">
+                  {storeSettings?.tin ? `TIN: ${storeSettings.tin}` : ''}
+                  {storeSettings?.tin && storeSettings?.vrn ? ' | ' : ''}
+                  {storeSettings?.vrn ? `VRN: ${storeSettings.vrn}` : ''}
+                </p>
+              ) : null}
             </div>
           </div>
 
-          <div className="text-left sm:text-right bg-slate-50 p-3 rounded-xl border border-slate-300 w-full sm:w-auto shrink-0 space-y-1">
+          <div className="text-left sm:text-right bg-slate-50 p-3 rounded-xl border border-slate-300 w-full sm:w-auto shrink-0 space-y-1" data-print-layout="header-meta">
             <div className={`inline-block px-2.5 py-0.5 rounded border text-[10px] font-black uppercase tracking-wider ${
               docType === 'tax'
                 ? (includeVat ? 'border-slate-900 bg-white text-slate-900' : 'border-slate-400 bg-slate-100 text-slate-700')
@@ -842,7 +968,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         </div>
 
         {/* Customer & Billing Metadata Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3.5 rounded-xl border border-slate-300 keep-together">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3.5 rounded-xl border border-slate-300 keep-together" data-print-layout="grid-2">
           <div>
             <p className="text-[10px] font-extrabold text-slate-900 uppercase tracking-wider mb-1 flex items-center gap-1">
               {docType === 'delivery' ? (
@@ -1102,7 +1228,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                   {statusLabel}
                 </span>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-slate-800 pt-1 border-t border-amber-200/60">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-slate-800 pt-1 border-t border-amber-200/60" data-print-layout="grid-4">
                 <div>
                   <span className="text-slate-500 text-[10px] block font-medium">Down Payment:</span>
                   <strong className="text-slate-900 font-bold">{formatTZS(initialDeposit)}</strong>
@@ -1140,7 +1266,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
 
         {/* Warranty Statement & Financial Totals Breakdown OR Delivery Consignment Summary */}
         {docType === 'delivery' ? (
-          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pt-1 keep-together">
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pt-1 keep-together" data-print-layout="row">
             <div className="text-[11px] text-slate-700 flex-1 bg-slate-50 p-3.5 rounded-xl border border-slate-300 space-y-1.5">
               <p className="font-bold text-slate-900 flex items-center gap-1.5">
                 <Truck className="w-4 h-4 text-emerald-700" />
@@ -1153,7 +1279,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
               </ul>
             </div>
 
-            <div className="w-full sm:w-80 bg-white p-3.5 rounded-xl border-2 border-slate-900 space-y-2 text-[11px]">
+            <div className="w-full sm:w-80 bg-white p-3.5 rounded-xl border-2 border-slate-900 space-y-2 text-[11px]" data-print-layout="w-80">
               <div className="font-black text-slate-900 text-xs border-b border-slate-200 pb-1 flex items-center justify-between">
                 <span>CONSIGNMENT SUMMARY</span>
                 <span className="text-[9px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-black">VERIFIED</span>
@@ -1179,7 +1305,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
             </div>
           </div>
         ) : (
-          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pt-1 keep-together">
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pt-1 keep-together" data-print-layout="row">
             <div className="text-[11px] text-slate-700 max-w-sm bg-slate-50 p-3 rounded-xl border border-slate-300 space-y-1">
               <p className="font-bold text-slate-900 flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-blue-700" />
@@ -1192,7 +1318,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
               </p>
             </div>
 
-            <div className="w-full sm:w-80 bg-white p-3.5 rounded-xl border-2 border-slate-900 space-y-2 text-[11px]">
+            <div className="w-full sm:w-80 bg-white p-3.5 rounded-xl border-2 border-slate-900 space-y-2 text-[11px]" data-print-layout="w-80">
               {taxAnalysis.isMixed && taxAnalysis.taxAmount > 0 ? (
                 <>
                   <div className="flex justify-between text-slate-700">
@@ -1292,7 +1418,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                     Verified Merchant Account
                   </span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1" data-print-layout="grid-2">
                   <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
                     <span className="text-slate-500 text-[9px] font-bold block uppercase">Account / Till Number:</span>
                     <span className="font-mono font-black text-slate-900 text-xs sm:text-sm">{selectedMethod.accountNumber}</span>
@@ -1376,7 +1502,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
 
         {/* Goods Dispatch & Reception Signatures (For Delivery Note) */}
         {docType === 'delivery' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl border-2 border-slate-900 bg-slate-50 text-[10px] keep-together">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl border-2 border-slate-900 bg-slate-50 text-[10px] keep-together" data-print-layout="grid-2">
             <div className="space-y-3 bg-white p-3 rounded-lg border border-slate-300">
               <p className="font-black uppercase text-slate-900 flex items-center gap-1.5">
                 <Truck className="w-3.5 h-3.5 text-emerald-700" />

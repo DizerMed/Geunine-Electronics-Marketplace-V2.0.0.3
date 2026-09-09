@@ -342,10 +342,13 @@ export const ExpressBuyDrawer: React.FC<ExpressBuyDrawerProps> = ({
                         <p className="text-[9px] text-slate-700 font-semibold">
                           TEL: {storeSettings?.phone || '+255 768 929 203'}
                         </p>
-                        <div className="text-[8.5px] font-bold text-slate-800 pt-0.5">
-                          <span>TIN: {storeSettings?.tin || '104-982-371'}</span>
-                          <span className="mx-1">|</span>
+                        {(storeSettings?.tin || storeSettings?.vrn) ? (
+                          <div className="text-[8.5px] font-bold text-slate-800 pt-0.5">
+                            {storeSettings?.tin ? <span>TIN: {storeSettings.tin}</span> : null}
+                            {storeSettings?.tin && storeSettings?.vrn ? <span className="mx-1">|</span> : null}
+                            {storeSettings?.vrn ? <span>VRN: {storeSettings.vrn}</span> : null}
                           </div>
+                        ) : null}
                       </div>
 
                       {/* Metadata */}

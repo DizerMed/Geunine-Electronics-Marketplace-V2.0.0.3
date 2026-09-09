@@ -37,13 +37,18 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
   isClientView = false,
   hideTypeSwitcher = false,
 }) => {
-  const [docType, setDocType] = useState<'tax' | 'proforma' | 'delivery'>(defaultDocType);
+  const initialDocType = isClientView
+    ? (order.paymentStatus === 'Paid' || order.status === 'Completed' ? (defaultDocType || 'tax') : 'proforma')
+    : defaultDocType;
+  const [docType, setDocType] = useState<'tax' | 'proforma' | 'delivery'>(initialDocType);
 
   useEffect(() => {
-    if (defaultDocType) {
+    if (isClientView) {
+      setDocType(order.paymentStatus === 'Paid' || order.status === 'Completed' ? (defaultDocType || 'tax') : 'proforma');
+    } else if (defaultDocType) {
       setDocType(defaultDocType);
     }
-  }, [defaultDocType]);
+  }, [defaultDocType, isClientView, order.paymentStatus, order.status]);
   const [showStamp, setShowStamp] = useState<boolean>(true);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [copiedInvoiceNo, setCopiedInvoiceNo] = useState(false);
@@ -599,8 +604,8 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
           </div>
           
           <div className="flex items-center flex-wrap gap-2">
-            {/* Document Type Switcher */}
-            {!hideTypeSwitcher && (
+            {/* Document Type Switcher (Administrative Option - Hidden for Clients) */}
+            {!hideTypeSwitcher && !isClientView && (
               <div className="flex bg-slate-800 p-0.5 rounded-xl border border-slate-700 text-[11px] font-bold">
                 <button
                   type="button"
@@ -632,8 +637,8 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
               </div>
             )}
 
-            {/* VAT Toggle Switch */}
-            {!hideTypeSwitcher && docType !== 'delivery' && (
+            {/* VAT Toggle Switch (Administrative Option - Hidden for Clients) */}
+            {!hideTypeSwitcher && !isClientView && docType !== 'delivery' && (
               <label 
                 title={`Toggle VAT (${baseOrderVatPct}%) Inclusion`}
                 className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700/80 px-2.5 py-1.5 rounded-xl text-xs cursor-pointer select-none border border-slate-700 transition-all active:scale-95"
@@ -750,7 +755,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
               className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-3.5 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Print {docType === 'delivery' ? 'Delivery Note' : 'Invoice'}</span>
+              <span>Print {docType === 'delivery' ? 'Delivery Note' : docType === 'proforma' ? 'Proforma' : 'Invoice'}</span>
             </button>
             {onClose && (
               <button

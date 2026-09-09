@@ -221,6 +221,7 @@ export interface POSTransaction {
   shippingAddress?: string;
   notes?: string;
   orderReference?: string;
+  order_reference?: string;
   vatPercentage?: number;
   includeVat?: boolean;
   status?: 'Completed' | 'Refunded' | 'Parked';

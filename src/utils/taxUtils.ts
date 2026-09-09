@@ -146,3 +146,38 @@ export function groupCartItemsByTaxStatus<T extends TaxItemLike>(
     grandTotal
   };
 }
+
+/**
+ * Generates sensible, realistic quick-cash tender presets based on the payable total
+ * (e.g. Exact, next 10k, next 50k, next 100k, round notes for Tanzanian Shillings).
+ */
+export function generateQuickCashPresets(total: number): number[] {
+  if (total <= 0) return [];
+  const presets = new Set<number>();
+  presets.add(total); // Exact
+
+  if (total < 10000) {
+    [2000, 5000, 10000].forEach(n => { if (n > total) presets.add(n); });
+  } else if (total < 50000) {
+    const next10k = Math.ceil((total + 1) / 10000) * 10000;
+    presets.add(next10k);
+    [20000, 50000].forEach(n => { if (n > total) presets.add(n); });
+  } else if (total < 200000) {
+    const next10k = Math.ceil((total + 1) / 10000) * 10000;
+    const next50k = Math.ceil((total + 1) / 50000) * 50000;
+    presets.add(next10k);
+    presets.add(next50k);
+    [100000, 200000].forEach(n => { if (n > total) presets.add(n); });
+  } else {
+    const next50k = Math.ceil((total + 1) / 50000) * 50000;
+    const next100k = Math.ceil((total + 1) / 100000) * 100000;
+    const next500k = Math.ceil((total + 1) / 500000) * 500000;
+    const next1M = Math.ceil((total + 1) / 1000000) * 1000000;
+    presets.add(next50k);
+    presets.add(next100k);
+    presets.add(next500k);
+    presets.add(next1M);
+  }
+
+  return Array.from(presets).sort((a, b) => a - b).slice(0, 4);
+}

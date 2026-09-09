@@ -316,6 +316,8 @@ function normalizeClientItem<T>(tableName: string, item: any): T {
     }
     if (clone.customer_tin !== undefined) clone.customerTin = clone.customer_tin;
     if (clone.customertin !== undefined && clone.customerTin === undefined) clone.customerTin = clone.customertin;
+    if (clone.order_reference !== undefined && clone.orderReference === undefined) clone.orderReference = clone.order_reference;
+    if (clone.orderreference !== undefined && clone.orderReference === undefined) clone.orderReference = clone.orderreference;
     if (clone.tendered_amount !== undefined && clone.tenderedAmount === undefined) clone.tenderedAmount = Number(clone.tendered_amount);
     if (clone.tenderedamount !== undefined && clone.tenderedAmount === undefined) clone.tenderedAmount = Number(clone.tenderedamount);
     if (clone.change_amount !== undefined && clone.changeAmount === undefined) clone.changeAmount = Number(clone.change_amount);

@@ -111,7 +111,9 @@ export const ReceiptVerificationModal: React.FC<ReceiptVerificationModalProps> =
   const grandTotal = rawReceipt?.totalAmount || rawReceipt?.total || subtotal - discount;
   const extraCosts: any[] = rawReceipt?.extraCosts || [];
   const tenderedAmount = rawReceipt?.tenderedAmount || 0;
-  const changeAmount = rawReceipt?.changeAmount || 0;
+
+  const rawOrderRef = rawReceipt?.orderReference || rawReceipt?.order_reference || rawReceipt?.orderreference;
+  const cleanOrderRef = typeof rawOrderRef === 'string' && rawOrderRef.trim().length > 0 ? rawOrderRef.trim() : '';
 
   // Tax calculation
   const vatRate = 0.18;
@@ -129,6 +131,7 @@ export const ReceiptVerificationModal: React.FC<ReceiptVerificationModalProps> =
     const text = ` OFFICIAL SOFT COPY RECEIPT - Genuine Electronics Tanzania\n` +
       ` Order No: ${rawReceipt?.orderNo || activeOrderNo}\n` +
       ` Receipt No: ${receiptId}\n` +
+      (cleanOrderRef ? ` Payment Ref: ${cleanOrderRef}\n` : '') +
       ` Customer: ${customerName}\n` +
       ` Total Paid: ${formatTZS(grandTotal)}\n` +
       ` Status: AUTHENTIC VERIFIED ONLINE\n` +
@@ -405,6 +408,12 @@ export const ReceiptVerificationModal: React.FC<ReceiptVerificationModalProps> =
                   <span>{isSwahili ? 'NJIA YA MALIPO:' : isBilingual ? 'NJIA YA MALIPO / PAYMENT:' : 'PAYMENT METHOD:'}</span>
                   <span className="font-black uppercase">{paymentMethod}</span>
                 </div>
+                {cleanOrderRef ? (
+                  <div className="flex justify-between items-start gap-1">
+                    <span className="shrink-0">{isSwahili ? 'KUMBUKUMBU YA MALIPO:' : isBilingual ? 'KUMBUKUMBU / REF NO:' : 'PAYMENT REF:'}</span>
+                    <span className="font-mono font-black text-right break-words max-w-[200px]">{cleanOrderRef}</span>
+                  </div>
+                ) : null}
                 <div className="flex justify-between items-start pt-1 border-t border-black text-black gap-1">
                   <span className="font-black shrink-0">{isSwahili ? 'MTEJA:' : isBilingual ? 'MTEJA / CUSTOMER:' : 'CUSTOMER / BUYER:'}</span>
                   <span className="font-black text-right break-words max-w-[200px]">
@@ -499,13 +508,6 @@ export const ReceiptVerificationModal: React.FC<ReceiptVerificationModalProps> =
                   <div className="flex justify-between pt-0.5">
                     <span>{isSwahili ? 'PESA ILIYOTOLEWA:' : isBilingual ? 'PESA ILIYOTOLEWA / CASH TENDERED:' : 'CASH TENDERED:'}</span>
                     <span className="font-black">{formatTZS(tenderedAmount)}</span>
-                  </div>
-                )}
-
-                {changeAmount > 0 && (
-                  <div className="flex justify-between font-black pt-0.5">
-                    <span>{isSwahili ? 'CHENJI ILIYORUDISHWA:' : isBilingual ? 'CHENJI / CHANGE DUE:' : 'CHANGE DUE:'}</span>
-                    <span className="font-black">{formatTZS(changeAmount)}</span>
                   </div>
                 )}
               </div>

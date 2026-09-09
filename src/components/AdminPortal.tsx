@@ -74,6 +74,7 @@ import { DebtAnalytics } from './DebtAnalytics';
 import { TemplatePreview } from './TemplatePreview';
 import { AdminShortcutCheatSheetModal } from './AdminShortcutCheatSheetModal';
 import { POSSalePreviewModal } from './POSSalePreviewModal';
+import { generateQuickCashPresets } from '../utils/taxUtils';
 import { FullScreenSaveLoader } from './FullScreenSaveLoader';
 import { AdminAuditLogs } from './AdminAuditLogs';
 import { recordAuditLog } from '../lib/enterpriseAuditService';
@@ -2778,6 +2779,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [posIncludeVat, setPosIncludeVat] = useState<boolean>(true);
   const [posSendReceiptEmail, setPosSendReceiptEmail] = useState<boolean>(true);
   const [posPaymentMethod, setPosPaymentMethod] = useState<string>('Cash');
+  const [posPaymentReference, setPosPaymentReference] = useState<string>('');
   const [posBarcodeQuery, setPosBarcodeQuery] = useState('');
   const [posCustomerName, setPosCustomerName] = useState('');
   const [posCustomerPhone, setPosCustomerPhone] = useState('');
@@ -3855,6 +3857,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setPosDiscount(0);
     setPosExtraCosts([]);
     setPosTenderedAmount(0);
+    setPosPaymentReference('');
     setPosLoanDownPayment(0);
     setPosLoanDueDate('');
     setPosLoanNationalId('');
@@ -3978,12 +3981,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const handleCompleteOrderPaymentFromPos = async (
     order: Order,
-    tenderDetails: { method: string; tenderedAmount: number; changeAmount: number; notes?: string }
+    tenderDetails: { method: string; tenderedAmount: number; changeAmount: number; notes?: string; orderReference?: string }
   ) => {
     const eat = getEATCurrentParts();
     const uniqueSuffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
     const receiptNumber = `REC-${eat.yy}${eat.mm}${eat.dd}-${eat.hh}${eat.mn}${eat.ss}-${uniqueSuffix}`;
     const activeCashier = profile?.fullName || profile?.displayName || profile?.full_name || user?.email || 'Counter Cashier';
+
+    const cleanOrderRef = tenderDetails.orderReference ? String(tenderDetails.orderReference).trim() : undefined;
 
     const newTx: POSTransaction = {
       id: receiptNumber,
@@ -4007,6 +4012,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       vatPercentage: order.vatPercentage ?? (order.includeVat ? 18 : 0),
       tenderedAmount: tenderDetails.tenderedAmount,
       changeAmount: tenderDetails.changeAmount,
+      orderReference: cleanOrderRef,
+      order_reference: cleanOrderRef,
       status: 'Completed',
       notes: tenderDetails.notes || `Completed pre-sale order ${order.id}`
     };
@@ -4213,10 +4220,34 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const posSubtotal = (posIncludeVat && posTax > 0) ? posDiscountedGross - posTax : posDiscountedGross;
   const posTotal = Math.max(0, posDiscountedGross + posExtraCostsTotal);
   const posSplitTotalPaid = splitPaymentsList.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-  const posEffectiveTendered = isSplitPaymentMode ? posSplitTotalPaid : posTenderedAmount;
+
+  const isPosOrderLoan = Boolean(
+    (!isSplitPaymentMode && (
+      (posPaymentMethod || '').toLowerCase().includes('loan') || 
+      (posPaymentMethod || '').toLowerCase().includes('credit') || 
+      (posPaymentMethod || '').toLowerCase().includes('mkopo') ||
+      (posPaymentMethod || '').toLowerCase().includes('debt') ||
+      (posPaymentMethod || '').toLowerCase().includes('deni')
+    )) ||
+    posLoanDueDate ||
+    posLoanNationalId ||
+    posLoanGuarantorName ||
+    (posLoanDownPayment > 0 && posTotal > posLoanDownPayment)
+  );
+
+  const posEffectiveTendered = isSplitPaymentMode
+    ? posSplitTotalPaid
+    : isPosOrderLoan
+      ? (posLoanDownPayment || 0)
+      : (posPaymentMethod === 'Cash'
+          ? (posTenderedAmount > 0 ? posTenderedAmount : posTotal)
+          : posTotal);
+
   const posChangeAmount = isSplitPaymentMode
     ? (posSplitTotalPaid > posTotal ? posSplitTotalPaid - posTotal : 0)
-    : (posPaymentMethod === 'Cash' && posTenderedAmount > posTotal ? posTenderedAmount - posTotal : 0);
+    : (!isPosOrderLoan && posPaymentMethod === 'Cash' && posEffectiveTendered > posTotal
+        ? posEffectiveTendered - posTotal
+        : 0);
 
   const posCartItemCount = posCart.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -4278,10 +4309,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const receiptNumber = `REC-${eat.yy}${eat.mm}${eat.dd}-${eat.hh}${eat.mn}${eat.ss}-${uniqueSuffix}`;
     const createdAt = new Date().toISOString();
 
-    const finalPaymentMethod = isSplitPaymentMode
-      ? `Split Tender (${splitPaymentsList.filter(p => Number(p.amount) > 0).map(p => p.method.split(' ')[0]).join(' + ')})`
-      : posPaymentMethod;
-
     const pmPos = (posPaymentMethod || '').toLowerCase();
     const isCreditCardPos = pmPos.includes('credit card') || pmPos.includes('card') || pmPos.includes('visa') || pmPos.includes('mastercard');
 
@@ -4296,6 +4323,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         (pmPos.includes('credit') && !pmPos.includes('card'))
       )
     );
+
+    const finalPaymentMethod = isSplitPaymentMode
+      ? `Split Tender (${splitPaymentsList.filter(p => Number(p.amount) > 0).map(p => p.method.split(' ')[0]).join(' + ')})`
+      : posPaymentMethod;
 
     const receipt: POSTransaction = {
       id: receiptNumber,
@@ -4320,6 +4351,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       customerPhone: String(posCustomerPhone || '').trim() || (isOrderLoan ? String(posLoanGuarantorPhone || '').trim() : undefined) || undefined,
       customerEmail: String(posCustomerEmail || '').trim() || undefined,
       customerTin: String(posCustomerTin || '').trim() || undefined,
+      orderReference: !isSplitPaymentMode && String(posPaymentReference || '').trim() ? String(posPaymentReference).trim() : undefined,
+      order_reference: !isSplitPaymentMode && String(posPaymentReference || '').trim() ? String(posPaymentReference).trim() : undefined,
       tenderedAmount: posEffectiveTendered > 0 ? posEffectiveTendered : undefined,
       changeAmount: posChangeAmount > 0 ? posChangeAmount : undefined,
       isLoan: isOrderLoan,
@@ -10236,12 +10269,153 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </div>
                       </div>
                     )}
+
+                    {/* Cash Tender & Change Breakdown (Single Cash Payment Mode) */}
+                    {!isSplitPaymentMode && posPaymentMethod === 'Cash' && (
+                      <div className={`p-3.5 rounded-2xl border space-y-3 ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-xs font-black text-emerald-600 dark:text-emerald-400">
+                            <Banknote className="w-4 h-4" />
+                            <span>Cash Tender & Change</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPosTenderedAmount(posTotal);
+                              triggerHaptic('light');
+                            }}
+                            className="text-[10px] px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 font-bold border border-emerald-500/30 transition-all cursor-pointer"
+                          >
+                            Exact Cash ({formatTZS(posTotal)})
+                          </button>
+                        </div>
+
+                        {/* Tender Input */}
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                            Amount Received from Customer (TZS)
+                          </label>
+                          <div className="relative flex items-center">
+                            <input
+                              type="number"
+                              min="0"
+                              value={posTenderedAmount > 0 ? posTenderedAmount : ''}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                setPosTenderedAmount(isNaN(val) ? 0 : Math.max(0, val));
+                              }}
+                              placeholder={`e.g. ${posTotal > 0 ? posTotal.toLocaleString() : '0'}`}
+                              className={`w-full rounded-xl pl-3 pr-16 py-2 text-sm font-black border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${inputBg}`}
+                            />
+                            {posTenderedAmount > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setPosTenderedAmount(0)}
+                                className="absolute right-2 px-2 py-1 text-[10px] font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Smart Quick Presets */}
+                        {posTotal > 0 && (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-400">
+                              <span>Quick Cash Presets:</span>
+                              <span className="opacity-75">Tap note amount</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {generateQuickCashPresets(posTotal).map((amt) => {
+                                const isCurrent = posEffectiveTendered === amt;
+                                return (
+                                  <button
+                                    key={amt}
+                                    type="button"
+                                    onClick={() => {
+                                      setPosTenderedAmount(amt);
+                                      triggerHaptic('light');
+                                    }}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                                      isCurrent
+                                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm font-black'
+                                        : isDark
+                                        ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    {amt === posTotal ? `Exact (${formatTZS(amt)})` : formatTZS(amt)}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Live Calculation / Change Display */}
+                        <div className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-bold ${
+                          posEffectiveTendered > posTotal
+                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
+                            : posTenderedAmount > 0 && posTenderedAmount < posTotal
+                            ? 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400'
+                            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                        }`}>
+                          <span>
+                            {posEffectiveTendered > posTotal
+                              ? 'Change Due to Customer:'
+                              : posTenderedAmount > 0 && posTenderedAmount < posTotal
+                              ? 'Short Balance:'
+                              : 'Payment Status:'}
+                          </span>
+                          <span className="text-sm font-black">
+                            {posEffectiveTendered > posTotal
+                              ? formatTZS(posEffectiveTendered - posTotal)
+                              : posTenderedAmount > 0 && posTenderedAmount < posTotal
+                              ? `Short by ${formatTZS(posTotal - posTenderedAmount)}`
+                              : 'Fully Paid (TSh 0 Change)'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Digital / Direct Payment Details & Reference */}
+                    {!isSplitPaymentMode && posPaymentMethod !== 'Cash' && !isPosOrderLoan && (
+                      <div className={`p-3.5 rounded-2xl border space-y-2.5 ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-blue-50/50 border-blue-200/60'}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-xs font-black text-blue-600 dark:text-blue-400">
+                            <CreditCard className="w-4 h-4" />
+                            <span>{posPaymentMethod} Details</span>
+                          </div>
+                          <span className="text-[10px] px-2 py-0.5 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 font-black border border-blue-500/20">
+                            Payable: {formatTZS(posTotal)}
+                          </span>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                            Transaction Reference / Receipt Code (Optional)
+                          </label>
+                          <input
+                            type="text"
+                            value={posPaymentReference}
+                            onChange={(e) => setPosPaymentReference(e.target.value)}
+                            placeholder="e.g. M-Pesa Code, Bank Slip Ref, POS Auth #"
+                            className={`w-full rounded-xl px-3 py-2 text-xs font-mono border focus:outline-none focus:ring-2 focus:ring-blue-500 ${inputBg}`}
+                          />
+                        </div>
+
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                          <span>✓ Full payable amount of {formatTZS(posTotal)} received via {posPaymentMethod}.</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
 
 
                   {/* Loan / Credit Checkout Fields */}
-                  {((posPaymentMethod || '').toLowerCase().includes('loan') || (posPaymentMethod || '').toLowerCase().includes('credit') || (posPaymentMethod || '').toLowerCase().includes('mkopo')) && (
+                  {isPosOrderLoan && (
                     <div className={`p-3 rounded-2xl border space-y-3 ${isDark ? 'bg-amber-950/20 border-amber-900/40 text-amber-200' : 'bg-amber-50/50 border-amber-200 text-amber-800'}`}>
                       <div className="flex items-center gap-2 text-xs font-black">
                         <Banknote className="w-4 h-4 text-amber-500" />
@@ -15383,28 +15557,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         discount={posDiscountClamped}
         tax={posTax}
         paymentMethod={posPaymentMethod}
+        paymentReference={!isSplitPaymentMode ? posPaymentReference : undefined}
         isSplitMode={isSplitPaymentMode}
         splitPayments={splitPaymentsList}
         tenderedAmount={posEffectiveTendered}
         changeAmount={posChangeAmount}
         customerName={posCustomerName}
         customerPhone={posCustomerPhone}
-        isLoan={Boolean(
-          (!isSplitPaymentMode && (
-            (posPaymentMethod || '').toLowerCase().includes('loan') || 
-            (posPaymentMethod || '').toLowerCase().includes('credit') || 
-            (posPaymentMethod || '').toLowerCase().includes('mkopo') ||
-            (posPaymentMethod || '').toLowerCase().includes('debt') ||
-            (posPaymentMethod || '').toLowerCase().includes('deni')
-          )) ||
-          posLoanDueDate ||
-          posLoanNationalId ||
-          posLoanGuarantorName ||
-          (posLoanDownPayment > 0 && posTotal > posLoanDownPayment)
-        )}
+        isLoan={isPosOrderLoan}
         loanDownPayment={posLoanDownPayment}
         isDark={isDark}
         getPosItemUnitPrice={getPosItemUnitPrice}
+        onUpdateTenderedAmount={(amount: number) => setPosTenderedAmount(amount)}
       />
 
       {/* Global Keyboard Shortcut Cheat Sheet Modal */}

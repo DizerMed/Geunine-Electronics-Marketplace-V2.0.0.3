@@ -44,7 +44,7 @@ export interface POSOrdersManagerProps {
   onOpenInvoice: (order: Order) => void;
   onOpenReceipt: (tx: POSTransaction) => void;
   onLoadOrderIntoPosCart: (order: Order) => void;
-  onCompletePayment: (order: Order, tenderDetails: { method: string; tenderedAmount: number; changeAmount: number; notes?: string }) => Promise<void> | void;
+  onCompletePayment: (order: Order, tenderDetails: { method: string; tenderedAmount: number; changeAmount: number; notes?: string; orderReference?: string }) => Promise<void> | void;
   onUpdateOrder: (order: Order) => Promise<void> | void;
   onCancelOrder: (orderId: string, reason?: string) => Promise<void> | void;
   onDeleteOrder?: (orderId: string) => Promise<void> | void;
@@ -313,7 +313,8 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
     try {
       const changeAmount = paymentTenderMethod === 'Cash' && tenderedNum > balance ? tenderedNum - balance : 0;
       await onCompletePayment(selectedOrderForPayment, {
-        method: paymentReference ? `${paymentTenderMethod} (${paymentReference})` : paymentTenderMethod,
+        method: paymentTenderMethod,
+        orderReference: paymentReference.trim() || undefined,
         tenderedAmount: tenderedNum,
         changeAmount,
         notes: paymentNotes

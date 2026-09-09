@@ -112,6 +112,9 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
   const loanDueDate = getLoanDueDate(receipt);
   const isLoanOverdue = Boolean(loanDueDate && loanDueDate < todayDateStr && !isLoanFullyPaid);
 
+  const rawOrderRef = receipt.orderReference || (receipt as any).order_reference || (receipt as any).orderreference;
+  const cleanOrderRef = typeof rawOrderRef === 'string' && rawOrderRef.trim().length > 0 ? rawOrderRef.trim() : '';
+
   let loanStatusText = 'UNPAID';
   let loanStatusSwahili = 'HAUJALIPWA';
   if (isLoanFullyPaid) {
@@ -145,6 +148,7 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
       `TAREHE NA MUDA:  ${formatToGMT3(receipt.createdAt)}`,
       `MUUZAJI:         ${receipt.cashierName}`,
       `NJIA YA MALIPO:  ${receipt.paymentMethod}`,
+      ...(cleanOrderRef ? [`KUMBUKUMBU / REF: ${cleanOrderRef}`] : []),
       `MTEJA:           ${activeCustomerName || 'Mteja wa Kawaida'}`,
       activeCustomerPhone ? `SIMU YA MTEJA:   ${activeCustomerPhone}` : '',
       activeCustomerTin ? `TIN YA MTEJA:    ${activeCustomerTin}` : '',
@@ -182,7 +186,6 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
       `----------------------------------------`,
       `JUMLA KUU: ${formatTZS(receipt.total || receipt.totalAmount || 0)}`,
       (!showLoanBreakdown && receipt.tenderedAmount && receipt.tenderedAmount > 0) ? `PESA ILIYOTOLEWA: ${formatTZS(receipt.tenderedAmount)}` : '',
-      (!showLoanBreakdown && receipt.changeAmount && receipt.changeAmount > 0) ? `CHENJI ILIYORUDISHWA: ${formatTZS(receipt.changeAmount)}` : '',
       ...(showLoanBreakdown ? [
         `----------------------------------------`,
         `MCHANGANUO WA MKOPO / LOAN DETAILS:`,
@@ -797,6 +800,12 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
                 <span>{isSwahili ? 'NJIA YA MALIPO:' : isBilingual ? 'NJIA YA MALIPO / PAYMENT:' : 'PAYMENT METHOD:'}</span>
                 <span className="font-black uppercase">{receipt.paymentMethod}</span>
               </div>
+              {cleanOrderRef ? (
+                <div className="flex justify-between items-start gap-1">
+                  <span>{isSwahili ? 'KUMBUKUMBU YA MALIPO:' : isBilingual ? 'KUMBUKUMBU / REF NO:' : 'PAYMENT REF:'}</span>
+                  <span className="font-mono font-black text-right break-words max-w-[200px]">{cleanOrderRef}</span>
+                </div>
+              ) : null}
               <div className="flex justify-between items-start pt-1 border-t border-black text-black gap-1">
                 <span className="font-black shrink-0">{isSwahili ? 'MTEJA:' : isBilingual ? 'MTEJA / CUSTOMER:' : 'CUSTOMER / BUYER:'}</span>
                 <span className="font-black text-right break-words max-w-[200px]">
@@ -949,24 +958,20 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
               {receipt.splitPayments && receipt.splitPayments.length > 0 ? (
                 <div className="space-y-0.5 pt-1 border-t border-black text-[10px]">
                   <p className="font-black uppercase">{isSwahili ? 'MCHANGANUO WA MALIPO:' : isBilingual ? 'MCHANGANUO WA MALIPO / SPLIT TENDER:' : 'SPLIT PAYMENT BREAKDOWN:'}</p>
-                  {receipt.splitPayments.map((sp, sIdx) => (
-                    <div key={sIdx} className="flex justify-between pl-2">
-                      <span>• {sp.method} {sp.reference ? `(${sp.reference})` : ''}:</span>
-                      <span className="font-black">{formatTZS(sp.amount)}</span>
-                    </div>
-                  ))}
+                  {receipt.splitPayments.map((sp, sIdx) => {
+                    const spRef = String(sp.reference || '').trim();
+                    return (
+                      <div key={sIdx} className="flex justify-between pl-2">
+                        <span>• {sp.method}{spRef ? ` (${spRef})` : ''}:</span>
+                        <span className="font-black">{formatTZS(sp.amount)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : receipt.tenderedAmount !== undefined && receipt.tenderedAmount > 0 && !showLoanBreakdown && (
                 <div className="flex justify-between pt-0.5">
                   <span>{isSwahili ? 'PESA ILIYOTOLEWA:' : isBilingual ? 'PESA ILIYOTOLEWA / CASH TENDERED:' : 'CASH TENDERED:'}</span>
                   <span className="font-black">{formatTZS(receipt.tenderedAmount)}</span>
-                </div>
-              )}
-
-              {receipt.changeAmount !== undefined && receipt.changeAmount > 0 && !showLoanBreakdown && (
-                <div className="flex justify-between font-black pt-0.5">
-                  <span>{isSwahili ? 'CHENJI ILIYORUDISHWA:' : isBilingual ? 'CHENJI / CHANGE DUE:' : 'CHANGE DUE:'}</span>
-                  <span className="font-black">{formatTZS(receipt.changeAmount)}</span>
                 </div>
               )}
 

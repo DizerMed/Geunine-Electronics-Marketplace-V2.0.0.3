@@ -1,8 +1,8 @@
 import React from 'react';
 import { formatTZS, Product } from '../types';
-import { ShoppingCart, CheckCircle, X, CreditCard, User, AlertTriangle, Printer, Banknote, List, Divide } from 'lucide-react';
+import { ShoppingCart, CheckCircle, X, CreditCard, User, AlertTriangle, Printer, Banknote, List } from 'lucide-react';
 import { triggerHaptic } from '../utils/haptics';
-import { groupCartItemsByTaxStatus, generateQuickCashPresets } from '../utils/taxUtils';
+import { groupCartItemsByTaxStatus } from '../utils/taxUtils';
 
 interface POSSalePreviewModalProps {
   isOpen: boolean;
@@ -40,18 +40,9 @@ export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
     includeVat: tax > 0,
   });
 
-  // Effective received amount logic:
-  // - Loan: down payment amount
-  // - Standard sale: tenderedAmount if provided (>0), otherwise defaults to exact total payable
   const effectiveReceived = isLoan
     ? (loanDownPayment || 0)
     : (tenderedAmount > 0 ? tenderedAmount : total);
-
-  const effectiveChange = isLoan
-    ? 0
-    : (changeAmount > 0 ? changeAmount : (effectiveReceived > total ? effectiveReceived - total : 0));
-
-  const quickCashPresets = generateQuickCashPresets(total);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm sm:p-6 animate-in fade-in duration-200">
@@ -191,89 +182,30 @@ export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
             </div>
           </div>
 
-          {/* Tendered & Loan Info */}
-          <div className="space-y-3">
+          {/* Loan Info if credit/loan sale */}
+          {isLoan && (
             <div className="grid grid-cols-2 gap-4">
               <div className={`p-4 rounded-2xl border ${isDark ? 'border-slate-800 bg-emerald-500/10' : 'border-slate-200 bg-emerald-50'}`}>
                 <div className="flex items-center justify-between text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase mb-1">
                   <span className="flex items-center gap-1.5">
-                    <Banknote className="w-3.5 h-3.5" /> Amount Received
+                    <Banknote className="w-3.5 h-3.5" /> Deposit Paid
                   </span>
-                  {!isLoan && effectiveReceived === total && (
-                    <span className="text-[9px] px-1.5 py-0.2 bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 rounded font-black">
-                      Exact
-                    </span>
-                  )}
                 </div>
                 <div className="text-lg font-black text-emerald-600 dark:text-emerald-400">
-                  {formatTZS(effectiveReceived)}
+                  {formatTZS(loanDownPayment || 0)}
                 </div>
               </div>
 
-              {isLoan ? (
-                <div className={`p-4 rounded-2xl border ${isDark ? 'border-rose-900/30 bg-rose-500/5' : 'border-rose-200 bg-rose-50'}`}>
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase mb-1">
-                    <AlertTriangle className="w-3.5 h-3.5" /> Loan Balance
-                  </div>
-                  <div className="text-lg font-black text-rose-600 dark:text-rose-400">
-                    {formatTZS(Math.max(0, total - loanDownPayment))}
-                  </div>
+              <div className={`p-4 rounded-2xl border ${isDark ? 'border-rose-900/30 bg-rose-500/5' : 'border-rose-200 bg-rose-50'}`}>
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase mb-1">
+                  <AlertTriangle className="w-3.5 h-3.5" /> Loan Balance Due
                 </div>
-              ) : effectiveChange > 0 ? (
-                <div className={`p-4 rounded-2xl border ${isDark ? 'border-amber-900/30 bg-amber-500/10' : 'border-amber-200 bg-amber-50'}`}>
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase mb-1">
-                    <Divide className="w-3.5 h-3.5" /> Change Due
-                  </div>
-                  <div className="text-lg font-black text-amber-600 dark:text-amber-400">
-                    {formatTZS(effectiveChange)}
-                  </div>
+                <div className="text-lg font-black text-rose-600 dark:text-rose-400">
+                  {formatTZS(Math.max(0, total - loanDownPayment))}
                 </div>
-              ) : (
-                <div className={`p-4 rounded-2xl border opacity-60 ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase mb-1">
-                    Change Due
-                  </div>
-                  <div className="text-lg font-black text-slate-500">
-                    {formatTZS(0)}
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
-
-            {/* Quick Cash Presets Bar when cash sale is selected */}
-            {!isLoan && !isSplitMode && (paymentMethod || '').toLowerCase() === 'cash' && onUpdateTenderedAmount && (
-              <div className={`p-3 rounded-2xl border ${isDark ? 'border-slate-800 bg-slate-900/40' : 'border-slate-200 bg-slate-50'}`}>
-                <div className="flex items-center justify-between text-[11px] font-bold mb-2 text-slate-500 dark:text-slate-400">
-                  <span>Quick Cash Tender Presets:</span>
-                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">One-tap adjust received cash</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {quickCashPresets.map((amt) => {
-                    const isSelected = effectiveReceived === amt;
-                    return (
-                      <button
-                        key={amt}
-                        type="button"
-                        onClick={() => {
-                          onUpdateTenderedAmount(amt);
-                          triggerHaptic('light');
-                        }}
-                        className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition-all ${
-                          isSelected
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm font-black'
-                            : isDark
-                            ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        {amt === total ? `Exact (${formatTZS(amt)})` : formatTZS(amt)}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
+          )}
 
         </div>
 

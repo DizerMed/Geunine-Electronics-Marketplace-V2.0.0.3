@@ -13,7 +13,7 @@ import { shareProduct } from '../utils/share';
 import { exportProductsToCSV, exportSalesToCSV, exportLoansToCSV, exportTaxJournalToCSV } from '../utils/exportData';
 import { triggerHaptic } from '../utils/haptics';
 import { isLoanTransaction } from '../utils/loanUtils';
-import { LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Plus, Search, ShieldCheck, AlertTriangle, Edit, Trash2, Printer, CheckCircle, RefreshCw, DollarSign, ArrowUpRight, Check, X, QrCode, User, Mail, MapPin, Copy, Camera, Scan, Zap, Sparkles, Sun, Moon, Monitor, Settings, Tags, Upload, UploadCloud, Type, Image as ImageIcon, Eye, Grid, List, FolderPlus, Globe, Link, Lock, LogOut, Truck, Phone, Key, MessageCircle, Download, UserCheck, UserX, Calendar, BadgeCheck, Bell, BellRing, Award, FileSpreadsheet, ExternalLink, ShieldAlert, ChevronRight, Activity, Filter, Database, Server, HardDrive, CheckCircle2, Menu, Keyboard, Command, Save, FileText, Star, GripVertical, ArrowLeftRight, ImagePlus, ZoomIn, Layers, Move, Share2, ChevronUp, ChevronDown, ArrowLeft, ArrowRight, Pause, RotateCcw, Minus, Percent, Banknote, History, Wifi, WifiOff, FileCheck2, Split, Barcode, Hash, CreditCard, Store, PackagePlus } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Plus, Search, ShieldCheck, AlertTriangle, Edit, Trash2, Printer, CheckCircle, RefreshCw, DollarSign, ArrowUpRight, Check, X, QrCode, User, Mail, MapPin, Copy, Camera, Scan, Zap, Sparkles, Sun, Moon, Monitor, Settings, Tag, Tags, Upload, UploadCloud, Type, Image as ImageIcon, Eye, Grid, List, FolderPlus, Globe, Link, Lock, LogOut, Truck, Phone, Key, MessageCircle, Download, UserCheck, UserX, Calendar, BadgeCheck, Bell, BellRing, Award, FileSpreadsheet, ExternalLink, ShieldAlert, ChevronRight, Activity, Filter, Database, Server, HardDrive, CheckCircle2, Menu, Keyboard, Command, Save, FileText, Star, GripVertical, ArrowLeftRight, ImagePlus, ZoomIn, Layers, Move, Share2, ChevronUp, ChevronDown, ArrowLeft, ArrowRight, Pause, RotateCcw, Minus, Percent, Banknote, History, Wifi, WifiOff, FileCheck2, Split, Barcode, Hash, CreditCard, Store, PackagePlus } from 'lucide-react';
 
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line, ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
@@ -4266,6 +4266,32 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     });
   }, [products, selectedPOSCategory, posBarcodeQuery, posFilterInStockOnly, posFilterLocalOnly]);
 
+  const handleApplyPosShortageAsDiscount = (shortage: number) => {
+    if (shortage <= 0) return;
+    setPosDiscount((prev) => (Number(prev) || 0) + shortage);
+    triggerHaptic('success');
+    showAlert(
+      'Shortage Applied as Discount',
+      `Applied ${formatTZS(shortage)} shortage as discount. Total payable is now fully matched by received payment.`,
+      'alert'
+    );
+  };
+
+  const handleConvertPosToLoan = (downPayment: number) => {
+    setIsSplitPaymentMode(false);
+    setPosPaymentMethod('Loan / Credit');
+    setPosLoanDownPayment(Math.max(0, downPayment));
+    if (!posLoanDueDate) {
+      setPosLoanDueDate(new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]);
+    }
+    triggerHaptic('success');
+    showAlert(
+      'Converted to Sell by Loan',
+      `Sale converted to Credit/Loan terms. Down payment set to ${formatTZS(downPayment)}. Unpaid balance will be recorded as customer debt.`,
+      'alert'
+    );
+  };
+
   const handleCompletePOS = async () => {
     if (posCart.length === 0) return;
     if (!ensureOnline('complete checkout transactions')) return;
@@ -4277,13 +4303,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         return;
       }
       if (posSplitTotalPaid < posTotal) {
+        const short = posTotal - posSplitTotalPaid;
         showAlert(
           'Incomplete Split Payment',
-          `Total allocated (${formatTZS(posSplitTotalPaid)}) is less than total payable (${formatTZS(posTotal)}). Please allocate the remaining ${formatTZS(posTotal - posSplitTotalPaid)}.`,
+          `Total allocated (${formatTZS(posSplitTotalPaid)}) is short by ${formatTZS(short)}. Please allocate remaining amount, apply shortage as discount, or convert to Sell by Loan.`,
           'warning'
         );
         return;
       }
+    }
+
+    if (!isPosOrderLoan && !isSplitPaymentMode && posPaymentMethod === 'Cash' && posTenderedAmount > 0 && posTenderedAmount < posTotal) {
+      const short = posTotal - posTenderedAmount;
+      showAlert(
+        'Incomplete Cash Payment',
+        `Amount tendered (${formatTZS(posTenderedAmount)}) is short by ${formatTZS(short)}. Please collect full amount, apply shortage as discount, or convert to Sell by Loan.`,
+        'warning'
+      );
+      return;
     }
 
     // Re-check the snapshot of inventory immediately before checkout. The definitive
@@ -10266,6 +10303,125 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               : `Short by ${formatTZS(posTotal - posSplitTotalPaid)}`}
                           </span>
                         </div>
+
+                        {posSplitTotalPaid < posTotal && (
+                          <div className="pt-2 border-t border-purple-200/60 dark:border-purple-900/40 space-y-1.5">
+                            <div className="text-[10px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3 shrink-0" />
+                              <span>Short by {formatTZS(posTotal - posSplitTotalPaid)}. Resolve shortfall:</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleApplyPosShortageAsDiscount(posTotal - posSplitTotalPaid)}
+                                className="text-[10px] font-extrabold px-2 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-all text-center flex items-center justify-center gap-1"
+                              >
+                                <Tag className="w-3 h-3" />
+                                <span>Apply Discount</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleConvertPosToLoan(posSplitTotalPaid)}
+                                className="text-[10px] font-extrabold px-2 py-1.5 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-500/30 transition-all text-center flex items-center justify-center gap-1"
+                              >
+                                <CreditCard className="w-3 h-3" />
+                                <span>Sell by Loan</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Physical Cash Tender Received Input */}
+                    {!isSplitPaymentMode && posPaymentMethod === 'Cash' && !isPosOrderLoan && (
+                      <div className={`p-3.5 rounded-2xl border space-y-2.5 ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-emerald-50/50 border-emerald-200/60'}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-xs font-black text-emerald-600 dark:text-emerald-400">
+                            <Banknote className="w-4 h-4" />
+                            <span>Cash Tender Received</span>
+                          </div>
+                          <span className="text-[10px] px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-black border border-emerald-500/20">
+                            Payable: {formatTZS(posTotal)}
+                          </span>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                            Amount Handed by Customer (TZS)
+                          </label>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder={`Exact: ${posTotal}`}
+                              value={posTenderedAmount || ''}
+                              onChange={(e) => setPosTenderedAmount(Number(e.target.value) || 0)}
+                              className={`flex-1 rounded-xl px-3 py-2 text-xs font-mono font-bold border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${inputBg}`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPosTenderedAmount(posTotal);
+                                triggerHaptic('light');
+                              }}
+                              className="text-[10px] font-bold px-2.5 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-emerald-600 hover:text-white transition-colors"
+                            >
+                              Exact
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Quick Cash Presets */}
+                        <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none">
+                          {[10000, 20000, 50000, 100000].map(amt => (
+                            <button
+                              key={amt}
+                              type="button"
+                              onClick={() => {
+                                setPosTenderedAmount(prev => (Number(prev) || 0) + amt);
+                                triggerHaptic('light');
+                              }}
+                              className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-emerald-500 border border-slate-200 dark:border-slate-700 shrink-0"
+                            >
+                              +{formatTZS(amt)}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Change or Shortage Display */}
+                        {posTenderedAmount > 0 && posTenderedAmount !== posTotal && (
+                          <div className="pt-2 border-t border-emerald-200/50 dark:border-emerald-900/40 text-xs">
+                            {posTenderedAmount > posTotal ? (
+                              <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-black">
+                                <span>Change Due to Customer:</span>
+                                <span>{formatTZS(posTenderedAmount - posTotal)}</span>
+                              </div>
+                            ) : (
+                              <div className="space-y-1.5">
+                                <div className="flex justify-between items-center text-rose-500 font-black">
+                                  <span>Short by {formatTZS(posTotal - posTenderedAmount)}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleApplyPosShortageAsDiscount(posTotal - posTenderedAmount)}
+                                    className="text-[10px] font-extrabold px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-all text-center"
+                                  >
+                                    Apply as Discount
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleConvertPosToLoan(posTenderedAmount)}
+                                    className="text-[10px] font-extrabold px-2 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-500/30 transition-all text-center"
+                                  >
+                                    Sell by Loan
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -15454,11 +15610,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         changeAmount={posChangeAmount}
         customerName={posCustomerName}
         customerPhone={posCustomerPhone}
+        customerEmail={posCustomerEmail}
+        customerTin={posCustomerTin}
         isLoan={isPosOrderLoan}
         loanDownPayment={posLoanDownPayment}
+        loanDueDate={posLoanDueDate}
+        loanNationalId={posLoanNationalId}
+        loanGuarantorName={posLoanGuarantorName}
+        loanGuarantorPhone={posLoanGuarantorPhone}
+        extraCosts={posExtraCosts.filter(c => c.name.trim() && Number(c.amount) > 0)}
         isDark={isDark}
         getPosItemUnitPrice={getPosItemUnitPrice}
         onUpdateTenderedAmount={(amount: number) => setPosTenderedAmount(amount)}
+        onApplyDiscount={handleApplyPosShortageAsDiscount}
+        onConvertToLoan={handleConvertPosToLoan}
       />
 
       {/* Global Keyboard Shortcut Cheat Sheet Modal */}

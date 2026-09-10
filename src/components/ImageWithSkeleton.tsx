@@ -10,7 +10,7 @@ export function ImageWithSkeleton({
   const [isLoaded, setIsLoaded] = useState(false);
 
   return (
-    <div className={`relative w-full h-full bg-slate-100 dark:bg-slate-800 overflow-hidden ${wrapperClassName || ''}`}>
+    <div className={`relative w-full h-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 overflow-hidden ${wrapperClassName || ''}`}>
       {!isLoaded && (
         <div className="absolute inset-0 animate-pulse bg-slate-200 dark:bg-slate-700" />
       )}

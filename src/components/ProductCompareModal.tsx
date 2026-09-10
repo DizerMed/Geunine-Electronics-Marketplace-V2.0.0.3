@@ -188,7 +188,7 @@ export const ProductCompareModal: React.FC<ProductCompareModalProps> = ({
                             }`}
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
-                              <img src={product.image} alt={product.name} className="w-8 h-8 rounded-lg object-cover bg-slate-800 border border-slate-700" />
+                              <img src={product.image} alt={product.name} className="w-8 h-8 rounded-lg object-contain p-0.5 bg-slate-800 border border-slate-700" />
                               <div className="min-w-0">
                                 <p className={`text-xs font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{product.name}</p>
                                 <p className={`text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{product.brand} • {formatTZS(product.price)}</p>
@@ -254,7 +254,7 @@ export const ProductCompareModal: React.FC<ProductCompareModalProps> = ({
                             <img
                               src={product.image}
                               alt={product.name}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-300"
                             />
                             {isLowest && (
                               <div className="absolute top-2 left-2 bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-md shadow-md flex items-center gap-1">
@@ -497,7 +497,7 @@ export const CompareFloatingBar: React.FC<CompareFloatingBarProps> = ({
                 <img
                   src={product.image}
                   alt={product.name}
-                  className="w-8 h-8 rounded-lg object-cover bg-slate-800 border border-slate-700"
+                  className="w-8 h-8 rounded-lg object-contain p-0.5 bg-slate-800 border border-slate-700"
                 />
                 <button
                   onClick={(e) => {

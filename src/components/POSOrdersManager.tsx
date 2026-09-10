@@ -943,7 +943,7 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
                                 <img
                                   src={item.product.image}
                                   alt={item.product.name}
-                                  className="w-7 h-7 rounded object-cover border border-slate-200 dark:border-slate-700"
+                                  className="w-7 h-7 rounded object-contain p-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
                                   referrerPolicy="no-referrer"
                                 />
                               )}
@@ -1191,7 +1191,7 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
                             <img
                               src={item.product.image}
                               alt=""
-                              className="w-7 h-7 rounded object-cover border border-slate-200 dark:border-slate-700"
+                              className="w-7 h-7 rounded object-contain p-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
                               referrerPolicy="no-referrer"
                             />
                           )}

@@ -278,7 +278,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
           <div className="lg:col-span-5 space-y-5">
             
             {/* Main Stage Image */}
-            <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-3xl overflow-hidden border-none relative shadow-sm group">
+            <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-3xl overflow-hidden border-none relative shadow-sm group flex items-center justify-center p-3 sm:p-6">
               <img
                 src={galleryImages[activeImageIndex] || product.image}
                 alt={product.name}
@@ -286,7 +286,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   triggerHaptic('light');
                   setIsLightboxOpen(true);
                 }}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-zoom-in"
+                className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500 cursor-zoom-in"
               />
               <span className="absolute top-4 left-4 bg-emerald-600/90 text-white text-[11px] font-bold px-3 py-1 rounded-full backdrop-blur-md shadow-sm flex items-center gap-1">
                 <ShieldCheck className="w-3.5 h-3.5" /> Verified Original Product
@@ -354,7 +354,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                       : 'border-2 border-transparent opacity-70 hover:opacity-100'
                   }`}
                 >
-                  <img src={img} alt={`Angle ${idx + 1}`} className="w-full h-full object-cover" />
+                  <img src={img} alt={`Angle ${idx + 1}`} className="w-full h-full object-contain p-1 bg-slate-50 dark:bg-slate-800" />
                 </button>
               ))}
             </div>
@@ -682,7 +682,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
               {/* Main Product */}
               <div className="md:col-span-5 bg-white dark:bg-slate-800 p-4 rounded-2xl border-none flex items-center gap-4">
-                <img src={product.image} alt={product.name} className="w-16 h-16 object-cover rounded-xl border-none" />
+                <img src={product.image} alt={product.name} className="w-16 h-16 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase">This Item</span>
                   <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate">{product.name}</h5>
@@ -694,7 +694,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
 
               {/* Complementary Product */}
               <div className="md:col-span-5 bg-white dark:bg-slate-800 p-4 rounded-2xl border-none flex items-center gap-4">
-                <img src={complementaryBundleItem.image} alt={complementaryBundleItem.name} className="w-16 h-16 object-cover rounded-xl border-none" />
+                <img src={complementaryBundleItem.image} alt={complementaryBundleItem.name} className="w-16 h-16 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <span className="text-[10px] font-bold text-emerald-600 uppercase">Recommended Add-on</span>
                   <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate">{complementaryBundleItem.name}</h5>
@@ -749,11 +749,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 className="bg-white dark:bg-slate-800 border-none rounded-2xl p-4 transition-all hover:shadow-xl cursor-pointer group flex flex-col justify-between"
               >
                 <div>
-                  <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-xl overflow-hidden mb-3 relative">
+                  <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-xl overflow-hidden mb-3 relative flex items-center justify-center">
                     <img
                       src={item.image}
                       alt={item.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-300"
                     />
                   </div>
                   <span className="text-[10px] font-extrabold text-blue-600 uppercase tracking-wider">{item.brand}</span>
@@ -815,7 +815,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         <div className="fixed bottom-0 inset-x-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-3 sm:p-4 z-40 shadow-2xl animate-slideUp">
           <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              <img src={product.image} alt={product.name} className="w-12 h-12 object-cover rounded-xl border border-slate-200 dark:border-slate-700 shrink-0 hidden sm:block" />
+              <img src={product.image} alt={product.name} className="w-12 h-12 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0 hidden sm:block" />
               <div className="min-w-0">
                 <h4 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white truncate">{product.name}</h4>
                 <p className="text-xs font-bold text-blue-600">{formatTZS(product.price)}</p>
@@ -931,7 +931,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                       : 'opacity-50 hover:opacity-100'
                   }`}
                 >
-                  <img src={img} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
+                  <img src={img} alt={`Thumb ${idx + 1}`} className="w-full h-full object-contain p-1 bg-slate-800" />
                 </button>
               ))}
             </div>

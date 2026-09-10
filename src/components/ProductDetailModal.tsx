@@ -137,11 +137,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             
             {/* Left 5 Cols: Image Gallery & Authentication */}
             <div className="lg:col-span-5 space-y-4">
-              <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-3xl overflow-hidden border-none/80 relative shadow-inner group">
+              <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-3xl overflow-hidden border-none/80 relative shadow-inner group flex items-center justify-center p-3 sm:p-6">
                 <img
                   src={galleryImages[activeImageIndex] || product.image}
                   alt={product.name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
                 />
                 <span className="absolute top-4 left-4 bg-emerald-600/90 text-white text-[11px] font-bold px-3 py-1 rounded-full backdrop-blur-md shadow-sm flex items-center gap-1">
                   <ShieldCheck className="w-3.5 h-3.5" /> 100% Genuine
@@ -165,7 +165,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                         : 'border-slate-200 opacity-70 hover:opacity-100'
                     }`}
                   >
-                    <img src={img} alt={`View ${idx + 1}`} className="w-full h-full object-cover" />
+                    <img src={img} alt={`View ${idx + 1}`} className="w-full h-full object-contain p-1 bg-slate-100 dark:bg-slate-800" />
                   </button>
                 ))}
               </div>
@@ -501,7 +501,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
                 {/* Main Product Mini Card */}
                 <div className="md:col-span-5 bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 flex items-center gap-3">
-                  <img src={product.image} alt={product.name} className="w-16 h-16 object-cover rounded-xl border border-slate-100 dark:border-slate-700" />
+                  <img src={product.image} alt={product.name} className="w-16 h-16 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase">Selected Hardware</span>
                     <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate">{product.name}</h5>
@@ -513,7 +513,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
                 {/* Bundle Item Card */}
                 <div className="md:col-span-5 bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 flex items-center gap-3">
-                  <img src={complementaryBundleItem.image} alt={complementaryBundleItem.name} className="w-16 h-16 object-cover rounded-xl border border-slate-100 dark:border-slate-700" />
+                  <img src={complementaryBundleItem.image} alt={complementaryBundleItem.name} className="w-16 h-16 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">Recommended Add-on</span>
                     <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate">{complementaryBundleItem.name}</h5>
@@ -559,11 +559,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   className="bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700 hover:border-blue-400 rounded-2xl p-4 transition-all hover:shadow-lg cursor-pointer group flex flex-col justify-between"
                 >
                   <div>
-                    <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-xl overflow-hidden mb-3 relative">
+                    <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-xl overflow-hidden mb-3 relative flex items-center justify-center">
                       <img
                         src={item.image}
                         alt={item.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-300"
                       />
                     </div>
                     <span className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wider">{item.brand}</span>

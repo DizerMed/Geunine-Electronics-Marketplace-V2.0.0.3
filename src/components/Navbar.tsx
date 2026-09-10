@@ -249,7 +249,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <img
                     src={prod.image}
                     alt={prod.name}
-                    className="w-10 h-10 object-cover rounded-lg bg-slate-100 shrink-0 border border-slate-200/50"
+                    className="w-10 h-10 object-contain p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 shrink-0 border border-slate-200/50"
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-extrabold truncate text-slate-900 dark:text-white">

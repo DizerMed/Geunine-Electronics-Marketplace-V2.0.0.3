@@ -7626,7 +7626,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         <td className="p-4">
                           <div className="flex items-center gap-3">
 
-                            <img src={p.image} alt={p.name} className={`w-10 h-10 object-cover rounded-xl border shrink-0 ${isDark ? 'border-slate-700' : 'border-slate-200'}`} />
+                            <img src={p.image} alt={p.name} className={`w-10 h-10 object-contain p-0.5 rounded-xl border shrink-0 bg-white dark:bg-slate-900 ${isDark ? 'border-slate-700' : 'border-slate-200'}`} />
 
                             <div>
 
@@ -9048,7 +9048,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           <img
                             src={p.image}
                             alt={p.name}
-                            className={`w-12 h-12 sm:w-14 sm:h-14 object-cover rounded-xl border ${isDark ? 'border-slate-700' : 'border-slate-200'}`}
+                            className={`w-12 h-12 sm:w-14 sm:h-14 object-contain p-1 rounded-xl border bg-white dark:bg-slate-950 ${isDark ? 'border-slate-700' : 'border-slate-200'}`}
                           />
                           {inCart && (
                             <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-black flex items-center justify-center shadow-md">
@@ -9150,7 +9150,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                   >
                                     <td className="p-3">
                                       <div className="flex items-center gap-3">
-                                        <img src={p.image} alt={p.name} className="w-9 h-9 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0" />
+                                        <img src={p.image} alt={p.name} className="w-9 h-9 rounded-lg object-contain p-0.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 shrink-0" />
                                         <div className="min-w-0">
                                           <div className={`font-bold truncate ${textTitle}`}>{p.name}</div>
                                           <div className="flex items-center gap-1.5 mt-0.5">
@@ -9234,7 +9234,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                   <img
                                     src={p.image}
                                     alt={p.name}
-                                    className={`w-16 h-16 object-cover rounded-xl border ${isDark ? 'border-slate-700' : 'border-slate-200'}`}
+                                    className={`w-16 h-16 object-contain p-1 rounded-xl border bg-white dark:bg-slate-950 ${isDark ? 'border-slate-700' : 'border-slate-200'}`}
                                   />
                                   {inCart && (
                                     <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-black flex items-center justify-center shadow-md">
@@ -9812,7 +9812,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               <img
                                 src={item.product.image}
                                 alt={item.product.name}
-                                className="w-10 h-10 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                                className="w-10 h-10 rounded-xl object-contain p-0.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 shrink-0"
                               />
 
                               <div className="min-w-0 flex-1">
@@ -14160,7 +14160,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                   >
 
-                    <img src={p.image} alt={p.name} className="w-8 h-8 rounded-lg object-cover shrink-0" />
+                    <img src={p.image} alt={p.name} className="w-8 h-8 rounded-lg object-contain p-0.5 bg-white dark:bg-slate-900 border border-slate-700/40 shrink-0" />
 
                     <div className="overflow-hidden flex-1">
 
@@ -14758,7 +14758,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                                           alt={item.product.name}
 
-                                          className="w-6 h-6 rounded-md object-cover border border-slate-700/60 shrink-0"
+                                          className="w-6 h-6 rounded-md object-contain p-0.5 bg-white dark:bg-slate-900 border border-slate-700/60 shrink-0"
 
                                         />
 

@@ -151,7 +151,7 @@ export const OrderWarrantySection: React.FC<OrderWarrantySectionProps> = ({
                     <img
                       src={item.product?.image || 'https://images.unsplash.com/photo-1550009158-9ebf69173e03?w=200'}
                       alt={item.product?.name || 'Product'}
-                      className="w-9 h-9 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                      className="w-9 h-9 rounded-lg object-contain p-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0"
                     />
                     <div className="min-w-0">
                       <p className="font-bold text-slate-900 dark:text-white truncate">

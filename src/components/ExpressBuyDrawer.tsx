@@ -559,7 +559,7 @@ export const ExpressBuyDrawer: React.FC<ExpressBuyDrawerProps> = ({
                     <img
                       src={product.image}
                       alt={product.name}
-                      className="w-16 h-16 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                      className="w-16 h-16 rounded-xl object-contain p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">

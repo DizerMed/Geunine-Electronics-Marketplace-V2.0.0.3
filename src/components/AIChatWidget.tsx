@@ -414,7 +414,7 @@ export const AIChatWidget: React.FC<AIChatWidgetProps> = ({
                     : 'bg-white hover:bg-indigo-50 border-slate-200 hover:border-indigo-300 text-slate-800'
                 }`}
               >
-                <ProductImageWithFallback src={p.image} alt={p.name} className="w-7 h-7 rounded-lg object-cover border border-slate-700/50" />
+                <ProductImageWithFallback src={p.image} alt={p.name} className="w-7 h-7 rounded-lg object-contain p-0.5 bg-slate-900 border border-slate-700/50" />
                 <div className="flex-1 min-w-0">
                   <p className="font-extrabold truncate text-xs">{p.name}</p>
                   <span className={`text-[10px] font-mono ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{p.brand} • TZS {p.price.toLocaleString()}</span>
@@ -926,7 +926,7 @@ export const AIChatWidget: React.FC<AIChatWidgetProps> = ({
                         <ProductImageWithFallback
                           src={p.image}
                           alt={p.name}
-                          className="w-14 h-14 rounded-xl object-cover border border-slate-700/40 group-hover:scale-105 transition-transform shrink-0"
+                          className="w-14 h-14 rounded-xl object-contain p-1 bg-white dark:bg-slate-950 border border-slate-700/40 group-hover:scale-105 transition-transform shrink-0"
                         />
                         <div className="flex-1 min-w-0">
                           <h5 className={`font-extrabold text-xs truncate group-hover:text-indigo-400 transition-colors ${

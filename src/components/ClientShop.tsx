@@ -1750,7 +1750,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
 
                         {/* Product Image */}
                         <div className="relative bg-slate-50 dark:bg-slate-900 rounded-xl sm:rounded-2xl aspect-square mb-3 sm:mb-4 overflow-hidden border border-slate-100 dark:border-slate-800 cursor-pointer" onClick={() => setSelectedProduct(product)}>
-                          <ImageWithSkeleton src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 transition-opacity" wrapperClassName="absolute inset-0" />
+                          <ImageWithSkeleton src={product.image} alt={product.name} className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-500 transition-opacity" wrapperClassName="absolute inset-0" />
                           <motion.button
                             whileHover={{ scale: 1.15 }}
                             whileTap={{ scale: 0.88 }}
@@ -2132,7 +2132,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                             <ImageWithSkeleton
                               src={product.image}
                               alt={product.name}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-500"
                             />
                             {product.featured && (
                               <span className="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 shadow-sm">
@@ -2189,7 +2189,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                         <ImageWithSkeleton
                           src={product.image}
                           alt={product.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 transition-opacity"
+                          className="w-full h-full object-contain p-2 sm:p-2.5 group-hover:scale-105 transition-transform duration-500 transition-opacity"
                           wrapperClassName="absolute inset-0"
                         />
                         <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
@@ -2485,7 +2485,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
 
                     return (
                       <div key={item.product.id} className="flex gap-4 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40">
-                        <ImageWithSkeleton src={item.product.image} alt={item.product.name} className="w-20 h-20 object-cover" wrapperClassName="w-20 h-20 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0" />
+                        <ImageWithSkeleton src={item.product.image} alt={item.product.name} className="w-20 h-20 object-contain p-1" wrapperClassName="w-20 h-20 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0" />
                         <div className="flex-1 flex flex-col justify-between">
                           <div>
                             <h4 className="font-bold text-sm text-slate-900 dark:text-white line-clamp-1">{item.product.name}</h4>
@@ -2741,7 +2741,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                     return (
                       <div key={item.product.id} className="flex items-center justify-between gap-3 text-xs">
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <ImageWithSkeleton src={item.product.image} alt={item.product.name} className="w-10 h-10 object-cover" wrapperClassName="w-10 h-10 rounded-lg border border-slate-200 dark:border-slate-800 shrink-0" />
+                          <ImageWithSkeleton src={item.product.image} alt={item.product.name} className="w-10 h-10 object-contain p-0.5" wrapperClassName="w-10 h-10 rounded-lg border border-slate-200 dark:border-slate-800 shrink-0" />
                           <div className="min-w-0">
                             <p className="font-bold text-slate-900 dark:text-white truncate">{item.product.name}</p>
                             <p className="text-slate-500">Qty: {item.quantity}</p>

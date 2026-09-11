@@ -18,7 +18,9 @@ import { applyDynamicSEOMetadata, createSEOSlug } from '../lib/seoManager';
 import { triggerHaptic } from '../utils/haptics';
 import { Breadcrumb, BreadcrumbItem } from './Breadcrumb';
 import { ImageWithSkeleton } from './ImageWithSkeleton';
+import { DiscountCountdown } from './DiscountCountdown';
 import { SpecificationSidebar, ActiveFilterBar, FilterState, INITIAL_FILTER_STATE } from './SpecificationSidebar';
+import { customAlert, customConfirm } from '../utils/dialog';
 import { 
   trackPageView, 
   trackProductView, 
@@ -70,7 +72,6 @@ const ExpressBuyDrawer = React.lazy(() => import('./ExpressBuyDrawer').then(m =>
 const ReceiptVerificationModal = React.lazy(() => import('./ReceiptVerificationModal').then(m => ({ default: m.ReceiptVerificationModal })));
 const InvoiceVerificationModal = React.lazy(() => import('./InvoiceVerificationModal').then(m => ({ default: m.InvoiceVerificationModal })));
 const ReviewForm = React.lazy(() => import('./ReviewForm').then(m => ({ default: m.ReviewForm })));
-import { customAlert, customConfirm } from '../utils/dialog';
 
 const ProductSkeletonCard = () => (
   <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60 overflow-hidden shadow-xs flex flex-col animate-pulse">
@@ -1824,11 +1825,11 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                                     setExpressBuyProduct(product);
                                     setIsExpressBuyOpen(true);
                                   }}
-                                  title="Express 1-Click Buy"
-                                  className="flex-1 h-8 sm:h-9 px-2 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-all shadow-sm bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white shadow-amber-500/20 cursor-pointer"
+                                  title="Express 1-Click Buy Now"
+                                  className="flex-1 h-8 sm:h-9 px-2 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-all shadow-sm bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white shadow-amber-500/20 cursor-pointer whitespace-nowrap"
                                 >
                                   <Zap className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-white shrink-0" />
-                                  <span>Buy</span>
+                                  <span>Buy Now</span>
                                 </motion.button>
                                 <motion.button
                                   whileHover={{ scale: 1.05 }}
@@ -2291,6 +2292,16 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                         </div>
 
                         <div className="pt-2 sm:pt-3 border-t border-slate-100 dark:border-slate-700/60 flex flex-col gap-2">
+                          {/* Live Offer Expiry Countdown Badge */}
+                          {(product.isOnOffer || (product.originalPrice && product.originalPrice > product.price)) && product.offerEndsAt && (
+                            <DiscountCountdown
+                              targetDate={product.offerEndsAt}
+                              variant="badge"
+                              label={product.offerTitle || 'Ends'}
+                              className="w-fit"
+                            />
+                          )}
+
                           {/* Price Section */}
                           <div className="min-w-0">
                             {product.originalPrice && product.originalPrice > product.price ? (
@@ -2338,11 +2349,11 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                                     setExpressBuyProduct(product);
                                     setIsExpressBuyOpen(true);
                                   }}
-                                  title="Express 1-Click Buy"
-                                  className="flex-1 h-8 sm:h-9 px-2 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-all shadow-sm bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-blue-600/20"
+                                  title="Express 1-Click Buy Now"
+                                  className="flex-1 h-8 sm:h-9 px-2 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1 transition-all shadow-sm bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-blue-600/20 whitespace-nowrap"
                                 >
                                   <Zap className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-amber-300 text-amber-300 shrink-0" />
-                                  <span>Buy</span>
+                                  <span>Buy Now</span>
                                 </motion.button>
                                 <motion.button
                                   whileHover={{ scale: 1.05 }}

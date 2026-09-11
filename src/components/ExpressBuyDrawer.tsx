@@ -34,6 +34,7 @@ import { calculateWarrantyStatus } from '../utils/warranty';
 import { formatTzPhone } from '../utils/phoneFormat';
 import { QRCodeSVG } from 'qrcode.react';
 import { InvoicePrintModal } from './InvoicePrintModal';
+import { DiscountCountdown } from './DiscountCountdown';
 
 interface ExpressBuyDrawerProps {
   product: Product | null;
@@ -583,6 +584,15 @@ export const ExpressBuyDrawer: React.FC<ExpressBuyDrawerProps> = ({
                       </div>
                     </div>
                   </div>
+
+                  {/* Live Real-Time Customer Expiry Countdown */}
+                  {product.offerEndsAt && (product.isOnOffer || (product.originalPrice && product.originalPrice > unitPrice)) && (
+                    <DiscountCountdown
+                      targetDate={product.offerEndsAt}
+                      variant="card"
+                      label={product.offerTitle || 'Limited Time Offer Ends In'}
+                    />
+                  )}
 
                   {/* Quantity and Real-time Stock Bar */}
                   <div className={`p-3.5 rounded-2xl border space-y-2.5 ${

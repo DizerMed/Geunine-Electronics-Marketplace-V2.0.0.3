@@ -9,6 +9,7 @@ import { createSEOSlug } from '../lib/seoManager';
 import { useLanguage } from "../i18n/LanguageContext";
 import { Product, formatTZS, CategoryItem } from '../types';
 import { ProductDescriptionView } from './ProductDescriptionView';
+import { DiscountCountdown } from './DiscountCountdown';
 
 interface ProductDetailModalProps {
   product: Product;
@@ -284,6 +285,18 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Real-time Customer Offer Expiration Countdown */}
+                {(product.isOnOffer || (product.originalPrice && product.originalPrice > product.price)) && product.offerEndsAt && (
+                  <div className="mb-6">
+                    <DiscountCountdown
+                      targetDate={product.offerEndsAt}
+                      variant="full"
+                      label={product.offerTitle || 'Limited Time Offer Ends In'}
+                      showExpiredMessage={true}
+                    />
+                  </div>
+                )}
 
                 <div className="mb-6">
                   <ProductDescriptionView description={product.description} />

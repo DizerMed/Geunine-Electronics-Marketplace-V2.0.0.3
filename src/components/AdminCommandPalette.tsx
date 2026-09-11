@@ -20,7 +20,13 @@ import {
   Sparkles,
   Command
 } from 'lucide-react';
-import { Product, Order, POSTransaction } from '../types';
+import { Product, Order, POSTransaction, UserProfile, CustomerProfile, formatTZS } from '../types';
+import { 
+  calculateProductSearchScore, 
+  calculateOrderSearchScore, 
+  calculateCustomerSearchScore, 
+  aggregateCustomerProfiles 
+} from '../utils/adminSearch';
 
 interface AdminCommandPaletteProps {
   isOpen: boolean;
@@ -35,6 +41,11 @@ interface AdminCommandPaletteProps {
   products?: Product[];
   orders?: Order[];
   posTransactions?: POSTransaction[];
+  profiles?: UserProfile[];
+  onEditProduct?: (product: Product) => void;
+  onSellInPOS?: (product: Product) => void;
+  onOpenInvoice?: (order: Order) => void;
+  onOpenCustomerCrm?: (customer: CustomerProfile & { ordersList: Order[] }) => void;
   isDark?: boolean;
 }
 
@@ -51,6 +62,11 @@ export const AdminCommandPalette: React.FC<AdminCommandPaletteProps> = ({
   products = [],
   orders = [],
   posTransactions = [],
+  profiles = [],
+  onEditProduct,
+  onSellInPOS,
+  onOpenInvoice,
+  onOpenCustomerCrm,
   isDark = true,
 }) => {
   const [search, setSearch] = useState('');
@@ -262,62 +278,101 @@ export const AdminCommandPalette: React.FC<AdminCommandPaletteProps> = ({
     },
   ], [modKey, isDark, onOpenAddProduct, onSaveSettings, onOpenScanner, onOpenPrintAllQr, onToggleTheme, onOpenShortcuts, onNavigateTab, onClose]);
 
-  // Product & Order Search Matching
+  // Aggregated Customer Profiles
+  const aggregatedCustomers = useMemo(() => {
+    return aggregateCustomerProfiles(profiles, orders);
+  }, [profiles, orders]);
+
+  // Product, Order, Customer & Action Search Matching
   const filteredItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     if (!q) return defaultActions;
 
     const matchedActions = defaultActions.filter(a => 
-      (a.title && String(a.title).toLowerCase().includes(q)) || 
-      (a.category && String(a.category).toLowerCase().includes(q))
+      (a.title && String(a.title).toLowerCase().includes(q.toLowerCase())) || 
+      (a.category && String(a.category).toLowerCase().includes(q.toLowerCase()))
     );
 
-    // Match products
+    // Match products with strict string-length and prefix ranking
     const matchedProducts = products
-      .filter(p => 
-        (String(p?.name || '').toLowerCase().includes(q)) ||
-        (String(p?.brand || '').toLowerCase().includes(q)) ||
-        (String(p?.sku || '').toLowerCase().includes(q)) ||
-        (String(p?.barcode || '').toLowerCase().includes(q)) ||
-        (String(p?.category || '').toLowerCase().includes(q))
-      )
-      .slice(0, 5)
       .map(p => ({
+        product: p,
+        score: calculateProductSearchScore(p, q),
+      }))
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
+      .map(({ product: p }) => ({
         id: `prod-${p.id}`,
         title: `${p.name} (${p.sku || 'No SKU'})`,
-        subtitle: `TZS ${p.price.toLocaleString()} • Stock: ${p.stock}`,
+        subtitle: `${formatTZS(p.price)} • Stock: ${p.stock} • ${p.brand || 'Genuine'}`,
         category: 'Products',
-        shortcut: '',
+        shortcut: 'Edit',
         icon: <ShoppingBag className="w-4 h-4 text-blue-400" />,
         action: () => {
-          onNavigateTab('inventory');
+          if (onEditProduct) {
+            onEditProduct(p);
+          } else {
+            onNavigateTab('inventory');
+          }
           onClose();
         }
       }));
 
-    // Match orders
+    // Match orders with relevance ranking
     const matchedOrders = orders
-      .filter(o =>
-        (String(o?.id || '').toLowerCase().includes(q)) ||
-        (String(o?.customerName || '').toLowerCase().includes(q)) ||
-        (String(o?.customerPhone || '').includes(q))
-      )
-      .slice(0, 3)
       .map(o => ({
+        order: o,
+        score: calculateOrderSearchScore(o, q),
+      }))
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4)
+      .map(({ order: o }) => ({
         id: `order-${o.id}`,
-        title: `Order #${o.id?.slice(0, 8)} - ${o.customerName || 'Customer'}`,
-        subtitle: `TZS ${(o.totalAmount || 0).toLocaleString()} • ${o.status}`,
+        title: `Order #${String(o.id).slice(0, 8).toUpperCase()} - ${o.customerName || 'Customer'}`,
+        subtitle: `${formatTZS(o.totalAmount || 0)} • ${o.status} • ${o.customerPhone || 'No phone'}`,
         category: 'Orders',
-        shortcut: '',
+        shortcut: 'Invoice',
         icon: <FileText className="w-4 h-4 text-emerald-400" />,
         action: () => {
-          onNavigateTab('orders');
+          if (onOpenInvoice) {
+            onOpenInvoice(o);
+          } else {
+            onNavigateTab('orders');
+          }
           onClose();
         }
       }));
 
-    return [...matchedActions, ...matchedProducts, ...matchedOrders];
-  }, [search, defaultActions, products, orders, onNavigateTab, onClose]);
+    // Match customers with relevance ranking
+    const matchedCustomers = aggregatedCustomers
+      .map(c => ({
+        customer: c,
+        score: calculateCustomerSearchScore(c, q),
+      }))
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4)
+      .map(({ customer: c }) => ({
+        id: `cust-${c.id}`,
+        title: `${c.name} (${c.tier || 'Standard'})`,
+        subtitle: `${c.phone || c.email} • ${c.totalOrders} orders • ${formatTZS(c.lifetimeValue)}`,
+        category: 'Customers',
+        shortcut: 'CRM',
+        icon: <Users className="w-4 h-4 text-cyan-400" />,
+        action: () => {
+          if (onOpenCustomerCrm) {
+            onOpenCustomerCrm(c as any);
+          } else {
+            onNavigateTab('customers');
+          }
+          onClose();
+        }
+      }));
+
+    return [...matchedActions, ...matchedProducts, ...matchedOrders, ...matchedCustomers];
+  }, [search, defaultActions, products, orders, aggregatedCustomers, onEditProduct, onOpenInvoice, onOpenCustomerCrm, onNavigateTab, onClose]);
 
   // Key navigation (Arrow up/down, Enter, Esc)
   const handleKeyDown = (e: React.KeyboardEvent) => {

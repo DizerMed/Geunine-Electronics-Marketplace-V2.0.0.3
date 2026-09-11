@@ -13,7 +13,10 @@ import { shareProduct } from '../utils/share';
 import { exportProductsToCSV, exportSalesToCSV, exportLoansToCSV, exportTaxJournalToCSV } from '../utils/exportData';
 import { triggerHaptic } from '../utils/haptics';
 import { isLoanTransaction } from '../utils/loanUtils';
-import { LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Plus, Search, ShieldCheck, AlertTriangle, Edit, Trash2, Printer, CheckCircle, RefreshCw, DollarSign, ArrowUpRight, Check, X, QrCode, User, Mail, MapPin, Copy, Camera, Scan, Zap, Sparkles, Sun, Moon, Monitor, Settings, Tag, Tags, Upload, UploadCloud, Type, Image as ImageIcon, Eye, Grid, List, FolderPlus, Globe, Link, Lock, LogOut, Truck, Phone, Key, MessageCircle, Download, UserCheck, UserX, Calendar, BadgeCheck, Bell, BellRing, Award, FileSpreadsheet, ExternalLink, ShieldAlert, ChevronRight, Activity, Filter, Database, Server, HardDrive, CheckCircle2, Menu, Keyboard, Command, Save, FileText, Star, GripVertical, ArrowLeftRight, ImagePlus, ZoomIn, Layers, Move, Share2, ChevronUp, ChevronDown, ArrowLeft, ArrowRight, Pause, RotateCcw, Minus, Percent, Banknote, History, Wifi, WifiOff, FileCheck2, Split, Barcode, Hash, CreditCard, Store, PackagePlus } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Plus, Search, ShieldCheck, AlertTriangle, Edit, Trash2, Printer, CheckCircle, RefreshCw, DollarSign, ArrowUpRight, Check, X, QrCode, User, Mail, MapPin, Copy, Camera, Scan, Zap, Sparkles, Sun, Moon, Monitor, Settings, Tag, Tags, Upload, UploadCloud, Type, Image as ImageIcon, Eye, Grid, List, FolderPlus, Globe, Link, Lock, LogOut, Truck, Phone, Key, MessageCircle, Download, UserCheck, UserX, Calendar, BadgeCheck, Bell, BellRing, Award, FileSpreadsheet, ExternalLink, ShieldAlert, ChevronRight, Activity, Filter, Database, Server, HardDrive, CheckCircle2, Menu, Keyboard, Command, Save, FileText, Star, GripVertical, ArrowLeftRight, ImagePlus, ZoomIn, Layers, Move, Share2, ChevronUp, ChevronDown, ArrowLeft, ArrowRight, Pause, RotateCcw, Minus, Percent, Banknote, History, Wifi, WifiOff, FileCheck2, Split, Barcode, Hash, CreditCard, Store, PackagePlus, Clock, Flame } from 'lucide-react';
+import { DiscountCountdown } from './DiscountCountdown';
+import { AdminGlobalSearchBar } from './AdminGlobalSearchBar';
+import { calculateProductSearchScore } from '../utils/adminSearch';
 
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line, ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
@@ -1208,7 +1211,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const [posCustomDate, setPosCustomDate] = useState("");
 
+  // Inventory Table Real-Time Search & Ranking State
+  const [inventoryProductSearchQuery, setInventoryProductSearchQuery] = useState('');
 
+  // Filtered and smart-ranked products in Inventory using string length & prefix ranking
+  const filteredInventoryProducts = useMemo(() => {
+    const q = inventoryProductSearchQuery.trim();
+    if (!q) return products;
+
+    return products
+      .map(p => ({
+        product: p,
+        score: calculateProductSearchScore(p, q),
+      }))
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(item => item.product);
+  }, [products, inventoryProductSearchQuery]);
 
   // Keyboard Shortcuts & Command Palette States
 
@@ -5519,41 +5538,41 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
         }`}>
 
-          {/* Quick Search & Command Trigger */}
-
-          <button
-
-            type="button"
-
-            onClick={() => setIsCommandPaletteOpen(true)}
-
-            className={`flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl border text-xs font-medium transition-all max-w-sm w-full sm:w-80 ${
-
-              isDark 
-
-                ? 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700' 
-
-                : 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300'
-
-            }`}
-
-          >
-
-            <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-
-            <span className="truncate">Quick actions & catalog search...</span>
-
-            <kbd className={`ml-auto px-1.5 py-0.5 text-[10px] font-mono font-bold rounded border shrink-0 ${
-
-              isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-white border-slate-300 text-slate-600'
-
-            }`}>
-
-              {isMac ? '⌘K' : 'Ctrl+K'}
-
-            </kbd>
-
-          </button>
+          {/* Quick Real-Time Global Search Bar */}
+          <AdminGlobalSearchBar
+            products={products}
+            orders={orders}
+            profiles={profiles}
+            isDark={isDark}
+            onEditProduct={(product) => {
+              handleOpenEditModal(product);
+            }}
+            onSellInPOS={(product) => {
+              handleAddToCartPOS(product);
+              setActiveTab('pos');
+              setPosSubTab('register');
+              triggerShortcutFeedback(`Added "${product.name}" to POS Register`, '');
+            }}
+            onViewProductInStore={(product) => {
+              if (onSwitchToClientWithSearch) {
+                onSwitchToClientWithSearch(product.name);
+              }
+            }}
+            onOpenInvoice={(order) => {
+              setSelectedOrderForInvoice(order);
+            }}
+            onOpenCustomerCrm={(cust) => {
+              setSelectedCustomerForCrm(cust as any);
+            }}
+            onNavigateTab={(tab) => {
+              setActiveTab(tab as any);
+            }}
+            onFilterInventory={(term) => {
+              setInventoryProductSearchQuery(term);
+              setActiveTab('inventory');
+              setInventorySubTab('products');
+            }}
+          />
 
 
 
@@ -7577,6 +7596,44 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
 
             {inventorySubTab === 'products' && (
+            <div className="space-y-4">
+              {/* Real-time Inventory Table Search & Ranking Bar */}
+              <div className={`p-3 rounded-2xl border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 ${cardBg}`}>
+                <div className="relative flex-1 max-w-md">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={inventoryProductSearchQuery}
+                    onChange={(e) => setInventoryProductSearchQuery(e.target.value)}
+                    placeholder="Filter products (e.g. Inverter, SKU, brand)..."
+                    className={`w-full pl-10 pr-9 py-2 rounded-xl text-xs sm:text-sm font-medium border outline-none transition-all ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-800 text-slate-100 placeholder:text-slate-500 focus:border-blue-500'
+                        : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500 shadow-xs'
+                    }`}
+                  />
+                  {inventoryProductSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setInventoryProductSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 shrink-0 justify-between sm:justify-end">
+                  <span>
+                    Showing <strong className="text-slate-900 dark:text-slate-100 font-bold">{filteredInventoryProducts.length}</strong> of {products.length} products
+                  </span>
+                  {inventoryProductSearchQuery && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 font-bold border border-blue-500/20">
+                      Ranked by match & length
+                    </span>
+                  )}
+                </div>
+              </div>
 
             <div className={`rounded-2xl border overflow-hidden ${cardBg}`}>
 
@@ -7608,10 +7665,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <th className="p-4 w-10">
                         <input
                           type="checkbox"
-                          checked={selectedProductIds.size === products.length && products.length > 0}
+                          checked={selectedProductIds.size === filteredInventoryProducts.length && filteredInventoryProducts.length > 0}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedProductIds(new Set(products.map(p => p.id)));
+                              setSelectedProductIds(new Set(filteredInventoryProducts.map(p => p.id)));
                             } else {
                               setSelectedProductIds(new Set());
                             }
@@ -7641,7 +7698,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                   <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
 
-                    {products.map((p) => (
+                    {filteredInventoryProducts.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="p-8 text-center">
+                          <AlertTriangle className="w-8 h-8 mx-auto text-amber-500 mb-2 opacity-80" />
+                          <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                            {inventoryProductSearchQuery ? `No products matching "${inventoryProductSearchQuery}"` : 'No products found'}
+                          </p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            {inventoryProductSearchQuery ? 'Try another keyword or clear the filter.' : 'Click "Add Product" above to populate your inventory.'}
+                          </p>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredInventoryProducts.map((p) => (
 
                       <tr key={p.id} className={`transition-colors ${tableRowHover}`}>
                         <td className="p-4">
@@ -7772,6 +7842,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </td>
 
                         <td className="p-4 text-right space-x-2 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleAddToCartPOS(p);
+                              setActiveTab('pos');
+                              setPosSubTab('register');
+                              triggerShortcutFeedback(`Added "${p.name}" to POS Register`, '');
+                            }}
+                            className={`p-2 rounded-lg transition-colors ${
+                              isDark ? 'bg-amber-950/60 hover:bg-amber-900/80 text-amber-400' : 'bg-amber-50 hover:bg-amber-100 text-amber-700'
+                            }`}
+                            title="Instant Sell in POS Register"
+                          >
+                            <Zap className="w-4 h-4" />
+                          </button>
 
                           <button
 
@@ -7857,7 +7942,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                       </tr>
 
-                    ))}
+                    )))}
 
                   </tbody>
 
@@ -7866,6 +7951,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </div>
 
             </div>
+          </div>
 
             )}
 
@@ -12457,39 +12543,179 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                     {/* Discount & Offer Campaign Panel */}
 
-                    <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 space-y-3">
+                    <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 space-y-3.5">
 
                       <div className="flex flex-wrap items-center justify-between gap-2">
 
                         <div className="flex items-center gap-2">
 
-                          <Zap className="w-4 h-4 text-indigo-500 shrink-0" />
+                          <div className="p-1.5 rounded-lg bg-indigo-600 text-white">
 
-                          <span className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                            <Zap className="w-4 h-4 fill-white" />
 
-                            Discount & Limited Time Offer Campaign Settings
+                          </div>
+
+                          <div>
+
+                            <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">
+
+                              Product Promotional Offer & Real Discount Campaign
+
+                            </span>
+
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+
+                              Configure live markdown, offer badge, and live customer expiration timer
+
+                            </span>
+
+                          </div>
+
+                        </div>
+
+
+
+                        <div className="flex items-center gap-2">
+
+                          {formOriginalPrice > formPrice && (
+
+                            <span className="text-xs font-black bg-rose-600 text-white px-2.5 py-1 rounded-full shadow-sm flex items-center gap-1">
+
+                              <Flame className="w-3.5 h-3.5" />
+
+                              <span>-{Math.round(((formOriginalPrice - formPrice) / formOriginalPrice) * 100)}% OFF</span>
+
+                            </span>
+
+                          )}
+
+                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md border ${
+
+                            formIsOnOffer
+
+                              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+
+                              : 'bg-slate-500/15 border-slate-500/30 text-slate-500'
+
+                          }`}>
+
+                            {formIsOnOffer ? 'Offer Active' : 'Offer Inactive'}
 
                           </span>
 
                         </div>
 
-                        {formOriginalPrice > formPrice && (
+                      </div>
 
-                          <span className="text-xs font-black bg-rose-600 text-white px-2.5 py-0.5 rounded-full shadow-sm">
 
-                            -{Math.round(((formOriginalPrice - formPrice) / formOriginalPrice) * 100)}% DISCOUNT ACTIVE
 
-                          </span>
+                      {/* Quick Discount Percentage Presets */}
 
-                        )}
+                      <div className="p-3 rounded-xl bg-slate-900/40 border border-indigo-500/20 space-y-2">
+
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+
+                          <label className="text-[11px] font-extrabold text-slate-300 flex items-center gap-1.5">
+
+                            <Percent className="w-3.5 h-3.5 text-indigo-400" />
+
+                            <span>Quick Discount Markdowns (Applies to Regular Price)</span>
+
+                          </label>
+
+                          {formOriginalPrice > formPrice && (
+
+                            <span className="text-[10px] font-mono text-emerald-400 font-bold">
+
+                              Save: {formatTZS(formOriginalPrice - formPrice)}
+
+                            </span>
+
+                          )}
+
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-1.5">
+
+                          {[5, 10, 15, 20, 25, 30, 40, 50].map((pct) => (
+
+                            <button
+
+                              key={pct}
+
+                              type="button"
+
+                              onClick={() => {
+
+                                const base = formOriginalPrice > 0 ? formOriginalPrice : (formPrice > 0 ? formPrice : 0);
+
+                                if (base > 0) {
+
+                                  if (formOriginalPrice <= 0) setFormOriginalPrice(base);
+
+                                  const newPrice = Math.round(base * (1 - pct / 100));
+
+                                  setFormPrice(newPrice);
+
+                                  setFormIsOnOffer(true);
+
+                                  setFormOfferTitle(`${pct}% OFF DEAL`);
+
+                                  triggerHaptic('light');
+
+                                }
+
+                              }}
+
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-black bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 transition-all active:scale-95"
+
+                            >
+
+                              -{pct}%
+
+                            </button>
+
+                          ))}
+
+                          <button
+
+                            type="button"
+
+                            onClick={() => {
+
+                              if (formOriginalPrice > 0) {
+
+                                setFormPrice(formOriginalPrice);
+
+                              }
+
+                              setFormIsOnOffer(false);
+
+                              setFormOfferEndsAt('');
+
+                              triggerHaptic('light');
+
+                            }}
+
+                            className="px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 border border-slate-700 transition-all ml-auto"
+
+                          >
+
+                            Reset Discount
+
+                          </button>
+
+                        </div>
 
                       </div>
 
 
 
+                      {/* Offer Controls Grid */}
+
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
 
-                        <div className="flex items-center gap-2 sm:col-span-1 pt-4">
+                        <div className="flex items-center gap-2 sm:col-span-1 pt-2">
 
                           <label className="flex items-center gap-2.5 cursor-pointer">
 
@@ -12505,11 +12731,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                             />
 
-                            <span className={`text-xs font-extrabold ${textTitle}`}>
+                            <div>
 
-                              Enable Limited Time Offer Badge
+                              <span className={`text-xs font-extrabold ${textTitle} block`}>
 
-                            </span>
+                                Enable Limited Time Offer Badge
+
+                              </span>
+
+                              <span className="text-[10px] text-slate-400">
+
+                                Show offer countdown & deals badge
+
+                              </span>
+
+                            </div>
 
                           </label>
 
@@ -12535,13 +12771,61 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                           />
 
+                          {/* Quick Badge Chips */}
+
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+
+                            {['LIMITED TIME OFFER', 'FLASH SALE', 'HOT DEAL', 'WEEKEND SPECIAL', 'MEGA SALE'].map((badge) => (
+
+                              <button
+
+                                key={badge}
+
+                                type="button"
+
+                                onClick={() => setFormOfferTitle(badge)}
+
+                                className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-indigo-400 hover:bg-slate-700 border border-slate-700"
+
+                              >
+
+                                {badge}
+
+                              </button>
+
+                            ))}
+
+                          </div>
+
                         </div>
 
 
 
                         <div>
 
-                          <label className={`block text-[11px] font-bold mb-1 ${textSub}`}>Offer Expiration Date & Time</label>
+                          <label className={`block text-[11px] font-bold mb-1 ${textSub} flex items-center justify-between`}>
+
+                            <span>Offer Expiration Date & Time</span>
+
+                            {formOfferEndsAt && (
+
+                              <button
+
+                                type="button"
+
+                                onClick={() => setFormOfferEndsAt('')}
+
+                                className="text-[9px] text-rose-400 hover:underline"
+
+                              >
+
+                                Clear Expiry
+
+                              </button>
+
+                            )}
+
+                          </label>
 
                           <input
 
@@ -12555,9 +12839,99 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                           />
 
+                          {/* Quick Expiry Presets */}
+
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+
+                            {[
+
+                              { label: '+24h', hours: 24 },
+
+                              { label: '+3 Days', hours: 72 },
+
+                              { label: '+7 Days', hours: 168 },
+
+                              { label: '+14 Days', hours: 336 },
+
+                              { label: '+30 Days', hours: 720 },
+
+                            ].map((preset) => (
+
+                              <button
+
+                                key={preset.label}
+
+                                type="button"
+
+                                onClick={() => {
+
+                                  const target = new Date(Date.now() + preset.hours * 3600000);
+
+                                  setFormOfferEndsAt(target.toISOString());
+
+                                  setFormIsOnOffer(true);
+
+                                  triggerHaptic('light');
+
+                                }}
+
+                                className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-amber-400 hover:bg-slate-700 border border-slate-700"
+
+                              >
+
+                                {preset.label}
+
+                              </button>
+
+                            ))}
+
+                          </div>
+
                         </div>
 
                       </div>
+
+
+
+                      {/* Live Real-Time Customer Countdown Preview */}
+
+                      {formOfferEndsAt && (
+
+                        <div className="pt-2 border-t border-indigo-500/20">
+
+                          <div className="flex items-center justify-between text-[11px] font-black text-indigo-400 uppercase tracking-wider mb-2">
+
+                            <span className="flex items-center gap-1.5">
+
+                              <Clock className="w-3.5 h-3.5" />
+
+                              <span>Live Customer Expiration Preview (Real Time Countdown)</span>
+
+                            </span>
+
+                            <span className="text-[10px] text-slate-400 normal-case font-normal">
+
+                              Customer sees this real-time countdown
+
+                            </span>
+
+                          </div>
+
+                          <DiscountCountdown
+
+                            targetDate={formOfferEndsAt}
+
+                            variant="full"
+
+                            label={formOfferTitle || 'Offer Ends In'}
+
+                            showExpiredMessage={true}
+
+                          />
+
+                        </div>
+
+                      )}
 
                     </div>
 
@@ -15641,21 +16015,29 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
 
       {/* Global Command Palette & Navigation Jump */}
-
       <AdminCommandPalette
-
         isOpen={isCommandPaletteOpen}
-
         onClose={() => setIsCommandPaletteOpen(false)}
-
         isDark={isDark}
-
         products={products}
-
         orders={orders}
-
+        profiles={profiles}
         posTransactions={posTransactions}
-
+        onEditProduct={(product) => {
+          handleOpenEditModal(product);
+        }}
+        onSellInPOS={(product) => {
+          handleAddToCartPOS(product);
+          setActiveTab('pos');
+          setPosSubTab('register');
+          triggerShortcutFeedback(`Added "${product.name}" to POS Register`, '');
+        }}
+        onOpenInvoice={(order) => {
+          setSelectedOrderForInvoice(order);
+        }}
+        onOpenCustomerCrm={(cust) => {
+          setSelectedCustomerForCrm(cust as any);
+        }}
         onNavigateTab={(tab) => {
 
           setActiveTab(tab as any);

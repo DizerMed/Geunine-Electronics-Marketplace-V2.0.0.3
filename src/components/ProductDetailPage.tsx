@@ -9,6 +9,7 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { Product, formatTZS, Category, CategoryItem } from '../types';
 import { triggerHaptic } from '../utils/haptics';
 import { ProductDescriptionView } from './ProductDescriptionView';
+import { DiscountCountdown } from './DiscountCountdown';
 
 interface ProductDetailPageProps {
   product: Product;
@@ -447,21 +448,48 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
               </div>
 
               {/* High Impact Price Block */}
-              <div className="bg-slate-900 text-white p-6 rounded-2xl mb-6 shadow-xl relative overflow-hidden">
-                <div className="relative z-10 flex flex-wrap items-baseline justify-between gap-2">
+              <div className="bg-slate-900 text-white p-6 rounded-2xl mb-4 shadow-xl relative overflow-hidden">
+                <div className="relative z-10 flex flex-wrap items-baseline justify-between gap-3">
                   <div>
-                    <span className="text-xs text-slate-400 block font-medium mb-1 uppercase tracking-wider">Official Retail Price</span>
-                    <span className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-white leading-none break-words">
-                      {formatTZS(product.price)}
-                    </span>
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="text-xs text-slate-400 block font-medium uppercase tracking-wider">
+                        {product.originalPrice && product.originalPrice > product.price ? 'Special Offer Price' : 'Official Retail Price'}
+                      </span>
+                      {product.isOnOffer && (
+                        <span className="bg-indigo-600 text-white text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                          <Zap className="w-3 h-3 fill-white" />
+                          <span>{product.offerTitle || 'LIMITED TIME OFFER'}</span>
+                        </span>
+                      )}
+                      {product.originalPrice && product.originalPrice > product.price && (
+                        <span className="bg-rose-600 text-white text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full shadow-sm">
+                          -{Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)}% OFF
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-baseline gap-3">
+                      <span className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-white leading-none break-words">
+                        {formatTZS(product.price)}
+                      </span>
+                      {product.originalPrice && product.originalPrice > product.price && (
+                        <span className="text-lg sm:text-xl text-slate-400 line-through font-mono">
+                          {formatTZS(product.originalPrice)}
+                        </span>
+                      )}
+                    </div>
+                    {product.originalPrice && product.originalPrice > product.price && (
+                      <span className="text-xs text-emerald-400 font-bold block mt-1.5">
+                        You save {formatTZS(product.originalPrice - product.price)}!
+                      </span>
+                    )}
                   </div>
                   <div className="text-right">
                     {product.isVatInclusive !== false && vatPercentage > 0 ? (
-                      <span className="text-xs bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-none font-bold px-3 py-1 rounded-full block mb-1">
+                      <span className="text-xs bg-emerald-500/20 text-emerald-300 border-none font-bold px-3 py-1 rounded-full block mb-1">
                         VAT Included ({vatPercentage}%) • Tax Invoice Provided
                       </span>
                     ) : (
-                      <span className="text-xs bg-slate-500/20 text-slate-600 dark:text-slate-300 border-none font-medium px-3 py-1 rounded-full block mb-1">
+                      <span className="text-xs bg-slate-800 text-slate-300 border-none font-medium px-3 py-1 rounded-full block mb-1">
                         Official Commercial Invoice Provided
                       </span>
                     )}
@@ -469,6 +497,18 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Real-time Customer Offer Expiration Countdown */}
+              {(product.isOnOffer || (product.originalPrice && product.originalPrice > product.price)) && product.offerEndsAt && (
+                <div className="mb-6">
+                  <DiscountCountdown
+                    targetDate={product.offerEndsAt}
+                    variant="full"
+                    label={product.offerTitle || 'Limited Time Offer Ends In'}
+                    showExpiredMessage={true}
+                  />
+                </div>
+              )}
 
               <div className="mb-6">
                 <ProductDescriptionView description={product.description} />

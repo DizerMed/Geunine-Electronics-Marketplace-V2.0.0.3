@@ -1,5 +1,5 @@
-import React from 'react';
-import { CheckCircle2, Info, List, Table as TableIcon, Sparkles } from 'lucide-react';
+import React, { useState } from 'react';
+import { CheckCircle2, Info, List, Table as TableIcon, Sparkles, ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
 
 interface ProductDescriptionViewProps {
   description?: string;
@@ -180,46 +180,106 @@ function renderStructuredSections(content: string, className: string) {
   return (
     <div className={`space-y-6 ${className}`}>
       {sections.map((sec, idx) => (
-        <div key={idx} className="space-y-3">
-          {sec.title && (
-            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
-              <Sparkles className="w-4 h-4 text-blue-500" />
-              <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                {sec.title}
-              </h4>
-            </div>
-          )}
-
-          {sec.rows.length > 0 && (
-            <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-sm">
-              <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {sec.rows.map((r, rIdx) => (
-                  <div
-                    key={rIdx}
-                    className={`grid grid-cols-1 sm:grid-cols-3 p-3 sm:px-4 sm:py-3 text-xs sm:text-sm gap-1 sm:gap-4 transition-colors ${
-                      rIdx % 2 === 0 ? 'bg-slate-50/50 dark:bg-slate-900/30' : 'bg-white dark:bg-slate-900/70'
-                    }`}
-                  >
-                    <span className="font-semibold text-slate-500 dark:text-slate-400">{r.key}</span>
-                    <span className="sm:col-span-2 font-bold text-slate-900 dark:text-white">{r.val}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {sec.text.length > 0 && (
-            <div className="space-y-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-              {sec.text.map((t, tIdx) => (
-                <p key={tIdx}>{t}</p>
-              ))}
-            </div>
-          )}
-        </div>
+        <StructuredSpecsSection key={idx} sec={sec} />
       ))}
     </div>
   );
 }
+
+interface StructuredSectionData {
+  title?: string;
+  type: 'table' | 'text';
+  rows: { key: string; val: string }[];
+  text: string[];
+}
+
+const StructuredSpecsSection: React.FC<{ sec: StructuredSectionData }> = ({ sec }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const hasManyRows = sec.rows.length > 7;
+
+  return (
+    <div className="space-y-3">
+      {sec.title && (
+        <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-blue-500" />
+            <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+              {sec.title}
+            </h4>
+          </div>
+          {hasManyRows && (
+            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500">
+              {sec.rows.length} items
+            </span>
+          )}
+        </div>
+      )}
+
+      {sec.rows.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-sm overflow-hidden">
+          {/* Scrollable container: scrolls specs smoothly until it ends, or expands full page */}
+          <div
+            className={`transition-all duration-300 divide-y divide-slate-100 dark:divide-slate-800 ${
+              hasManyRows && !isExpanded
+                ? 'max-h-[360px] sm:max-h-[420px] overflow-y-auto custom-scrollbar overscroll-contain'
+                : ''
+            }`}
+          >
+            {sec.rows.map((r, rIdx) => (
+              <div
+                key={rIdx}
+                className={`grid grid-cols-1 sm:grid-cols-3 p-3 sm:px-4 sm:py-3 text-xs sm:text-sm gap-1 sm:gap-4 transition-colors ${
+                  rIdx % 2 === 0 ? 'bg-slate-50/50 dark:bg-slate-900/30' : 'bg-white dark:bg-slate-900/70'
+                }`}
+              >
+                <span className="font-semibold text-slate-500 dark:text-slate-400">{r.key}</span>
+                <span className="sm:col-span-2 font-bold text-slate-900 dark:text-white">{r.val}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Bottom control bar if table has many specs */}
+          {hasManyRows && (
+            <div className="p-2.5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-xs">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                <ChevronsUpDown className="w-3.5 h-3.5 text-blue-500" />
+                {isExpanded
+                  ? `Showing all ${sec.rows.length} specifications`
+                  : `Scroll inside or expand to see all ${sec.rows.length} specs`}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-blue-600 dark:text-blue-300 font-bold text-[11px] transition-all border border-slate-200 dark:border-slate-600 shadow-xs active:scale-95 cursor-pointer"
+              >
+                {isExpanded ? (
+                  <>
+                    <span>Compact Scroll</span>
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  </>
+                ) : (
+                  <>
+                    <span>Expand All ({sec.rows.length})</span>
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {sec.text.length > 0 && (
+        <div className="space-y-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+          {sec.text.map((t, tIdx) => (
+            <p key={tIdx}>{t}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 /**
  * Basic HTML sanitizer to strip dangerous script tags while preserving styling, tables, and headers.

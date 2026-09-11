@@ -228,7 +228,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white pb-20">
       
       {/* DYNAMIC BREADCRUMB & BACK NAVIGATION ROW */}
-      <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 shadow-2xs sticky top-0 z-30">
+      <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 shadow-2xs relative z-20">
         <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 py-2.5 flex items-center justify-between gap-3">
           
           {/* Back Button & Dynamic Schema-Compliant Breadcrumbs */}
@@ -275,8 +275,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         {/* PRODUCT HERO SECTION (2 Columns) */}
         <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 sm:p-10 border-none shadow-sm grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
           
-          {/* LEFT 5 COLS: GALLERY & AUTHENTICITY */}
-          <div className="lg:col-span-5 space-y-5">
+          {/* LEFT 5 COLS: GALLERY & AUTHENTICITY (Sticky on desktop so image preview card stays alongside specifications) */}
+          <div className="lg:col-span-5 lg:sticky lg:top-20 xl:top-24 lg:self-start space-y-4 sm:space-y-5 lg:max-h-[calc(100vh-6.5rem)] lg:overflow-y-auto custom-scrollbar">
             
             {/* Main Stage Image */}
             <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-3xl overflow-hidden border-none relative shadow-sm group flex items-center justify-center p-3 sm:p-6">
@@ -855,7 +855,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         <div className="fixed bottom-0 inset-x-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-3 sm:p-4 z-40 shadow-2xl animate-slideUp">
           <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 sm:pr-24 lg:pr-28 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              <img src={product.image} alt={product.name} className="w-12 h-12 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0 hidden sm:block" />
+              <img src={galleryImages[activeImageIndex] || product.image} alt={product.name} className="w-10 h-10 sm:w-12 sm:h-12 object-contain p-0.5 sm:p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0 block" />
               <div className="min-w-0">
                 <h4 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white truncate">{product.name}</h4>
                 <p className="text-xs font-bold text-blue-600">{formatTZS(product.price)}</p>

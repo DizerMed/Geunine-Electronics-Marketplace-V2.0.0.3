@@ -136,8 +136,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           {/* SECTION 1: MAIN PRODUCT STAGE (2 Columns) */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             
-            {/* Left 5 Cols: Image Gallery & Authentication */}
-            <div className="lg:col-span-5 space-y-4">
+            {/* Left 5 Cols: Image Gallery & Authentication (Sticky on desktop) */}
+            <div className="lg:col-span-5 lg:sticky lg:top-0 lg:self-start space-y-4">
               <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-3xl overflow-hidden border-none/80 relative shadow-inner group flex items-center justify-center p-3 sm:p-6">
                 <img
                   src={galleryImages[activeImageIndex] || product.image}

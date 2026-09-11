@@ -5,7 +5,7 @@ import { FullScreenSaveLoader } from './components/FullScreenSaveLoader';
 import { useSupabaseCollection, useSupabaseAuth } from './lib/useSupabase';
 import { applyDynamicSEOMetadata } from './lib/seoManager';
 import { useLoanAlerts } from './hooks/useLoanAlerts';
-import { ShieldCheck, Sparkles, Bot, MessageSquareText } from 'lucide-react';
+import { ShieldCheck, BotMessageSquare } from 'lucide-react';
 import { customAlert, customConfirm } from './utils/dialog';
 
 function lazyWithRetry<T extends React.ComponentType<any>>(
@@ -33,7 +33,7 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
   );
 }
 
-const ClientApp = lazyWithRetry(() => import('./components/ClientShop').then(m => ({ default: m.ClientShop })));
+import { ClientShop as ClientApp } from './components/ClientShop';
 const InternetConnectionBanner = lazyWithRetry(() => import('./components/InternetConnectionBanner').then(m => ({ default: m.InternetConnectionBanner })));
 const WhatsAppFloatingButton = lazyWithRetry(() => import('./components/WhatsAppFloatingButton').then(m => ({ default: m.WhatsAppFloatingButton })));
 const CookieConsentBanner = lazyWithRetry(() => import('./components/CookieConsentBanner').then(m => ({ default: m.CookieConsentBanner })));
@@ -51,7 +51,7 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [profileModalTab, setProfileModalTab] = useState<'profile' | 'orders' | 'tracking' | 'payment'>('orders');
   const { user, profile, loading: authLoading } = useSupabaseAuth();
-  const [loading, setLoading] = useState(true);
+  const isVerifyingAdmin = currentView === 'admin' && authLoading;
   const [clientActiveCloudOps, setClientActiveCloudOps] = useState(0);
   const [clientCloudOpDetails, setClientCloudOpDetails] = useState<{ tableName?: string; action?: string } | null>(null);
 
@@ -107,19 +107,6 @@ export default function App() {
     window.addEventListener('nav-action', handleNav);
     return () => window.removeEventListener('nav-action', handleNav);
   }, [user]);
-
-  useEffect(() => {
-    // Sync internal loading with authLoading but add a 2.5s safety fallback for instant UI mount
-    if (!authLoading) {
-      setLoading(false);
-    }
-
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 2500);
-
-    return () => clearTimeout(timer);
-  }, [authLoading]);
 
   const [adminThemeMode, setAdminThemeMode] = useState<'system' | 'dark' | 'light'>(() => {
     if (typeof window !== 'undefined') {
@@ -859,12 +846,11 @@ export default function App() {
     <div className={`${isAdminActive ? 'h-screen overflow-hidden' : 'min-h-screen'} flex flex-col font-sans transition-colors duration-200 ${
       activeTheme === 'dark' ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
     }`}>
-      {loading ? (
+      {isVerifyingAdmin ? (
         <div className={`min-h-screen flex items-center justify-center w-full ${activeTheme === 'dark' ? 'bg-[#020617] text-white' : 'bg-slate-50 text-slate-900'}`}>
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 border-4 border-blue-600/30 border-t-blue-600 rounded-full animate-spin"></div>
-            <p className={`text-sm font-medium ${activeTheme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Securing Connection...</p>
-            <p className={`text-xs ${activeTheme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>{authLoading ? 'Checking authentication status...' : 'Finalizing UI...'}</p>
+            <p className={`text-sm font-medium ${activeTheme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Verifying Administrator Access...</p>
           </div>
         </div>
       ) : (
@@ -906,7 +892,6 @@ export default function App() {
                   onLogout={handleAdminLogout}
                   onLoginClick={() => setIsAuthModalOpen(true)}
                 />
-                <Suspense fallback={<div className="flex-1 flex items-center justify-center p-12"><div className="w-12 h-12 border-4 border-blue-600/30 border-t-blue-600 rounded-full animate-spin"></div></div>}>
                 <ClientApp
                   products={productsWithReviews}
                   productsLoading={productsLoading}
@@ -931,7 +916,6 @@ export default function App() {
                   onLogout={handleAdminLogout}
                   onLoginClick={() => setIsAuthModalOpen(true)}
                 />
-                </Suspense>
               </div>
               <Suspense fallback={null}>
                 <Footer categoriesList={categories} storeSettings={storeSettings} />
@@ -1097,7 +1081,7 @@ export default function App() {
           {currentView === 'client' && !isAiAssistantOpen && (
             <aside
               aria-label="Ask Orbi AI & Support"
-              className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 flex items-center gap-3 pointer-events-auto select-none no-print group"
+              className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 flex items-center gap-3 pointer-events-none select-none no-print group"
             >
               {/* Tooltip Label on Hover */}
               <div className={`hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-bold shadow-2xl border backdrop-blur-md opacity-0 group-hover:opacity-100 group-hover:translate-x-0 translate-x-3 transition-all duration-300 pointer-events-none ${
@@ -1112,33 +1096,26 @@ export default function App() {
                 <span>Orbi AI & WhatsApp Support</span>
               </div>
 
-              {/* Floating Compact Circular Launcher with Transparent Dark Blue Background & Light Blue Icon */}
-              <div className="relative flex items-center justify-center">
-                {/* Outer Heartbeat Radar Waves */}
-                <span className="absolute -inset-2 rounded-full bg-sky-400/20 animate-ping pointer-events-none" />
-                <span className="absolute -inset-1 rounded-full bg-sky-400/15 animate-pulse pointer-events-none" />
-
+              {/* Floating Modern Circular Assistant Launcher with Periodic Bump/Shake Animation */}
+              <div className="relative flex items-center justify-center pointer-events-none animate-assistant-bump">
                 <button
                   type="button"
                   onClick={() => setIsAiAssistantOpen(true)}
-                  className={`relative w-11 h-11 sm:w-13 sm:h-13 rounded-full flex items-center justify-center shadow-xl border-2 backdrop-blur-md active:scale-95 hover:scale-105 transition-all duration-300 cursor-pointer ${
+                  className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center shadow-2xl border-2 backdrop-blur-md active:scale-95 hover:scale-110 transition-transform duration-200 cursor-pointer pointer-events-auto ${
                     effectiveClientTheme === 'dark'
-                      ? 'bg-blue-950/80 hover:bg-blue-900/90 text-white shadow-blue-950/60 border-sky-400/50'
-                      : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/30 border-indigo-400/50'
+                      ? 'bg-gradient-to-tr from-blue-700 via-indigo-600 to-sky-500 hover:from-blue-600 hover:via-indigo-500 hover:to-sky-400 text-white shadow-indigo-950/80 border-sky-400/40'
+                      : 'bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-500 hover:from-blue-500 hover:via-indigo-500 hover:to-sky-400 text-white shadow-indigo-600/40 border-white/40'
                   }`}
-                  title="Ask Orbi AI & Direct WhatsApp Support"
+                  title="Ask Orbi AI Assistant & WhatsApp Support"
                 >
-                  <div className="relative flex items-center justify-center">
-                    <MessageSquareText className="w-5 h-5 sm:w-6 sm:h-6 text-sky-200 drop-shadow-sm" />
+                  <div className="relative flex items-center justify-center pointer-events-none">
+                    <BotMessageSquare className="w-6 h-6 sm:w-7 sm:h-7 text-white stroke-[2.2] drop-shadow-md" />
                     {/* Online green indicator */}
                     <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className={`relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 border-2 ${
-                        effectiveClientTheme === 'dark' ? 'border-blue-950' : 'border-indigo-600'
-                      }`}></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400 border-2 border-indigo-600"></span>
                     </span>
                   </div>
-                  <Sparkles className="absolute top-1.5 right-1.5 w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-300 animate-pulse" />
                 </button>
               </div>
             </aside>

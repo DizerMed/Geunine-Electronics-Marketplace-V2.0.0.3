@@ -853,7 +853,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
       {/* STICKY BOTTOM QUICK PURCHASE BAR ON SCROLL */}
       {showStickyBar && (
         <div className="fixed bottom-0 inset-x-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-3 sm:p-4 z-40 shadow-2xl animate-slideUp">
-          <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 flex items-center justify-between gap-4">
+          <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 sm:pr-24 lg:pr-28 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
               <img src={product.image} alt={product.name} className="w-12 h-12 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0 hidden sm:block" />
               <div className="min-w-0">
@@ -862,9 +862,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 relative z-10">
               {product.stock <= 0 ? (
                 <button
+                  type="button"
                   onClick={() => {
                     const msg = `Hello, I'm inquiring about the out-of-stock product: ${product.name} (SKU: ${product.sku || product.barcode || 'N/A'}). When will it be available?\n\nProduct Link: ${window.location.origin}${productPath}`;
                     window.open(`https://wa.me/255624057166?text=${encodeURIComponent(msg)}`, '_blank');
@@ -877,6 +878,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
               ) : (
                 <>
                   <button
+                    type="button"
                     onClick={() => addToCart(product, selectedQuantity)}
                     className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5"
                   >
@@ -884,8 +886,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     <span className="hidden sm:inline">Add to Cart</span>
                   </button>
                   <button
+                    type="button"
                     onClick={() => onBuyNow(product, selectedQuantity)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold px-5 py-2.5 rounded-xl text-xs shadow-lg shadow-blue-600/30 flex items-center gap-1.5"
+                    className="relative z-10 bg-blue-600 hover:bg-blue-700 text-white font-extrabold px-5 py-2.5 rounded-xl text-xs shadow-lg shadow-blue-600/30 flex items-center gap-1.5 active:scale-95 transition-transform"
                   >
                     <span>Buy Now</span>
                     <ArrowRight className="w-3.5 h-3.5" />

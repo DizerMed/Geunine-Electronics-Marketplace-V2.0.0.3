@@ -438,7 +438,20 @@ export function useSupabaseCollection<T extends { id: string }>(
   initialData: T[],
   isAdmin: boolean = false
 ) {
-  const [data, setData] = useState<T[]>(initialData);
+  const [data, setData] = useState<T[]>(() => {
+    if (typeof window !== 'undefined' && (tableName === 'products' || tableName === 'categories')) {
+      try {
+        const cached = localStorage.getItem(`ge_cache_${tableName}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
+          }
+        }
+      } catch (_) {}
+    }
+    return initialData;
+  });
   const [loading, setLoading] = useState(false);
   const isFetchingRef = useRef(false);
 
@@ -457,6 +470,12 @@ export function useSupabaseCollection<T extends { id: string }>(
       return timeB - timeA;
     });
 
+    if (typeof window !== 'undefined' && (tableName === 'products' || tableName === 'categories')) {
+      try {
+        localStorage.setItem(`ge_cache_${tableName}`, JSON.stringify(merged));
+      } catch (_) {}
+    }
+
     setData(merged);
   }, [tableName]);
 
@@ -467,7 +486,7 @@ export function useSupabaseCollection<T extends { id: string }>(
     }
 
     // Defer heavy admin-only collections until admin mode is active
-    const adminOnlyCollections = ['posTransactions', 'pos_transactions', 'staff'];
+    const adminOnlyCollections = ['posTransactions', 'pos_transactions', 'staff', 'profiles'];
     if (adminOnlyCollections.includes(tableName) && !isAdmin) {
       setLoading(false);
       return;

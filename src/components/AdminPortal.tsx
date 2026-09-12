@@ -2814,6 +2814,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [posActivePage, setPosActivePage] = useState<'register' | 'orders'>('register');
   const [posMobileTab, setPosMobileTab] = useState<'catalog' | 'cart'>('catalog');
   const [posFilterInStockOnly, setPosFilterInStockOnly] = useState(false);
+  // POS Out-of-Stock Restock Modal State
+  const [posOutOfStockProduct, setPosOutOfStockProduct] = useState<Product | null>(null);
+  const [posRestockUnits, setPosRestockUnits] = useState<number>(10);
+  const [posAutoAddToCartAfterRestock, setPosAutoAddToCartAfterRestock] = useState<boolean>(true);
+  const [posRestockSubmitting, setPosRestockSubmitting] = useState<boolean>(false);
   const [posParkedOrders, setPosParkedOrders] = useState<{
     id: string;
     customerName: string;
@@ -3820,11 +3825,68 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
 
   // POS Handlers
+  const handlePromptOutOfStock = (product: Product) => {
+    triggerHaptic('warning');
+    setPosOutOfStockProduct(product);
+    setPosRestockUnits(10);
+    setPosAutoAddToCartAfterRestock(true);
+  };
+
+  const handleExecutePosQuickRestock = async () => {
+    if (!posOutOfStockProduct) return;
+    const addQty = Number(posRestockUnits) || 0;
+    if (addQty <= 0) {
+      showAlert('Invalid Quantity', 'Please enter at least 1 unit to restock.', 'warning');
+      return;
+    }
+
+    setPosRestockSubmitting(true);
+    try {
+      const currentStock = Math.max(0, Number(posOutOfStockProduct.stock || 0));
+      const newStock = currentStock + addQty;
+      const updatedProduct = {
+        ...posOutOfStockProduct,
+        stock: newStock
+      };
+
+      await updateProduct(updatedProduct);
+      triggerHaptic('success');
+      triggerShortcutFeedback(`Restocked +${addQty} units for "${posOutOfStockProduct.name}"`, '');
+
+      if (posAutoAddToCartAfterRestock) {
+        setPosCart((prev) => {
+          const existing = prev.find((item) => item.product.id === updatedProduct.id);
+          if (existing) {
+            return prev.map((item) =>
+              item.product.id === updatedProduct.id
+                ? { ...item, quantity: item.quantity + 1, product: updatedProduct }
+                : item
+            );
+          } else {
+            return [...prev, { product: updatedProduct, quantity: 1 }];
+          }
+        });
+      }
+
+      setPosOutOfStockProduct(null);
+    } catch (err: any) {
+      console.error('Failed to quick restock in POS:', err);
+      showAlert('Restock Failed', err?.message || 'Could not update inventory for this product.', 'error');
+    } finally {
+      setPosRestockSubmitting(false);
+    }
+  };
+
+  const handleOpenProductCardFromPOS = (product: Product) => {
+    setPosOutOfStockProduct(null);
+    handleOpenEditModal(product);
+  };
+
   const handleAddToCartPOS = (product: Product): boolean => {
     const availableStock = Math.max(0, Number(product.stock || 0));
 
     if (availableStock <= 0) {
-      showAlert('Empty Stock Warning', `Cannot sell empty stock. "${product.name}" has 0 stock available.`, 'warning');
+      handlePromptOutOfStock(product);
       return false;
     }
 
@@ -3953,16 +4015,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
       triggerHaptic('success');
       showAlert(
-        'Pre-Sale Order Saved!',
-        `Order ${orderId} (Quote #${quotationNum}) is saved in POS Orders waiting for customer payment or confirmation.`,
+        'Quotation Saved!',
+        `Quotation #${quotationNum} (Order ${orderId}) is saved in POS Quotations waiting for customer payment or confirmation.`,
         'alert'
       );
 
       const shouldPrint = await customConfirm(
-        `Pre-sale Order ${orderId} is saved! Would you like to preview or print the official Proforma Invoice (A4) now?`,
-        'Pre-Sale Order Saved',
+        `Quotation #${quotationNum} is saved! Would you like to preview or print the official Proforma Invoice / Quotation (A4) now?`,
+        'Quotation Saved',
         'alert',
-        'Print Proforma (A4)'
+        'Print Proforma / Quote'
       );
 
       if (shouldPrint) {
@@ -5232,7 +5294,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       >
                         <div className="flex items-center gap-2">
                           <FileText className="w-3.5 h-3.5" />
-                          <span>Pre-Sale Orders</span>
+                          <span>Quotations</span>
                         </div>
                         {pendingPosOrdersCount > 0 && (
                           <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-400">
@@ -8802,7 +8864,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                {/* View Switcher: Register vs Pre-Sale Orders Tab */}
+                {/* View Switcher: Register vs Quotations Tab */}
                 <div className="flex items-center rounded-xl border p-0.5 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-xs">
                   <button
                     type="button"
@@ -8830,7 +8892,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     }`}
                   >
                     <FileText className="w-3.5 h-3.5" />
-                    <span>Orders Tab</span>
+                    <span>Quotations</span>
                     {pendingPosOrdersCount > 0 && (
                       <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-indigo-500 text-white">
                         {pendingPosOrdersCount}
@@ -9228,15 +9290,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 <Plus className="w-3 h-3" />
                               </button>
                             </div>
+                          ) : stock <= 0 ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePromptOutOfStock(p);
+                              }}
+                              className="px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white dark:text-rose-400 border border-rose-500/30 hover:border-rose-500 font-bold text-xs transition-all flex items-center gap-1 active:scale-95 shadow-2xs"
+                              title="Out of stock — Click to Restock"
+                            >
+                              <PackagePlus className="w-3.5 h-3.5" />
+                              <span>Restock</span>
+                            </button>
                           ) : (
                             <button
+                              type="button"
                               onClick={() => handleAddToCartPOS(p)}
-                              disabled={stock <= 0}
-                              className="px-3 py-2 rounded-xl bg-blue-600/10 hover:bg-blue-600 text-blue-600 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed font-bold text-xs transition-all flex items-center gap-1 active:scale-95"
-                              title={stock <= 0 ? 'Cannot sell empty stock' : 'Add to register'}
+                              className="px-3 py-2 rounded-xl bg-blue-600/10 hover:bg-blue-600 text-blue-600 hover:text-white font-bold text-xs transition-all flex items-center gap-1 active:scale-95"
+                              title="Add to register"
                             >
                               <Plus className="w-3.5 h-3.5" />
-                              <span>{stock <= 0 ? 'Empty' : 'Add'}</span>
+                              <span>Add</span>
                             </button>
                           )}
                         </div>
@@ -9301,16 +9376,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                     </td>
                                     <td className="p-3 text-right font-extrabold text-blue-500">{formatTZS(p.price)}</td>
                                     <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                                      <button
-                                        onClick={() => handleAddToCartPOS(p)}
-                                        disabled={stock <= 0}
-                                        className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-[11px] shadow-sm transition-all active:scale-95 inline-flex items-center gap-1"
-                                        title={stock <= 0 ? 'Cannot sell empty stock' : 'Add to register'}
-                                      >
-                                        <Plus className="w-3 h-3" />
-                                        <span>{stock <= 0 ? 'Empty' : 'Add'}</span>
-                                        {inCart && <span className="bg-white/20 px-1 rounded text-[9px] ml-0.5">{inCart.quantity}</span>}
-                                      </button>
+                                      {stock <= 0 ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => handlePromptOutOfStock(p)}
+                                          className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border border-rose-500/30 font-bold text-[11px] shadow-2xs transition-all active:scale-95 inline-flex items-center gap-1 cursor-pointer"
+                                          title="Out of stock — Click to Restock"
+                                        >
+                                          <PackagePlus className="w-3 h-3" />
+                                          <span>Restock</span>
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAddToCartPOS(p)}
+                                          className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] shadow-sm transition-all active:scale-95 inline-flex items-center gap-1 cursor-pointer"
+                                          title="Add to register"
+                                        >
+                                          <Plus className="w-3 h-3" />
+                                          <span>Add</span>
+                                          {inCart && <span className="bg-white/20 px-1 rounded text-[9px] ml-0.5">{inCart.quantity}</span>}
+                                        </button>
+                                      )}
                                     </td>
                                   </tr>
                                 );
@@ -9392,18 +9479,33 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                               <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
                                 <div className="text-xs font-black text-blue-500 whitespace-nowrap">{formatTZS(p.price)}</div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleAddToCartPOS(p);
-                                  }}
-                                  disabled={stock <= 0}
-                                  className="px-2.5 py-1 rounded-lg bg-blue-600/10 hover:bg-blue-600 text-blue-600 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[10px] transition-all flex items-center gap-1"
-                                  title={stock <= 0 ? 'Cannot sell empty stock' : 'Add to register'}
-                                >
-                                  <Plus className="w-3 h-3" />
-                                  <span>{stock <= 0 ? 'Empty' : 'Add'}</span>
-                                </button>
+                                {stock <= 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handlePromptOutOfStock(p);
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white dark:text-rose-400 border border-rose-500/30 hover:border-rose-500 font-bold text-[10px] transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
+                                    title="Out of stock — Click to Restock"
+                                  >
+                                    <PackagePlus className="w-3 h-3" />
+                                    <span>Restock</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleAddToCartPOS(p);
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-blue-600/10 hover:bg-blue-600 text-blue-600 hover:text-white font-bold text-[10px] transition-all flex items-center gap-1 cursor-pointer"
+                                    title="Add to register"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>Add</span>
+                                  </button>
+                                )}
                               </div>
                             </div>
                           );
@@ -10649,7 +10751,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-extrabold py-3.5 rounded-2xl shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2 text-sm active:scale-[0.99] cursor-pointer"
                     >
                       <FileText className="w-4 h-4" />
-                      <span>Save Pre-Sale Order & Quotation</span>
+                      <span>Save as Quotation</span>
                     </button>
                     
                     <button
@@ -16089,6 +16191,225 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       />
 
       
+      {/* POS Out-of-Stock Restock & Product Details Modal */}
+      {posOutOfStockProduct && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[120] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div
+            className={`w-full max-w-lg rounded-3xl ${cardBg} border border-slate-200/80 dark:border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header with Warning Accent */}
+            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-rose-50/70 dark:bg-rose-950/20">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0">
+                  <PackagePlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className={`font-black text-base sm:text-lg ${textTitle}`}>
+                      Out of Stock Warning
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                      0 Available
+                    </span>
+                  </div>
+                  <p className={`text-xs ${textSub}`}>
+                    This item cannot be sold on POS until inventory is restocked.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPosOutOfStockProduct(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1.5 bg-white dark:bg-slate-800 rounded-full shadow-xs border border-slate-200 dark:border-slate-700 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Product Card Summary */}
+            <div className="p-5 space-y-4 max-h-[calc(85vh-120px)] overflow-y-auto">
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-700/80 flex items-center gap-3.5">
+                <img
+                  src={posOutOfStockProduct.image}
+                  alt={posOutOfStockProduct.name}
+                  className="w-14 h-14 sm:w-16 sm:h-16 object-contain p-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                    <span className="text-[10px] text-emerald-500 font-bold uppercase truncate max-w-[120px]">
+                      {posOutOfStockProduct.brand || posOutOfStockProduct.category}
+                    </span>
+                    {posOutOfStockProduct.isLocalOnly && (
+                      <span className="px-1.5 py-0.2 rounded text-[8.5px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-0.5">
+                        <Store className="w-2.5 h-2.5" />
+                        Local Stock
+                      </span>
+                    )}
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-rose-500/10 text-rose-500 border border-rose-500/20">
+                      Empty (0)
+                    </span>
+                  </div>
+                  <h4 className={`font-black text-sm truncate ${textTitle}`} title={posOutOfStockProduct.name}>
+                    {posOutOfStockProduct.name}
+                  </h4>
+                  <div className="flex items-center gap-2 mt-1 text-xs">
+                    <span className="font-extrabold text-blue-500">{formatTZS(posOutOfStockProduct.price)}</span>
+                    {(posOutOfStockProduct.sku || posOutOfStockProduct.barcode) && (
+                      <span className="font-mono text-[10px] text-slate-400">
+                        #{posOutOfStockProduct.sku || posOutOfStockProduct.barcode}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Restock Section */}
+              <div className="p-4 rounded-2xl border border-blue-500/20 bg-blue-50/30 dark:bg-blue-950/20 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-amber-500" />
+                    Quick Inventory Restock
+                  </label>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+                    New Stock: <strong className="text-emerald-500 font-black">+{posRestockUnits}</strong> units
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center border rounded-xl overflow-hidden bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => setPosRestockUnits((prev) => Math.max(1, prev - 1))}
+                        className="p-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <input
+                        type="number"
+                        min="1"
+                        value={posRestockUnits}
+                        onChange={(e) => setPosRestockUnits(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full text-center font-black text-sm bg-transparent outline-none py-2 text-slate-900 dark:text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setPosRestockUnits((prev) => prev + 1)}
+                        className="p-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Quick preset increments */}
+                    <div className="flex items-center gap-1">
+                      {[5, 10, 20, 50].map((qty) => (
+                        <button
+                          key={qty}
+                          type="button"
+                          onClick={() => setPosRestockUnits(qty)}
+                          className={`px-2.5 py-2 rounded-xl text-xs font-black transition-all border cursor-pointer ${
+                            posRestockUnits === qty
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-blue-400'
+                          }`}
+                        >
+                          +{qty}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Checkbox: Auto Add to Cart */}
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer pt-1 select-none">
+                    <input
+                      type="checkbox"
+                      checked={posAutoAddToCartAfterRestock}
+                      onChange={(e) => setPosAutoAddToCartAfterRestock(e.target.checked)}
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 dark:border-slate-600 cursor-pointer"
+                    />
+                    <span>Immediately add 1 unit to POS cart after restocking</span>
+                  </label>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={posRestockSubmitting}
+                  onClick={handleExecutePosQuickRestock}
+                  className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-black text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                >
+                  {posRestockSubmitting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Updating Inventory...</span>
+                    </>
+                  ) : (
+                    <>
+                      <PackagePlus className="w-4 h-4" />
+                      <span>
+                        Restock +{posRestockUnits} Units
+                        {posAutoAddToCartAfterRestock ? ' & Add to Cart' : ''}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Or separator */}
+              <div className="relative flex py-1 items-center">
+                <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+                <span className="flex-shrink mx-3 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                  OR FULL SPECIFICATION EDIT
+                </span>
+                <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+              </div>
+
+              {/* Action 2: Open Full Product Card */}
+              <button
+                type="button"
+                onClick={() => handleOpenProductCardFromPOS(posOutOfStockProduct)}
+                className={`w-full p-3.5 rounded-2xl border transition-all text-left flex items-center justify-between gap-3 group cursor-pointer ${
+                  isDark
+                    ? 'bg-slate-800/60 border-slate-700 hover:border-blue-500 hover:bg-slate-800'
+                    : 'bg-slate-50 border-slate-200 hover:border-blue-500 hover:bg-white hover:shadow-md'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <Edit className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <h5 className={`font-black text-xs sm:text-sm ${textTitle} group-hover:text-blue-500 transition-colors`}>
+                      Open Product Detail Card
+                    </h5>
+                    <p className={`text-[11px] ${textSub}`}>
+                      Manage complete inventory, suppliers, cost prices & warranty
+                    </p>
+                  </div>
+                </div>
+                <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-blue-500 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all shrink-0" />
+              </button>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50/70 dark:bg-slate-850/70 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPosOutOfStockProduct(null)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                  isDark
+                    ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                    : 'border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                Cancel / Keep in Register
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* POS Local Stock / Custom Item Modal */}
       {isPosCustomItemModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">

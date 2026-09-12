@@ -442,7 +442,7 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
   const handleCancelClick = async (orderId: string) => {
     const confirmed = await customConfirm(
       `Are you sure you want to void / cancel order ${orderId}? This will mark the quotation as cancelled.`,
-      'Cancel Pre-Sale Order',
+      'Cancel Quotation',
       'warning',
       'Yes, Cancel Order'
     );
@@ -462,12 +462,12 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className={`text-xl font-black tracking-tight ${textTitle}`}>POS Pre-Sale Orders & Quotations</h1>
+              <h1 className={`text-xl font-black tracking-tight ${textTitle}`}>POS Quotations</h1>
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-indigo-500/10 text-indigo-500 border border-indigo-500/20">
                 Awaiting Payment / Pickup
               </span>
             </div>
-            <p className={`text-xs ${textSub}`}>Manage pre-sale orders, quotations waiting for customer payment or confirmation, and convert to completed sales.</p>
+            <p className={`text-xs ${textSub}`}>Manage quotations and pre-sale orders waiting for customer payment or confirmation, and convert to completed sales.</p>
           </div>
         </div>
 
@@ -488,13 +488,13 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
         <div className={`p-3.5 rounded-2xl border ${cardBg} transition-all`}>
           <div className="flex items-center justify-between">
-            <span className={`text-[11px] font-bold ${textSub}`}>Active Pre-Sales</span>
+            <span className={`text-[11px] font-bold ${textSub}`}>Active Quotations</span>
             <div className="p-1 rounded-lg bg-blue-500/10 text-blue-500">
               <FileText className="w-3.5 h-3.5" />
             </div>
           </div>
           <p className={`text-lg font-black mt-1 ${textTitle}`}>{metrics.totalActive}</p>
-          <span className="text-[10px] text-blue-500 font-semibold">Orders in register book</span>
+          <span className="text-[10px] text-blue-500 font-semibold">Quotations in register book</span>
         </div>
 
         <div className={`p-3.5 rounded-2xl border ${cardBg} transition-all`}>
@@ -691,11 +691,11 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
           <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-500 flex items-center justify-center mx-auto">
             <FileText className="w-6 h-6" />
           </div>
-          <h3 className={`text-base font-bold ${textTitle}`}>No Pre-Sale Orders Found</h3>
+          <h3 className={`text-base font-bold ${textTitle}`}>No Quotations Found</h3>
           <p className={`text-xs max-w-sm mx-auto ${textSub}`}>
             {searchTerm
-              ? `No orders matching "${searchTerm}". Try resetting your search filters.`
-              : 'There are currently no pre-sale orders or quotations in this view. You can create one from the POS Register cart.'}
+              ? `No quotations matching "${searchTerm}". Try resetting your search filters.`
+              : 'There are currently no quotations in this view. You can create one from the POS Register cart.'}
           </p>
           <button
             type="button"
@@ -703,7 +703,7 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
             className="px-4 py-2 rounded-xl text-xs font-black bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-1.5"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Create Pre-Sale Order in Register</span>
+            <span>Create Quotation in Register</span>
           </button>
         </div>
       ) : (
@@ -736,7 +736,7 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
                     <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
                       isPosOrder ? 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                     }`}>
-                      {isPosOrder ? 'Counter Pre-Sale' : 'Online Storefront'}
+                      {isPosOrder ? 'Counter Quotation' : 'Online Storefront'}
                     </span>
                     <span className="text-[11px] text-slate-400 flex items-center gap-1">
                       <Calendar className="w-3 h-3" />
@@ -979,7 +979,7 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
                   <CreditCard className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className={`font-extrabold text-base ${textTitle}`}>Complete Pre-Sale Payment</h3>
+                  <h3 className={`font-extrabold text-base ${textTitle}`}>Complete Quotation Payment</h3>
                   <p className={`text-[11px] ${textSub}`}>Order #{selectedOrderForPayment.id}</p>
                 </div>
               </div>

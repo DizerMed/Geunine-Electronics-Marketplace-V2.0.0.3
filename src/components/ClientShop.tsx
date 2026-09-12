@@ -10,7 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 
 import { QRCodeSVG } from 'qrcode.react';
-import { ShieldCheck, Star, Heart, ShoppingBag, ShoppingCart, Eye, CheckCircle2, Truck, Lock, ArrowRight, Sparkles, X, Plus, Minus, Trash2, Cpu, ExternalLink, RefreshCw, Sun, RefreshCcw, Shield, Headphones, Shirt, Armchair, Droplet, Activity, Gamepad2, Book, CarFront, LayoutGrid, User, UserCheck, Smartphone, Building2, QrCode, Wallet, Printer, MessageCircle, Scale, Zap, ArrowLeft, Check, ChevronRight, ChevronDown, AlertCircle, Share2, Download, Copy, FileText, CreditCard, Info, Phone, MapPin, SlidersHorizontal, Loader2, Tag, SearchX, PackageSearch, RotateCw } from 'lucide-react';
+import { ShieldCheck, Star, Heart, ShoppingBag, ShoppingCart, Eye, CheckCircle2, Truck, Lock, ArrowRight, ArrowUp, Sparkles, X, Plus, Minus, Trash2, Cpu, ExternalLink, RefreshCw, Sun, RefreshCcw, Shield, Headphones, Shirt, Armchair, Droplet, Activity, Gamepad2, Book, CarFront, LayoutGrid, User, UserCheck, Smartphone, Building2, QrCode, Wallet, Printer, MessageCircle, Scale, Zap, ArrowLeft, Check, ChevronRight, ChevronDown, AlertCircle, Share2, Download, Copy, FileText, CreditCard, Info, Phone, MapPin, SlidersHorizontal, Loader2, Tag, SearchX, PackageSearch, RotateCw } from 'lucide-react';
 import { shareProduct } from '../utils/share';
 import { updateMetaTags } from '../utils/seo';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -951,6 +951,35 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
         clearTimeout(loadTimerRef.current);
       }
     };
+  }, []);
+
+  // Back to Top button visibility (appears only when user scrolls down product listing pages)
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+  useEffect(() => {
+    // Only active on product listing pages (not in single product detail view)
+    if (selectedProduct) {
+      setShowBackToTop(false);
+      return;
+    }
+
+    const checkScrollTop = () => {
+      // Reveal button when scrolled down past 350px
+      if (window.scrollY > 350) {
+        setShowBackToTop(true);
+      } else {
+        setShowBackToTop(false);
+      }
+    };
+
+    checkScrollTop();
+    window.addEventListener('scroll', checkScrollTop, { passive: true });
+    return () => window.removeEventListener('scroll', checkScrollTop);
+  }, [selectedProduct]);
+
+  const handleScrollToTop = useCallback(() => {
+    triggerHaptic('light');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
   const vatPct = Number(storeSettings?.vatPercentage ?? 18);
@@ -3821,6 +3850,41 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
         clientOrders={orders}
       />
 </React.Suspense>
+
+      {/* Back to Top Floating Button (Appears only when user scrolls down product listing pages) */}
+      {!selectedProduct && (
+        <AnimatePresence>
+          {showBackToTop && (
+            <motion.button
+              id="back-to-top-btn"
+              type="button"
+              onClick={handleScrollToTop}
+              initial={{ opacity: 0, scale: 0.8, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: 16 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              aria-label="Back to top"
+              title="Back to top"
+              className={`fixed bottom-36 right-4 sm:bottom-24 sm:right-6 z-40 w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center shadow-xl border backdrop-blur-md active:scale-95 hover:scale-105 transition-all duration-200 cursor-pointer pointer-events-auto group ${
+                isDark
+                  ? 'bg-slate-900/95 hover:bg-slate-800 text-slate-100 border-slate-700/80 shadow-slate-950/60 hover:border-blue-500 hover:text-white'
+                  : 'bg-white/95 hover:bg-slate-50 text-slate-800 border-slate-200/90 shadow-slate-400/20 hover:border-blue-500 hover:text-blue-600'
+              }`}
+            >
+              <ArrowUp className="w-5 h-5 stroke-[2.3] transition-transform duration-200 group-hover:-translate-y-0.5" />
+              <span
+                className={`hidden sm:block absolute right-full mr-3 px-2.5 py-1 rounded-xl text-xs font-bold whitespace-nowrap shadow-lg border opacity-0 pointer-events-none group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0 transition-all duration-200 ${
+                  isDark
+                    ? 'bg-slate-900 text-white border-slate-700/80'
+                    : 'bg-white text-slate-900 border-slate-200'
+                }`}
+              >
+                Back to top
+              </span>
+            </motion.button>
+          )}
+        </AnimatePresence>
+      )}
 
       {/* Toast Notifications */}
       <div className="fixed bottom-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-none">

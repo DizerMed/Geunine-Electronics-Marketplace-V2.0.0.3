@@ -127,15 +127,46 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
    * and preserves pristine horizontal desktop layout even on mobile devices.
    */
   const generateInvoiceCanvas = async (element: HTMLElement): Promise<HTMLCanvasElement> => {
+    // 1. Try direct toCanvas capture of the rendered element first
+    try {
+      const directCanvas = await toCanvas(element, {
+        pixelRatio: 2,
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+        filter: (node) => {
+          if (node instanceof HTMLElement && node.classList.contains('no-print')) return false;
+          return true;
+        },
+      });
+
+      if (directCanvas && directCanvas.width > 50 && directCanvas.height > 50) {
+        return directCanvas;
+      }
+    } catch (directErr) {
+      console.warn('Direct toCanvas capture note:', directErr);
+    }
+
+    // 2. Offscreen normalized A4 container builder
+    const container = document.createElement('div');
+    container.setAttribute('aria-hidden', 'true');
+    container.style.position = 'fixed';
+    container.style.top = '0';
+    container.style.left = '0';
+    container.style.width = '794px';
+    container.style.zIndex = '-99999';
+    container.style.pointerEvents = 'none';
+    container.style.opacity = '1';
+    container.style.backgroundColor = '#ffffff';
+    container.style.overflow = 'hidden';
+
     // Clone element to render at standard desktop A4 document width (794px = 210mm at 96dpi)
-    // This completely prevents mobile viewports from collapsing rows/grids into multi-page vertical stacks!
     const clone = element.cloneNode(true) as HTMLElement;
 
     clone.style.width = '794px';
     clone.style.minWidth = '794px';
     clone.style.maxWidth = '794px';
-    clone.style.position = 'fixed';
-    clone.style.left = '-9999px';
+    clone.style.position = 'relative';
+    clone.style.left = '0';
     clone.style.top = '0';
     clone.style.transform = 'none';
     clone.style.margin = '0';
@@ -192,20 +223,22 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
       (el as HTMLElement).style.display = 'none';
     });
 
-    document.body.appendChild(clone);
+    container.appendChild(clone);
+    document.body.appendChild(container);
 
     try {
       return await toCanvas(clone, {
-        pixelRatio: 2.5,
+        pixelRatio: 2,
         backgroundColor: '#ffffff',
+        cacheBust: true,
         filter: (node) => {
           if (node instanceof HTMLElement && node.classList.contains('no-print')) return false;
           return true;
         },
       });
     } finally {
-      if (clone.parentNode) {
-        clone.parentNode.removeChild(clone);
+      if (container.parentNode) {
+        container.parentNode.removeChild(container);
       }
     }
   };

@@ -117,6 +117,8 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
   const [editStatus, setEditStatus] = useState<Order['status']>('Pending');
   const [editItems, setEditItems] = useState<OrderItem[]>([]);
   const [editDiscount, setEditDiscount] = useState<number>(0);
+  const [editCreatedAt, setEditCreatedAt] = useState('');
+  const [editValidUntil, setEditValidUntil] = useState('');
 
   // Expanded card items toggle
   const [expandedOrderIds, setExpandedOrderIds] = useState<Record<string, boolean>>({});
@@ -343,6 +345,16 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
     setEditStatus(order.status || 'Pending');
     setEditItems(JSON.parse(JSON.stringify(order.items || [])));
     setEditDiscount(Number(order.discount || 0));
+    const createdDate = order.createdAt ? (() => {
+      try {
+        const d = new Date(order.createdAt);
+        return isNaN(d.getTime()) ? '' : new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      } catch {
+        return '';
+      }
+    })() : '';
+    setEditCreatedAt(createdDate);
+    setEditValidUntil((order as any).validUntil || (order as any).quotationExpiryDate || '');
   };
 
   // Helper functions for editing items within order
@@ -404,6 +416,8 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
       totalAmount: finalTotal,
       total_amount: finalTotal,
       outstandingBalance: newBalance,
+      createdAt: editCreatedAt ? new Date(editCreatedAt).toISOString() : editingOrder.createdAt,
+      validUntil: editValidUntil,
       updatedAt: new Date().toISOString()
     };
 
@@ -1384,6 +1398,32 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
                     <option value="Completed">Completed</option>
                     <option value="Cancelled">Cancelled</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-bold mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-blue-500" />
+                    Quotation / Creation Date
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={editCreatedAt}
+                    onChange={(e) => setEditCreatedAt(e.target.value)}
+                    className={`w-full px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${inputBg}`}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-bold mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-amber-500" />
+                    Valid Until / Expiry Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editValidUntil}
+                    onChange={(e) => setEditValidUntil(e.target.value)}
+                    className={`w-full px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${inputBg}`}
+                  />
                 </div>
               </div>
 

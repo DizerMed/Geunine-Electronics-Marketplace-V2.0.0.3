@@ -39,6 +39,8 @@ interface POSSalePreviewModalProps {
   onUpdateTenderedAmount?: (amount: number) => void;
   onApplyDiscount?: (additionalDiscount: number) => void;
   onConvertToLoan?: (downPayment: number) => void;
+  saleDate?: string;
+  onUpdateSaleDate?: (newDate: string) => void;
 }
 
 export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
@@ -72,6 +74,8 @@ export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
   onUpdateTenderedAmount,
   onApplyDiscount,
   onConvertToLoan,
+  saleDate,
+  onUpdateSaleDate,
 }) => {
   if (!isOpen) return null;
 
@@ -227,8 +231,8 @@ export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
             </div>
           )}
           
-          {/* Top Summary: Customer & Payment Method */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          {/* Top Summary: Customer, Payment Method, and Sale Date */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
             {/* Customer Info Card */}
             <div className={`p-4 rounded-2xl border ${isDark ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-slate-50'}`}>
               <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase mb-2">
@@ -277,6 +281,49 @@ export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
                   <span>Direct full settlement</span>
                 )}
               </div>
+            </div>
+
+            {/* Sale Date & Time Editor Card */}
+            <div className={`p-4 rounded-2xl border flex flex-col justify-between ${isDark ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-slate-50'}`}>
+              <div>
+                <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase mb-2">
+                  <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-blue-500" /> Sale Date & Time</span>
+                  <span className={`px-2 py-0.5 rounded-md font-black text-[10px] ${
+                    saleDate ? 'bg-amber-500/15 text-amber-500' : 'bg-emerald-500/15 text-emerald-500'
+                  }`}>
+                    {saleDate ? 'Custom Date' : 'Live (Now)'}
+                  </span>
+                </div>
+                <div className="font-extrabold text-xs sm:text-sm truncate">
+                  {saleDate
+                    ? new Date(saleDate).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    : new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </div>
+              </div>
+              {onUpdateSaleDate && (
+                <div className="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-800/80">
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="datetime-local"
+                      value={saleDate || ''}
+                      onChange={(e) => onUpdateSaleDate(e.target.value)}
+                      className={`w-full rounded-lg px-2 py-1 text-[11px] font-semibold border ${
+                        isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                      }`}
+                    />
+                    {saleDate && (
+                      <button
+                        type="button"
+                        onClick={() => onUpdateSaleDate('')}
+                        className="text-[10px] font-bold px-1.5 py-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-blue-500 shrink-0 cursor-pointer"
+                        title="Reset to current time"
+                      >
+                        Now
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

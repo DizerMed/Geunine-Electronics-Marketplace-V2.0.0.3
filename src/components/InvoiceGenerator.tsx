@@ -3,7 +3,7 @@ import { Order, formatTZS, formatToGMT3, BRAND_LOGO_URL, StoreSettings } from '.
 import { 
   Printer, Download, X, CheckCircle2, ShieldCheck, Smartphone, 
   Building2, QrCode, Share2, FileText, CreditCard,
-  Check, Copy, Percent, Stamp, Truck, AlertCircle
+  Check, Copy, Percent, Stamp, Truck, AlertCircle, Calendar
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { toCanvas } from 'html-to-image';
@@ -23,6 +23,7 @@ export interface InvoiceGeneratorProps {
   defaultDocType?: 'tax' | 'proforma' | 'delivery';
   isClientView?: boolean;
   hideTypeSwitcher?: boolean;
+  onUpdateOrder?: (order: Order) => void;
 }
 
 export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ 
@@ -36,6 +37,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
   defaultDocType = (order.paymentStatus === 'Paid' || order.status === 'Completed' ? 'tax' : 'proforma'),
   isClientView = false,
   hideTypeSwitcher = false,
+  onUpdateOrder,
 }) => {
   const initialDocType = isClientView
     ? (order.paymentStatus === 'Paid' || order.status === 'Completed' ? (defaultDocType || 'tax') : 'proforma')
@@ -55,6 +57,57 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
   const [showShareFormatModal, setShowShareFormatModal] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const invoiceRef = useRef<HTMLDivElement>(null);
+
+  // Document Issue Date & Quotation Expiry Date Editor State
+  const [invoiceDate, setInvoiceDate] = useState<string>(() => {
+    if (order.createdAt) {
+      try {
+        const d = new Date(order.createdAt);
+        if (!isNaN(d.getTime())) {
+          return d.toISOString().slice(0, 10);
+        }
+      } catch {}
+    }
+    return new Date().toISOString().slice(0, 10);
+  });
+
+  const [invoiceValidUntil, setInvoiceValidUntil] = useState<string>(() => {
+    if ((order as any).validUntil) return (order as any).validUntil;
+    if ((order as any).quotationExpiryDate) return (order as any).quotationExpiryDate;
+    if ((order as any).dueDate) return (order as any).dueDate;
+    if ((order as any).loanDueDate) return (order as any).loanDueDate;
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    return d.toISOString().slice(0, 10);
+  });
+
+  const [isEditingDate, setIsEditingDate] = useState(false);
+
+  const handleDateChange = (newDateStr: string) => {
+    setInvoiceDate(newDateStr);
+    if (onUpdateOrder) {
+      try {
+        const updatedIso = new Date(newDateStr).toISOString();
+        onUpdateOrder({
+          ...order,
+          createdAt: updatedIso,
+          validUntil: invoiceValidUntil,
+        } as any);
+      } catch {}
+    }
+  };
+
+  const handleValidUntilChange = (newValidUntil: string) => {
+    setInvoiceValidUntil(newValidUntil);
+    if (onUpdateOrder) {
+      try {
+        onUpdateOrder({
+          ...order,
+          validUntil: newValidUntil,
+        } as any);
+      } catch {}
+    }
+  };
 
   // Determine initial VAT checked state:
   // 1. Explicit prop override if provided
@@ -122,42 +175,87 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
   };
 
   /**
-   * Unified, high-fidelity canvas generation builder for A4 Invoices.
+   * Helper to verify if a captured canvas is entirely blank (monochrome/transparent)
+   */
+  const isCanvasBlank = (canvas: HTMLCanvasElement): boolean => {
+    if (!canvas || canvas.width === 0 || canvas.height === 0) return true;
+    try {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return true;
+      const sampleW = Math.min(canvas.width, 120);
+      const sampleH = Math.min(canvas.height, 120);
+      const imgData = ctx.getImageData(0, 0, sampleW, sampleH);
+      const d = imgData.data;
+      const r0 = d[0], g0 = d[1], b0 = d[2], a0 = d[3];
+      for (let i = 4; i < d.length; i += 4) {
+        if (
+          Math.abs(d[i] - r0) > 8 ||
+          Math.abs(d[i + 1] - g0) > 8 ||
+          Math.abs(d[i + 2] - b0) > 8 ||
+          Math.abs(d[i + 3] - a0) > 8
+        ) {
+          return false;
+        }
+      }
+      // Check middle of canvas for document contents, text, and tables
+      if (canvas.height > 200) {
+        const midY = Math.floor(canvas.height / 2);
+        const midData = ctx.getImageData(0, midY, sampleW, Math.min(canvas.height - midY, 120)).data;
+        for (let i = 0; i < midData.length; i += 4) {
+          if (midData[i] < 180 && midData[i + 1] < 180 && midData[i + 2] < 180 && midData[i + 3] > 60) {
+            return false;
+          }
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  /**
+   * High-fidelity canvas generation builder for A4 Invoices.
    * Standardizes element width to canonical A4 (794px at 96dpi), font rendering, resolution scale,
-   * and preserves pristine horizontal desktop layout even on mobile devices.
+   * prevents CORS image blocks, and avoids blank pages on all mobile and desktop browsers.
    */
   const generateInvoiceCanvas = async (element: HTMLElement): Promise<HTMLCanvasElement> => {
-    // 1. Try direct toCanvas capture of the rendered element first
+    try {
+      if (document.fonts?.ready) {
+        await document.fonts.ready;
+      }
+    } catch {}
+
+    // 1. Try direct toCanvas capture of the rendered element first (with skipFonts & no cacheBust)
     try {
       const directCanvas = await toCanvas(element, {
         pixelRatio: 2,
         backgroundColor: '#ffffff',
-        cacheBust: true,
+        cacheBust: false,
+        skipFonts: true,
         filter: (node) => {
           if (node instanceof HTMLElement && node.classList.contains('no-print')) return false;
           return true;
         },
       });
 
-      if (directCanvas && directCanvas.width > 50 && directCanvas.height > 50) {
+      if (directCanvas && !isCanvasBlank(directCanvas)) {
         return directCanvas;
       }
     } catch (directErr) {
-      console.warn('Direct toCanvas capture note:', directErr);
+      console.warn('Direct toCanvas capture note, attempting normalized staging:', directErr);
     }
 
-    // 2. Offscreen normalized A4 container builder
+    // 2. Offscreen normalized A4 container builder positioned off-canvas
     const container = document.createElement('div');
     container.setAttribute('aria-hidden', 'true');
     container.style.position = 'fixed';
     container.style.top = '0';
-    container.style.left = '0';
-    container.style.width = '794px';
-    container.style.zIndex = '-99999';
-    container.style.pointerEvents = 'none';
-    container.style.opacity = '1';
+    container.style.left = '-12000px'; // Position horizontally off-screen without hiding from layout
+    container.style.width = '794px'; // Canonical A4 width at 96dpi
     container.style.backgroundColor = '#ffffff';
-    container.style.overflow = 'hidden';
+    container.style.visibility = 'visible';
+    container.style.overflow = 'visible';
+    container.style.zIndex = '1000';
 
     // Clone element to render at standard desktop A4 document width (794px = 210mm at 96dpi)
     const clone = element.cloneNode(true) as HTMLElement;
@@ -175,6 +273,28 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     clone.style.borderRadius = '0';
     clone.style.border = 'none';
     clone.style.backgroundColor = '#ffffff';
+
+    // Transfer already loaded images from original element to clone as inline data URLs
+    // This completely prevents CORS / cross-origin image fetch failures in html-to-image
+    const origImages = element.querySelectorAll('img');
+    const cloneImages = clone.querySelectorAll('img');
+    origImages.forEach((origImg, idx) => {
+      const cloneImg = cloneImages[idx];
+      if (cloneImg && origImg.complete && origImg.naturalWidth > 0) {
+        try {
+          const imgCanvas = document.createElement('canvas');
+          imgCanvas.width = origImg.naturalWidth;
+          imgCanvas.height = origImg.naturalHeight;
+          const ctx = imgCanvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(origImg, 0, 0);
+            cloneImg.src = imgCanvas.toDataURL('image/png');
+          }
+        } catch {
+          cloneImg.src = origImg.src;
+        }
+      }
+    });
 
     // Force horizontal flex on all elements marked as sm:flex-row or row layout
     const flexRows = clone.querySelectorAll('.sm\\:flex-row, [data-print-layout="row"]');
@@ -226,16 +346,22 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     container.appendChild(clone);
     document.body.appendChild(container);
 
+    // Yield to allow browser to calculate layout and paint clone
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
     try {
-      return await toCanvas(clone, {
+      const stagedCanvas = await toCanvas(clone, {
         pixelRatio: 2,
         backgroundColor: '#ffffff',
-        cacheBust: true,
+        cacheBust: false,
+        skipFonts: true,
         filter: (node) => {
           if (node instanceof HTMLElement && node.classList.contains('no-print')) return false;
           return true;
         },
       });
+
+      return stagedCanvas;
     } finally {
       if (container.parentNode) {
         container.parentNode.removeChild(container);
@@ -245,7 +371,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
 
   /**
    * Unified PDF document builder that converts a high-res canvas to an A4 PDF.
-   * Guarantees single-page output for mobile and desktop generated invoices.
+   * Guarantees single-page output for mobile and desktop generated invoices without spilling blank pages.
    */
   const buildInvoicePDFDoc = (canvas: HTMLCanvasElement): jsPDF => {
     const imgData = canvas.toDataURL('image/png', 1.0);
@@ -262,13 +388,13 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     const imgHeight = (canvas.height * pdfWidth) / canvas.width;
 
     // Single-page A4 document check:
-    // If height fits within or close to A4 (up to 35% extra), scale proportionally to fit 1 page cleanly without breaking
-    if (imgHeight <= pdfHeight * 1.35) {
-      const scale = Math.min(1, (pdfHeight - 6) / imgHeight);
+    // If height fits within or close to A4 (up to 40% extra margin), scale proportionally to fit 1 page cleanly without breaking into a blank second page
+    if (imgHeight <= pdfHeight * 1.4) {
+      const scale = Math.min(1, (pdfHeight - 8) / imgHeight);
       const renderWidth = pdfWidth * scale;
       const renderHeight = imgHeight * scale;
       const xOffset = (pdfWidth - renderWidth) / 2;
-      pdf.addImage(imgData, 'PNG', xOffset, 3, renderWidth, renderHeight);
+      pdf.addImage(imgData, 'PNG', xOffset, 4, renderWidth, renderHeight);
     } else {
       let heightLeft = imgHeight;
       let position = 0;
@@ -276,7 +402,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
       pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
       heightLeft -= pdfHeight;
 
-      while (heightLeft > 15) {
+      while (heightLeft > 35) { // 35mm threshold prevents unnecessary blank trailing page
         position -= pdfHeight;
         pdf.addPage();
         pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
@@ -363,7 +489,36 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     : `INV-${cleanOrderNo}`;
   const invoiceNo = currentDocRef;
   const totalUnits = (order.items || []).reduce((sum, item) => sum + (item.quantity || 1), 0);
-  const orderDate = order.createdAt ? formatToGMT3(order.createdAt) : new Date().toLocaleDateString('en-GB');
+  
+  const orderDate = (() => {
+    if (!invoiceDate) {
+      return order.createdAt ? formatToGMT3(order.createdAt) : new Date().toLocaleDateString('en-GB');
+    }
+    try {
+      const parts = invoiceDate.split('-');
+      if (parts.length === 3) {
+        const dObj = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0);
+        return dObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      }
+      return formatToGMT3(invoiceDate);
+    } catch {
+      return order.createdAt ? formatToGMT3(order.createdAt) : new Date().toLocaleDateString('en-GB');
+    }
+  })();
+
+  const quotationValidUntil = (() => {
+    if (!invoiceValidUntil) return '';
+    try {
+      const parts = invoiceValidUntil.split('-');
+      if (parts.length === 3) {
+        const dObj = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0);
+        return dObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      }
+      return invoiceValidUntil;
+    } catch {
+      return invoiceValidUntil;
+    }
+  })();
 
   const getInvoiceText = () => {
     // Delivery Note Share Text (Strictly no prices, no VAT, no loan debts, no payment accounts)
@@ -523,38 +678,37 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
       } else if (format === 'image') {
         if (!invoiceRef.current) return;
         const canvas = await generateInvoiceCanvas(invoiceRef.current);
-        
-        canvas.toBlob(async (blob) => {
-          if (!blob) return;
-          const fileName = getCleanInvoiceFilename('png');
-          const file = new File([blob], fileName, { type: 'image/png' });
+        const dataUrl = canvas.toDataURL('image/png', 1.0);
+        const fileName = getCleanInvoiceFilename('png');
 
-          let shared = false;
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            try {
-              await navigator.share({
-                title: `${docType === 'tax' ? 'Invoice' : docType === 'proforma' ? 'Proforma' : 'Delivery Note'} ${invoiceNo}`,
-                files: [file]
-              });
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        const file = new File([blob], fileName, { type: 'image/png' });
+
+        let shared = false;
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              title: `${docType === 'tax' ? 'Invoice' : docType === 'proforma' ? 'Proforma' : 'Delivery Note'} ${invoiceNo}`,
+              files: [file]
+            });
+            shared = true;
+          } catch (err: any) {
+            if (err?.name !== 'AbortError') {
+              console.warn('Share not permitted, falling back to download:', err?.message || err);
+            } else {
               shared = true;
-            } catch (err: any) {
-              if (err?.name !== 'AbortError') {
-                console.warn('Share not permitted, falling back to download:', err?.message || err);
-              } else {
-                shared = true;
-              }
             }
           }
-          if (!shared) {
-            const dataUrl = canvas.toDataURL('image/png', 1.0);
-            const link = document.createElement('a');
-            link.download = fileName;
-            link.href = dataUrl;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          }
-        }, 'image/png', 1.0);
+        }
+        if (!shared) {
+          const link = document.createElement('a');
+          link.download = fileName;
+          link.href = dataUrl;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
         
       } else if (format === 'pdf') {
         if (!invoiceRef.current) return;
@@ -842,6 +996,28 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
               </label>
             )}
 
+            {/* Document Date Editor Action Bar Button */}
+            {!isClientView && (
+              <button
+                type="button"
+                onClick={() => setIsEditingDate(prev => !prev)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs select-none border transition-all active:scale-95 cursor-pointer ${
+                  isEditingDate
+                    ? 'bg-blue-600 text-white border-blue-500 font-bold shadow-sm'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                }`}
+                title="Edit Document Issue Date / Quotation Expiry"
+              >
+                <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                <span className="font-bold text-[11px]">Date</span>
+                <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded transition-colors ${
+                  isEditingDate ? 'bg-white/20 text-white' : 'bg-slate-700 text-slate-300'
+                }`}>
+                  {isEditingDate ? 'Done' : 'Edit'}
+                </span>
+              </button>
+            )}
+
             {/* Share Invoice Dropdown in Action Bar */}
             <div className="relative" ref={shareDropdownActionRef}>
               <button
@@ -939,7 +1115,8 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                   src={BRAND_LOGO_URL} 
                   alt={storeSettings?.storeName || "Genuine Electronics"} 
                   className="h-12 w-auto max-w-[140px] object-contain" 
-                  referrerPolicy="no-referrer" 
+                  referrerPolicy="no-referrer"
+                  crossOrigin="anonymous" 
                 />
               </div>
               <div>
@@ -983,7 +1160,23 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
               {docType === 'delivery' ? `DN-${cleanOrderNo}` : docType === 'proforma' ? `PRO-${cleanOrderNo}` : invoiceNo}
             </p>
             <div className="text-[11px] text-slate-700 space-y-0.5">
-              <p><span className="font-semibold text-slate-600">Issue Date:</span> <strong className="text-slate-900">{orderDate}</strong></p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p><span className="font-semibold text-slate-600">Issue Date:</span> <strong className="text-slate-900">{orderDate}</strong></p>
+                {!isClientView && (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingDate(prev => !prev)}
+                    className="no-print inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 transition-colors cursor-pointer"
+                    title="Click to edit document date"
+                  >
+                    <Calendar className="w-3 h-3" />
+                    <span>{isEditingDate ? 'Done' : 'Edit'}</span>
+                  </button>
+                )}
+              </div>
+              {docType === 'proforma' && quotationValidUntil && (
+                <p><span className="font-semibold text-slate-600">Valid Until:</span> <strong className="text-slate-900">{quotationValidUntil}</strong></p>
+              )}
               <p><span className="font-semibold text-slate-600">Order ID:</span> <span className="font-mono font-bold text-slate-900">{order.id}</span></p>
               {docType !== 'delivery' && includeVat && activeVatPercentage > 0 && calculatedTax > 0 && (
                 <p>
@@ -997,6 +1190,63 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                 <p><span className="font-semibold text-slate-600">Tracking:</span> <span className="font-mono font-bold text-slate-900">{order.trackingNumber}</span></p>
               )}
             </div>
+
+            {isEditingDate && !isClientView && (
+              <div className="no-print mt-2.5 p-3 rounded-xl bg-blue-50/90 border border-blue-200 space-y-2 text-left animate-fadeIn">
+                <div className="flex items-center justify-between text-[11px] font-black text-slate-800">
+                  <span className="flex items-center gap-1 text-blue-700">
+                    <Calendar className="w-3.5 h-3.5" />
+                    Document Date & Quotation Settings
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const todayStr = new Date().toISOString().slice(0, 10);
+                      handleDateChange(todayStr);
+                    }}
+                    className="text-[10px] font-bold text-blue-600 hover:underline cursor-pointer"
+                  >
+                    Set to Today
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                      Issue Date
+                    </label>
+                    <input
+                      type="date"
+                      value={invoiceDate}
+                      onChange={(e) => handleDateChange(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  {docType === 'proforma' && (
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                        Quotation Validity / Expiry
+                      </label>
+                      <input
+                        type="date"
+                        value={invoiceValidUntil}
+                        onChange={(e) => handleValidUntilChange(e.target.value)}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center justify-between pt-1 text-[10px] text-slate-500 border-t border-blue-200/60">
+                  <span>Custom date applies to document display, PDF & share</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingDate(false)}
+                    className="px-2 py-0.5 rounded bg-blue-600 text-white font-bold hover:bg-blue-700 cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

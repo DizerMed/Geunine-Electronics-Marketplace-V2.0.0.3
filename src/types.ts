@@ -150,6 +150,8 @@ export interface Order {
   cashier_id?: string;
   quotationNumber?: string;
   quotation_number?: string;
+  validUntil?: string;
+  quotationExpiryDate?: string;
   invoiceNumber?: string;
   invoice_number?: string;
   customerTin?: string;

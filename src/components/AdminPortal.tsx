@@ -2810,6 +2810,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [posLoanGuarantorName, setPosLoanGuarantorName] = useState('');
   const [posLoanGuarantorPhone, setPosLoanGuarantorPhone] = useState('');
   const [posOrderNotes, setPosOrderNotes] = useState('');
+  const [posTransactionDate, setPosTransactionDate] = useState<string>('');
   const [posViewMode, setPosViewMode] = useState<'grid' | 'inline' | 'compact'>('grid');
   const [posActivePage, setPosActivePage] = useState<'register' | 'orders'>('register');
   const [posMobileTab, setPosMobileTab] = useState<'catalog' | 'cart'>('catalog');
@@ -3947,6 +3948,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setPosCustomerName('');
     setPosCustomerPhone('');
     setPosCustomerTin('');
+    setPosTransactionDate('');
   };
 
   // ==========================================
@@ -3961,10 +3963,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const orderId = `ORD-POS-${Date.now().toString().slice(-6)}`;
     const quotationNum = `Q-${Math.floor(100000 + Math.random() * 900000)}`;
     const activeCashier = profile?.fullName || profile?.displayName || profile?.full_name || user?.email || 'Counter Cashier';
+    const quotationDate = posTransactionDate ? new Date(posTransactionDate).toISOString() : new Date().toISOString();
+    const quotationValidUntil = (() => {
+      const d = new Date(quotationDate);
+      d.setDate(d.getDate() + 14);
+      return d.toISOString().slice(0, 10);
+    })();
 
     const newOrder: Order = {
       id: orderId,
-      createdAt: new Date().toISOString(),
+      createdAt: quotationDate,
+      validUntil: quotationValidUntil,
       customerName: posCustomerName.trim() || 'Counter Customer',
       customer_name: posCustomerName.trim() || 'Counter Customer',
       customerPhone: posCustomerPhone.trim() || '',
@@ -4421,10 +4430,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
 
     const activeCashierName = profile?.fullName || profile?.displayName || profile?.full_name || user?.email || 'System Admin';
-    const eat = getEATCurrentParts();
+    const saleDateObj = posTransactionDate ? new Date(posTransactionDate) : new Date();
+    const eat = getEATCurrentParts(saleDateObj);
     const uniqueSuffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
     const receiptNumber = `REC-${eat.yy}${eat.mm}${eat.dd}-${eat.hh}${eat.mn}${eat.ss}-${uniqueSuffix}`;
-    const createdAt = new Date().toISOString();
+    const createdAt = saleDateObj.toISOString();
 
     const pmPos = (posPaymentMethod || '').toLowerCase();
     const isCreditCardPos = pmPos.includes('credit card') || pmPos.includes('card') || pmPos.includes('visa') || pmPos.includes('mastercard');
@@ -5224,17 +5234,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  if (isPosActive) {
-                    setIsPosSubmenuOpen(prev => !prev);
-                  } else {
-                    setActiveTab('pos');
-                    setPosSubTab('register');
-                    setIsPosSubmenuOpen(true);
-                  }
+                  setIsPosSubmenuOpen(prev => !prev);
+                  triggerHaptic('light');
                 }}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                   isPosActive
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
+                    : isPosSubmenuOpen
+                    ? isDark ? 'bg-slate-800 text-white font-semibold' : 'bg-slate-200 text-slate-900 font-semibold'
                     : isDark
                     ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
                     : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
@@ -10732,6 +10739,44 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     </div>
                   )}
 
+                  {/* Sale / Quotation Date & Time Selector */}
+                  <div className={`p-2.5 rounded-2xl border transition-all ${
+                    posTransactionDate 
+                      ? 'bg-amber-500/10 border-amber-500/40 text-amber-500'
+                      : isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-bold">
+                        <Calendar className="w-3.5 h-3.5 text-blue-500" />
+                        <span className={isDark ? 'text-slate-200' : 'text-slate-700'}>Sale / Quotation Date</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {posTransactionDate ? (
+                          <button
+                            type="button"
+                            onClick={() => setPosTransactionDate('')}
+                            className="text-[10px] font-bold text-amber-500 hover:underline px-1.5 py-0.5 rounded bg-amber-500/15 cursor-pointer"
+                            title="Reset to current live time"
+                          >
+                            Reset to Live
+                          </button>
+                        ) : (
+                          <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/15 px-2 py-0.5 rounded-md">
+                            Live (Now)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <input
+                        type="datetime-local"
+                        value={posTransactionDate}
+                        onChange={(e) => setPosTransactionDate(e.target.value)}
+                        className={`w-full rounded-xl px-2.5 py-1.5 text-xs font-semibold border outline-none focus:ring-2 focus:ring-blue-500 ${inputBg}`}
+                      />
+                    </div>
+                  </div>
+
                   {/* Complete Sale & Print Receipt Button */}
                   <div className="space-y-2">
                     <button
@@ -10758,9 +10803,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       type="button"
                       onClick={() => {
                         if (posCart.length === 0) return;
+                        const quoteDate = posTransactionDate ? new Date(posTransactionDate).toISOString() : new Date().toISOString();
+                        const validDate = (() => {
+                          const d = new Date(quoteDate);
+                          d.setDate(d.getDate() + 14);
+                          return d.toISOString().slice(0, 10);
+                        })();
                         const dummyOrder: Order = {
                           id: `PRO-${Date.now().toString().slice(-6)}`,
-                          createdAt: new Date().toISOString(),
+                          createdAt: quoteDate,
+                          validUntil: validDate,
                           customerName: posCustomerName || 'Walk-in Customer',
                           customerEmail: '',
                           phone: posCustomerPhone || '',
@@ -14374,6 +14426,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
           storeSettings={storeSettings}
 
+          onUpdateOrder={handleUpdateOrderFromPos}
+
         />
 
       )}
@@ -16100,6 +16154,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         onUpdateTenderedAmount={(amount: number) => setPosTenderedAmount(amount)}
         onApplyDiscount={handleApplyPosShortageAsDiscount}
         onConvertToLoan={handleConvertPosToLoan}
+        saleDate={posTransactionDate}
+        onUpdateSaleDate={setPosTransactionDate}
       />
 
       {/* Global Keyboard Shortcut Cheat Sheet Modal */}

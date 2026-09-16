@@ -11,6 +11,7 @@ export interface InvoicePrintModalProps {
   defaultDocType?: 'tax' | 'proforma' | 'delivery';
   isClientView?: boolean;
   hideTypeSwitcher?: boolean;
+  onUpdateOrder?: (order: Order) => void;
 }
 
 export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ 
@@ -22,6 +23,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
   defaultDocType,
   isClientView = false,
   hideTypeSwitcher = false,
+  onUpdateOrder,
 }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-2 sm:p-4 md:p-6 overflow-y-auto">
@@ -35,6 +37,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
           defaultDocType={defaultDocType}
           isClientView={isClientView}
           hideTypeSwitcher={hideTypeSwitcher}
+          onUpdateOrder={onUpdateOrder}
           showControls={true}
           className="h-full flex flex-col min-h-0"
         />

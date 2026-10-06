@@ -199,12 +199,26 @@ export function AuthScreen({ onSuccess, onCancel, theme, sessionExpiredMessage }
             throw new Error(supaErr.message || 'Invalid email or password.');
           }
           if (supaSignIn?.user) {
+            let userRole = isAdminEmail ? 'admin' : (supaSignIn.user.user_metadata?.role || 'customer');
+            let userPermissions = isAdminEmail ? ['ALL'] : [];
+            let userFullName = supaSignIn.user.user_metadata?.full_name;
+
+            try {
+              const { data: staffData } = await supabaseClient.from('staff').select('*').eq('email', cleanEmail).maybeSingle();
+              if (staffData) {
+                userRole = staffData.role || 'Staff';
+                userPermissions = staffData.permissions || ['POS_ACCESS', 'VIEW_CATALOG'];
+                if (staffData.name) userFullName = staffData.name;
+              }
+            } catch (_) {}
+
             authenticatedUser = {
               id: supaSignIn.user.id,
               email: cleanEmail,
-              displayName: supaSignIn.user.user_metadata?.full_name || cleanEmail.split('@')[0],
-              fullName: supaSignIn.user.user_metadata?.full_name,
-              role: isAdminEmail ? 'admin' : (supaSignIn.user.user_metadata?.role || 'customer')
+              displayName: userFullName || cleanEmail.split('@')[0],
+              fullName: userFullName,
+              role: userRole,
+              permissions: userPermissions
             };
           }
         }

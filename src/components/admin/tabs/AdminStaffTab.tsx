@@ -1386,61 +1386,53 @@ export const AdminStaffTab: React.FC<AdminStaffTabProps> = ({
 
 
               {/* Role & Status */}
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
                 <div>
-
                   <label className={`block text-xs font-bold mb-1.5 ${textSub}`}>Assigned Role *</label>
-
                   <select
-
                     value={staffForm.role}
-
-                    onChange={(e) => setStaffForm({ ...staffForm, role: e.target.value })}
-
+                    onChange={(e) => {
+                      const newRole = e.target.value;
+                      let recommended: string[] = ['POS_ACCESS', 'VIEW_CATALOG'];
+                      if (newRole === 'Super Admin' || newRole === 'Administrator') {
+                        recommended = ['ALL', 'POS_ACCESS', 'VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'CRM_ACCESS', 'VIEW_FINANCIALS', 'STORE_SETTINGS', 'MANAGE_STAFF', 'VIEW_AUDIT_LOGS'];
+                      } else if (newRole === 'Store Manager' || newRole === 'Branch Manager') {
+                        recommended = ['POS_ACCESS', 'VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'CRM_ACCESS', 'VIEW_FINANCIALS', 'STORE_SETTINGS'];
+                      } else if (newRole === 'Cashier / POS Associate') {
+                        recommended = ['POS_ACCESS', 'VIEW_CATALOG'];
+                      } else if (newRole === 'Storekeeper / Dispatch' || newRole === 'Inventory Specialist') {
+                        recommended = ['VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS'];
+                      } else if (newRole === 'Customer Support') {
+                        recommended = ['VIEW_CATALOG', 'CRM_ACCESS', 'MANAGE_ORDERS'];
+                      } else if (newRole === 'Service Technician') {
+                        recommended = ['VIEW_CATALOG', 'MANAGE_ORDERS'];
+                      }
+                      setStaffForm({ ...staffForm, role: newRole, permissions: recommended });
+                    }}
                     className={`w-full px-3.5 py-2 rounded-xl border text-xs font-medium ${inputBg}`}
-
                   >
-
-                    <option value="Store Manager">Store Manager</option>
-
+                    <option value="Store Manager">Store Manager / Branch Manager</option>
                     <option value="Cashier / POS Associate">Cashier / POS Associate</option>
-
                     <option value="Inventory Specialist">Inventory Specialist</option>
-
+                    <option value="Storekeeper / Dispatch">Storekeeper / Dispatch</option>
                     <option value="Customer Support">Customer Support</option>
-
                     <option value="Service Technician">Service Technician</option>
-
+                    <option value="Super Admin">Super Admin</option>
                     <option value="Administrator">Administrator</option>
-
                   </select>
-
                 </div>
 
                 <div>
-
                   <label className={`block text-xs font-bold mb-1.5 ${textSub}`}>Account Status *</label>
-
                   <select
-
                     value={staffForm.status}
-
                     onChange={(e) => setStaffForm({ ...staffForm, status: e.target.value as any })}
-
                     className={`w-full px-3.5 py-2 rounded-xl border text-xs font-medium ${inputBg}`}
-
                   >
-
                     <option value="Active">Active (Permitted to Log In)</option>
-
                     <option value="Inactive">Inactive / Suspended</option>
-
                   </select>
-
                 </div>
-
               </div>
 
 
@@ -1594,19 +1586,15 @@ export const AdminStaffTab: React.FC<AdminStaffTabProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
 
                   {[
-
-                    { id: 'POS_ACCESS', label: 'POS Sales Terminal', desc: 'Process customer checkouts' },
-
-                    { id: 'VIEW_CATALOG', label: 'Product Catalog', desc: 'Browse catalog & technical specs' },
-
-                    { id: 'MANAGE_PRODUCTS', label: 'Product Manager', desc: 'Add / Edit / Delete items & prices' },
-
+                    { id: 'POS_ACCESS', label: 'POS Sales Terminal', desc: 'Process customer checkouts & register' },
+                    { id: 'VIEW_CATALOG', label: 'Product Catalog', desc: 'Browse catalog & stock inventory' },
+                    { id: 'MANAGE_PRODUCTS', label: 'Product & Stock Manager', desc: 'Add / Edit / Delete items & stock' },
                     { id: 'MANAGE_ORDERS', label: 'Orders & Dispatch', desc: 'Update delivery status & tracking' },
-
                     { id: 'CRM_ACCESS', label: 'Customer CRM', desc: 'View customer contacts & history' },
-
+                    { id: 'VIEW_FINANCIALS', label: 'Sales & Revenue Analytics', desc: 'Access executive dashboard & visitor logs' },
                     { id: 'STORE_SETTINGS', label: 'Store Configuration', desc: 'Modify banner & brand settings' },
-
+                    { id: 'MANAGE_STAFF', label: 'Staff & RBAC Admin', desc: 'Create/edit staff & assign permissions' },
+                    { id: 'VIEW_AUDIT_LOGS', label: 'Security & Audit Logs', desc: 'Inspect system logs & activity audit trail' },
                   ].map((perm) => {
 
                     const isChecked = staffForm.permissions.includes(perm.id);

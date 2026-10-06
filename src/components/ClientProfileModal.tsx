@@ -215,7 +215,9 @@ export const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
                   {fullName || user?.email?.split('@')[0] || 'My Account'}
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-blue-600 text-white shadow-sm">
-                  {profile?.role === 'admin' ? 'Administrator' : 'Verified Buyer'}
+                  {profile?.role === 'admin' || user?.email?.toLowerCase() === 'admin@genuine-electronics.com'
+                    ? 'Administrator'
+                    : (profile?.role && profile.role !== 'customer' ? profile.role : 'Verified Buyer')}
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">

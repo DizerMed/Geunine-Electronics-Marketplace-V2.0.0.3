@@ -364,7 +364,8 @@ export interface User {
   displayName?: string;
   fullName?: string;
   full_name?: string;
-  role: 'admin' | 'customer';
+  role: 'admin' | 'customer' | StaffRole | string;
+  permissions?: (StaffPermission | string)[];
   avatarUrl?: string;
   address?: string;
   phone?: string;
@@ -376,7 +377,8 @@ export interface UserProfile {
   displayName?: string;
   fullName?: string;
   full_name?: string;
-  role: 'admin' | 'customer';
+  role: 'admin' | 'customer' | StaffRole | string;
+  permissions?: (StaffPermission | string)[];
   avatarUrl?: string;
   address?: string;
   phone?: string;

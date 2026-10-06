@@ -445,6 +445,79 @@ function loadDiskDb() {
     saveDiskDb();
   }
 
+  // Seed default staff members if empty so staff RBAC roles and permissions work out of the box
+  if (!memoryStore['staff'] || Object.keys(memoryStore['staff']).length === 0) {
+    if (!memoryStore['staff']) memoryStore['staff'] = {};
+    if (!memoryStore['auth_users']) memoryStore['auth_users'] = {};
+
+    const defaultStaff = [
+      {
+        id: 'staff-admin-01',
+        name: 'Genuine Electronics Owner',
+        email: 'admin@genuine-electronics.com',
+        phone: '+255 777 000 001',
+        role: 'Super Admin',
+        status: 'Active',
+        permissions: ['ALL'],
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+        createdAt: '2026-01-01 08:00',
+        password: 'password123'
+      },
+      {
+        id: 'staff-manager-02',
+        name: 'Amina Rashid',
+        email: 'manager@genuine-electronics.com',
+        phone: '+255 777 111 222',
+        role: 'Branch Manager',
+        status: 'Active',
+        permissions: ['POS_ACCESS', 'VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'CRM_ACCESS', 'VIEW_FINANCIALS', 'STORE_SETTINGS'],
+        avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
+        createdAt: '2026-01-10 09:30',
+        password: 'password123'
+      },
+      {
+        id: 'staff-cashier-03',
+        name: 'Juma Bakari',
+        email: 'cashier@genuine-electronics.com',
+        phone: '+255 777 333 444',
+        role: 'Cashier / POS Associate',
+        status: 'Active',
+        permissions: ['POS_ACCESS', 'VIEW_CATALOG'],
+        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=256&q=80',
+        createdAt: '2026-01-15 10:15',
+        password: 'password123'
+      },
+      {
+        id: 'staff-dispatch-04',
+        name: 'Hassan Mwinyi',
+        email: 'storekeeper@genuine-electronics.com',
+        phone: '+255 777 555 666',
+        role: 'Storekeeper / Dispatch',
+        status: 'Active',
+        permissions: ['VIEW_CATALOG', 'MANAGE_STOCK', 'MANAGE_ORDERS', 'DISPATCH_ORDERS'],
+        avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=256&q=80',
+        createdAt: '2026-02-01 11:00',
+        password: 'password123'
+      }
+    ];
+
+    defaultStaff.forEach(s => {
+      const { password, ...staffRecord } = s;
+      memoryStore['staff'][s.id] = staffRecord;
+      (memoryStore['auth_users'] as Record<string, any>)[s.email.toLowerCase()] = {
+        id: s.id,
+        email: s.email.toLowerCase(),
+        password: password,
+        role: s.role,
+        fullName: s.name,
+        permissions: s.permissions,
+        status: s.status
+      };
+    });
+
+    saveDiskDb();
+  }
+
   // Seed default visitor logs if empty so the analytics dashboard and activity history have rich data
   if (!memoryStore['visitor_logs'] || Object.keys(memoryStore['visitor_logs']).length < 20) {
     seedHistoricalVisitorLogs();
@@ -1467,6 +1540,10 @@ app.post('/api/auth/login', async (req, res) => {
           }
         }
 
+        if (staffMember && (staffMember.status === 'Inactive' || staffMember.status === 'Suspended')) {
+          return res.status(403).json({ error: 'This staff account has been deactivated. Please contact the administrator.' });
+        }
+
         const displayName = staffMember?.name || data.user.user_metadata?.full_name || cleanEmail.split('@')[0];
 
         return res.json({
@@ -1492,7 +1569,21 @@ app.post('/api/auth/login', async (req, res) => {
     // Local / development auth store validation
     if (!memoryStore['auth_users']) memoryStore['auth_users'] = {};
     const localUsers = memoryStore['auth_users'] as Record<string, any>;
-    const existingAuth = localUsers[cleanEmail];
+    let existingAuth = localUsers[cleanEmail];
+
+    // Fallback for default admin in local mode if not pre-initialized
+    if (isAdmin && !existingAuth) {
+      existingAuth = {
+        id: 'staff-admin-01',
+        email: cleanEmail,
+        password: password || 'admin123',
+        role: 'Super Admin',
+        fullName: 'Genuine Electronics Owner',
+        permissions: ['ALL'],
+        status: 'Active'
+      };
+      localUsers[cleanEmail] = existingAuth;
+    }
 
     if (existingAuth) {
       if (existingAuth.password !== password) {
@@ -1504,15 +1595,23 @@ app.post('/api/auth/login', async (req, res) => {
 
     const matchedUser = localUsers[cleanEmail];
     let staffMember = memoryStore['staff'] ? Object.values(memoryStore['staff']).find((s: any) => s.email?.toLowerCase() === cleanEmail) : null;
+    
+    if (staffMember && (staffMember.status === 'Inactive' || staffMember.status === 'Suspended')) {
+      return res.status(403).json({ error: 'This staff account has been deactivated. Please contact the administrator.' });
+    }
+    if (matchedUser && (matchedUser.status === 'Inactive' || matchedUser.status === 'Suspended')) {
+      return res.status(403).json({ error: 'This staff account has been deactivated. Please contact the administrator.' });
+    }
+
     const role = isAdmin ? 'admin' : (staffMember?.role || matchedUser.role || 'customer');
     const displayName = staffMember?.name || matchedUser.fullName || cleanEmail.split('@')[0];
 
     const user = {
-      id: matchedUser.id || `usr_${Date.now()}`,
+      id: matchedUser?.id || staffMember?.id || `usr_${Date.now()}`,
       email: cleanEmail,
       role,
       displayName,
-      permissions: staffMember?.permissions || (isAdmin ? ['ALL'] : []),
+      permissions: staffMember?.permissions || matchedUser?.permissions || (isAdmin ? ['ALL'] : []),
       user_metadata: { full_name: displayName, role }
     };
 
@@ -1922,6 +2021,22 @@ app.post(['/api/admin/users/:id/reset-password', '/api/admin/customers/:id/reset
   }
 });
 
+app.get('/api/admin/staff', async (req, res) => {
+  try {
+    const supabase = getSupabaseAdmin();
+    if (supabase) {
+      const { data, error } = await supabase.from('staff').select('*');
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return res.json({ staff: data });
+      }
+    }
+    const staffList = Object.values(memoryStore['staff'] || {});
+    res.json({ staff: staffList });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to fetch staff' });
+  }
+});
+
 app.post('/api/admin/staff', async (req, res) => {
   try {
     const { email, password, fullName, name, role, permissions, status, phone, avatar } = req.body;
@@ -1971,6 +2086,20 @@ app.post('/api/admin/staff', async (req, res) => {
 
     if (!memoryStore['staff']) memoryStore['staff'] = {};
     memoryStore['staff'][newStaff.id] = newStaff;
+
+    // Sync to auth_users so staff member can immediately log in with their credentials
+    const cleanStaffEmail = email.toLowerCase().trim();
+    if (!memoryStore['auth_users']) memoryStore['auth_users'] = {};
+    (memoryStore['auth_users'] as Record<string, any>)[cleanStaffEmail] = {
+      id: authUserId,
+      email: cleanStaffEmail,
+      password,
+      role: newStaff.role,
+      fullName: staffName,
+      permissions: newStaff.permissions,
+      status: newStaff.status
+    };
+
     saveDiskDb();
 
     broadcastEvent({
@@ -2028,6 +2157,23 @@ app.put('/api/admin/staff/:id', async (req, res) => {
 
     if (!memoryStore['staff']) memoryStore['staff'] = {};
     memoryStore['staff'][id] = updatedStaff;
+
+    // Sync to auth_users so staff member's updated role, status and permissions take effect
+    const cleanUpdatedEmail = (updatedStaff.email || '').toLowerCase().trim();
+    if (cleanUpdatedEmail) {
+      if (!memoryStore['auth_users']) memoryStore['auth_users'] = {};
+      const existingAuth = (memoryStore['auth_users'] as Record<string, any>)[cleanUpdatedEmail] || {};
+      (memoryStore['auth_users'] as Record<string, any>)[cleanUpdatedEmail] = {
+        ...existingAuth,
+        id,
+        email: cleanUpdatedEmail,
+        role: updatedStaff.role,
+        fullName: updatedStaff.name,
+        permissions: updatedStaff.permissions,
+        status: updatedStaff.status
+      };
+    }
+
     saveDiskDb();
 
     broadcastEvent({
@@ -2083,12 +2229,18 @@ app.post('/api/admin/staff/:id/reset-password', async (req, res) => {
 
     if (staffEmail) {
       const cleanEmail = staffEmail.toLowerCase().trim();
+      const existingStaff = memoryStore['staff'] ? Object.values(memoryStore['staff']).find((s: any) => s.email?.toLowerCase() === cleanEmail) : null;
+      const existingAuth = (memoryStore['auth_users'] && memoryStore['auth_users'][cleanEmail]) || {};
       if (!memoryStore['auth_users']) memoryStore['auth_users'] = {};
       (memoryStore['auth_users'] as Record<string, any>)[cleanEmail] = {
-        id,
+        ...existingAuth,
+        id: id || existingStaff?.id || existingAuth.id,
         email: cleanEmail,
         password: nextPassword,
-        role: 'staff'
+        role: existingStaff?.role || existingAuth.role || 'Staff',
+        permissions: existingStaff?.permissions || existingAuth.permissions || ['POS_ACCESS', 'VIEW_CATALOG'],
+        fullName: existingStaff?.name || existingAuth.fullName || cleanEmail.split('@')[0],
+        status: existingStaff?.status || existingAuth.status || 'Active'
       };
       saveDiskDb();
     }

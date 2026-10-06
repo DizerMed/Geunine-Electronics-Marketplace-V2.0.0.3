@@ -419,6 +419,31 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </button>
 
+          {/* Quick Staff Workspace Switcher */}
+          {Boolean(
+            user && (
+              user.email?.toLowerCase() === 'admin@genuine-electronics.com' ||
+              profile?.role === 'admin' ||
+              profile?.role === 'Super Admin' ||
+              (profile?.role && profile.role !== 'customer') ||
+              (profile?.permissions && profile.permissions.length > 0)
+            )
+          ) && (
+            <button
+              onClick={() => setCurrentView('admin')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black transition-all border shadow-xs active:scale-95 ${
+                isDark 
+                  ? 'bg-blue-900/60 hover:bg-blue-800 text-blue-200 border-blue-700/80 shadow-blue-950/50' 
+                  : 'bg-blue-600 hover:bg-blue-700 text-white border-blue-500 shadow-blue-500/20'
+              }`}
+              title="Open Staff Admin Portal"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{profile?.role === 'admin' ? 'Admin Portal' : 'Staff Portal'}</span>
+              <span className="sm:hidden">Portal</span>
+            </button>
+          )}
+
           {/* User Account / Profile */}
           <div ref={userMenuRef} className="relative">
             <button
@@ -444,7 +469,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
                 {user && (
                   <span className="text-[9px] text-blue-600 dark:text-blue-400 font-bold leading-none tracking-tight">
-                    {profile?.role === 'admin' ? 'Administrator' : 'Verified Buyer'}
+                    {profile?.role === 'admin' || user.email?.toLowerCase() === 'admin@genuine-electronics.com'
+                      ? 'Administrator'
+                      : (profile?.role && profile.role !== 'customer' ? profile.role : 'Verified Buyer')}
                   </span>
                 )}
               </div>
@@ -463,12 +490,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">{user.email}</p>
                   <div className="mt-2 flex items-center gap-1.5">
                     <span className="text-[9px] px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider bg-blue-600/15 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                      {profile?.role === 'admin' ? 'Admin Portal' : 'Verified Buyer'}
+                      {profile?.role === 'admin' || user.email?.toLowerCase() === 'admin@genuine-electronics.com'
+                        ? 'Admin Portal'
+                        : (profile?.role && profile.role !== 'customer' ? `${profile.role} Portal` : 'Verified Buyer')}
                     </span>
                   </div>
                 </div>
                 
-                {profile?.role === 'admin' && (
+                {(profile?.role === 'admin' || user.email?.toLowerCase() === 'admin@genuine-electronics.com' || (profile?.role && profile.role !== 'customer') || (profile?.permissions && profile.permissions.length > 0)) && (
                   <button
                     onClick={() => {
                       setCurrentView('admin');
@@ -479,7 +508,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     }`}
                   >
                     <ShieldCheck className="w-4 h-4 text-blue-500" />
-                    <span>Admin Dashboard</span>
+                    <span>{profile?.role === 'admin' ? 'Admin Dashboard' : 'Staff Admin Portal'}</span>
                   </button>
                 )}
 

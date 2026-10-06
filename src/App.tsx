@@ -45,8 +45,53 @@ const ClientProfileModal = lazyWithRetry(() => import('./components/ClientProfil
 const AdminApp = lazyWithRetry(() => import('./components/AdminPortal').then(m => ({ default: m.AdminPortal })));
 const AuthScreen = lazyWithRetry(() => import('./components/AuthScreen').then(m => ({ default: m.AuthScreen })));
 
+export function isStaffOrAdminUser(u?: any, prof?: any, staffList?: Staff[]): boolean {
+  if (!u && !prof) return false;
+  const email = (u?.email || prof?.email || '').toLowerCase().trim();
+  if (email === 'admin@genuine-electronics.com') return true;
+  
+  const role = String(prof?.role || u?.role || u?.user_metadata?.role || '').toLowerCase().trim();
+  const permissions: string[] = prof?.permissions || u?.permissions || [];
+  
+  if (role === 'admin' || role === 'super admin' || role === 'administrator') return true;
+  
+  const staffRoleKeywords = [
+    'staff',
+    'manager',
+    'cashier',
+    'pos',
+    'storekeeper',
+    'dispatch',
+    'inventory',
+    'support',
+    'technician',
+    'associate'
+  ];
+  if (staffRoleKeywords.some(keyword => role.includes(keyword))) return true;
+  
+  if (permissions.length > 0 && permissions.some(p => p !== 'CUSTOMER')) return true;
+  
+  if (staffList && staffList.length > 0 && email) {
+    const foundStaff = staffList.find(s => s.email?.toLowerCase().trim() === email && s.status !== 'Inactive');
+    if (foundStaff) return true;
+  }
+  
+  return false;
+}
+
 export default function App() {
-  const [currentView, setCurrentView] = useState<'client' | 'admin'>('client');
+  const [currentView, setCurrentView] = useState<'client' | 'admin'>(() => {
+    try {
+      const saved = localStorage.getItem('ge_user_session');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (isStaffOrAdminUser(parsed, parsed)) {
+          return 'admin';
+        }
+      }
+    } catch (_) {}
+    return 'client';
+  });
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [profileModalTab, setProfileModalTab] = useState<'profile' | 'orders' | 'tracking' | 'payment'>('orders');
@@ -54,6 +99,19 @@ export default function App() {
   const isVerifyingAdmin = currentView === 'admin' && authLoading;
   const [clientActiveCloudOps, setClientActiveCloudOps] = useState(0);
   const [clientCloudOpDetails, setClientCloudOpDetails] = useState<{ tableName?: string; action?: string } | null>(null);
+
+  // Real-time Supabase sync for main entities
+  const isStaffOrAdminInitial = isStaffOrAdminUser(user, profile);
+  const isAdmin = currentView === 'admin' || isStaffOrAdminInitial;
+  const { data: products, loading: productsLoading, addItem: addSupabaseProduct, updateItem: updateSupabaseProduct, deleteItem: deleteSupabaseProduct, clearCollection: clearProducts } = useSupabaseCollection<Product>('products', [], isAdmin);
+  const { data: orders, addItem: addSupabaseOrder, updateItem: updateSupabaseOrder, deleteItem: deleteOrder, clearCollection: clearOrders } = useSupabaseCollection<Order>('orders', [], isAdmin);
+  const { data: posTransactions, addItem: addSupabasePOSTransaction, updateItem: updateSupabasePOSTransaction, deleteItem: deletePOSTransaction, clearCollection: clearPOSTransactions } = useSupabaseCollection<POSTransaction>('posTransactions', [], isAdmin);
+  const { data: staff, updateItem: updateSupabaseStaff, deleteItem: deleteSupabaseStaff, clearCollection: clearStaff } = useSupabaseCollection<Staff>('staff', [], isAdmin);
+  const { data: profiles, updateItem: updateSupabaseProfile, deleteItem: deleteSupabaseProfile, clearCollection: clearProfiles } = useSupabaseCollection<UserProfile>('profiles', [], isAdmin);
+  const { data: categories, addItem: addFirestoreCategory, updateItem: updateFirestoreCategory, deleteItem: deleteFirestoreCategory, clearCollection: clearCategories } = useSupabaseCollection<CategoryItem>('categories', [], isAdmin);
+  const { data: reviews } = useSupabaseCollection<Review>('reviews', []);
+
+  const isStaffOrAdmin = useMemo(() => isStaffOrAdminUser(user, profile, staff), [user, profile, staff]);
 
   useEffect(() => {
     const handleStart = (e: Event) => {
@@ -318,12 +376,14 @@ export default function App() {
   const effectiveClientTheme: 'dark' | 'light' =
     clientThemeMode === 'system' ? (systemPrefersDark ? 'dark' : 'light') : clientThemeMode;
 
+  const prevUserRef = React.useRef<any>(null);
   useEffect(() => {
-    const adminEmail = 'admin@genuine-electronics.com';
-    if (user && user.email && String(user.email || "").toLowerCase() === adminEmail) {
+    const wasLoggedOut = !prevUserRef.current;
+    prevUserRef.current = user;
+    if (wasLoggedOut && user && isStaffOrAdminUser(user, profile, staff)) {
       setCurrentView('admin');
     }
-  }, [user]);
+  }, [user, profile, staff]);
 
   // Listen for session expiry during offline reconnect
   useEffect(() => {
@@ -360,9 +420,13 @@ export default function App() {
       const session = localStorage.getItem('ge_user_session');
       if (session) {
         const parsed = JSON.parse(session);
-        if (parsed?.email?.toLowerCase() === 'admin@genuine-electronics.com' || parsed?.role === 'admin') {
+        if (isStaffOrAdminUser(parsed, parsed, staff)) {
           setCurrentView('admin');
+          return;
         }
+      }
+      if (user && isStaffOrAdminUser(user, profile, staff)) {
+        setCurrentView('admin');
       }
     } catch (_) {}
   };
@@ -392,16 +456,6 @@ export default function App() {
       else document.documentElement.classList.remove('dark');
     }
   }, [currentView, effectiveAdminTheme, adminThemeMode, effectiveClientTheme, clientThemeMode]);
-  
-  // Real-time Supabase sync for main entities
-  const isAdmin = currentView === 'admin';
-  const { data: products, loading: productsLoading, addItem: addSupabaseProduct, updateItem: updateSupabaseProduct, deleteItem: deleteSupabaseProduct, clearCollection: clearProducts } = useSupabaseCollection<Product>('products', [], isAdmin);
-  const { data: orders, addItem: addSupabaseOrder, updateItem: updateSupabaseOrder, deleteItem: deleteOrder, clearCollection: clearOrders } = useSupabaseCollection<Order>('orders', [], isAdmin);
-  const { data: posTransactions, addItem: addSupabasePOSTransaction, updateItem: updateSupabasePOSTransaction, deleteItem: deletePOSTransaction, clearCollection: clearPOSTransactions } = useSupabaseCollection<POSTransaction>('posTransactions', [], isAdmin);
-  const { data: staff, updateItem: updateSupabaseStaff, deleteItem: deleteSupabaseStaff, clearCollection: clearStaff } = useSupabaseCollection<Staff>('staff', [], isAdmin);
-  const { data: profiles, updateItem: updateSupabaseProfile, deleteItem: deleteSupabaseProfile, clearCollection: clearProfiles } = useSupabaseCollection<UserProfile>('profiles', [], isAdmin);
-  const { data: categories, addItem: addFirestoreCategory, updateItem: updateFirestoreCategory, deleteItem: deleteFirestoreCategory, clearCollection: clearCategories } = useSupabaseCollection<CategoryItem>('categories', [], isAdmin);
-  const { data: reviews } = useSupabaseCollection<Review>('reviews', []);
 
   // Aggregate reviews
   const productReviewsMap = useMemo(() => {
@@ -840,7 +894,7 @@ export default function App() {
   const cartCount = cart.reduce((a, c) => a + c.quantity, 0);
 
   const activeTheme = currentView === 'client' ? effectiveClientTheme : effectiveAdminTheme;
-  const isAdminActive = currentView === 'admin' && Boolean(user && (profile?.role === 'admin' || user?.email === 'admin@genuine-electronics.com'));
+  const isAdminActive = currentView === 'admin' && Boolean(user && isStaffOrAdmin);
 
   return (
     <div className={`${isAdminActive ? 'h-screen overflow-hidden' : 'min-h-screen'} flex flex-col font-sans transition-colors duration-200 ${
@@ -969,7 +1023,7 @@ export default function App() {
             </div>
           ) : (
             user ? (
-              (profile?.role === 'admin' || user?.email === 'admin@genuine-electronics.com') ? (
+              isStaffOrAdmin ? (
                 <div className="w-full flex-1 flex flex-col">
                   <Suspense fallback={<div className="flex-1 flex items-center justify-center p-12"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div></div>}><AdminApp
                     user={user}

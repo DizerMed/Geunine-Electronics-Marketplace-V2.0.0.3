@@ -861,7 +861,9 @@ const buildProfileFromUser = (u: any) => {
   if (!u) return null;
   const adminEmail = 'admin@genuine-electronics.com';
   const isOnlyAdmin = (u.email || '').toLowerCase() === adminEmail;
-  const role = isOnlyAdmin ? 'admin' : (u.role || u.user_metadata?.role || 'customer');
+  const role = isOnlyAdmin 
+    ? 'Super Admin' 
+    : (u.role || u.user_metadata?.role || (u.permissions && u.permissions.length > 0 ? 'Staff' : 'customer'));
   const name = u.displayName || u.fullName || u.full_name || u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split('@')[0] || 'User';
 
   return {
@@ -883,7 +885,18 @@ export function useSupabaseAuth() {
 
   const syncAuth = useCallback((authUser: any) => {
     if (authUser) {
-      const formattedProfile = buildProfileFromUser(authUser);
+      // Check existing local session to avoid overwriting rich staff role and permissions
+      const localUser = getInitialUserSession();
+      const isSameUser = localUser && localUser.email && localUser.email.toLowerCase() === (authUser.email || '').toLowerCase();
+
+      const mergedUser = {
+        ...authUser,
+        role: (isSameUser && localUser.role && localUser.role !== 'customer') ? localUser.role : (authUser.role || authUser.user_metadata?.role),
+        permissions: (isSameUser && localUser.permissions && localUser.permissions.length > 0) ? localUser.permissions : (authUser.permissions || authUser.user_metadata?.permissions),
+        displayName: authUser.displayName || (isSameUser ? localUser.displayName : null) || authUser.user_metadata?.full_name
+      };
+
+      const formattedProfile = buildProfileFromUser(mergedUser);
       const sessionUser = {
         id: formattedProfile?.id,
         email: authUser.email,
@@ -891,6 +904,7 @@ export function useSupabaseAuth() {
         fullName: formattedProfile?.fullName,
         full_name: formattedProfile?.full_name,
         role: formattedProfile?.role,
+        permissions: formattedProfile?.permissions || [],
         avatarUrl: formattedProfile?.avatarUrl,
         user_metadata: authUser.user_metadata || {}
       };

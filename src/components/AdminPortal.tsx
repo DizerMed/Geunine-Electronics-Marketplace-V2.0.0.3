@@ -4,7 +4,7 @@ import { POSOrdersManager } from './POSOrdersManager';
 import { AdminStaffTab } from './admin/tabs/AdminStaffTab';
 import { AdminCustomersTab } from './admin/tabs/AdminCustomersTab';
 import { AdminOffersTab } from './admin/tabs/AdminOffersTab';
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
 import { Product, Order, POSTransaction, Staff, Category, StoreSettings, formatTZS, formatToGMT3, getEATCurrentParts, BRAND_LOGO_URL, CustomerProfile, UserProfile, CategoryItem, ExtraCost, VisitorAnalyticsSummary } from '../types';
@@ -1176,7 +1176,109 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
 }) => {
 
+  // RBAC Resolution based on logged in user and admin granted permissions
+  const currentStaffMember = useMemo(() => {
+    if (!user?.email) return null;
+    const cleanEmail = user.email.toLowerCase().trim();
+    return (staff || []).find(s => s.email?.toLowerCase().trim() === cleanEmail) || null;
+  }, [staff, user]);
+
+  const isSuperAdmin = useMemo(() => {
+    const email = (user?.email || '').toLowerCase().trim();
+    if (email === 'admin@genuine-electronics.com') return true;
+    if (profile?.role === 'admin' || profile?.role === 'Super Admin' || currentStaffMember?.role === 'Super Admin' || currentStaffMember?.role === 'Administrator') return true;
+    if (profile?.permissions?.includes('ALL') || currentStaffMember?.permissions?.includes('ALL')) return true;
+    return false;
+  }, [user, profile, currentStaffMember]);
+
+  const effectivePermissions = useMemo<string[]>(() => {
+    if (isSuperAdmin) return ['ALL'];
+    const perms = new Set<string>();
+    (profile?.permissions || []).forEach((p: string) => perms.add(p));
+    (currentStaffMember?.permissions || []).forEach((p: string) => perms.add(p));
+    
+    // If no explicit permissions set in staff record or profile, fallback to role defaults
+    const role = (currentStaffMember?.role || profile?.role || '').toLowerCase();
+    if (perms.size === 0) {
+      if (role.includes('manager')) {
+        ['POS_ACCESS', 'VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'CRM_ACCESS', 'VIEW_FINANCIALS', 'STORE_SETTINGS'].forEach(p => perms.add(p));
+      } else if (role.includes('cashier') || role.includes('pos')) {
+        ['POS_ACCESS', 'VIEW_CATALOG'].forEach(p => perms.add(p));
+      } else if (role.includes('inventory') || role.includes('storekeeper') || role.includes('dispatch')) {
+        ['VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'DISPATCH_ORDERS'].forEach(p => perms.add(p));
+      } else if (role.includes('support')) {
+        ['VIEW_CATALOG', 'CRM_ACCESS', 'MANAGE_ORDERS'].forEach(p => perms.add(p));
+      } else if (role.includes('technician')) {
+        ['VIEW_CATALOG', 'MANAGE_ORDERS'].forEach(p => perms.add(p));
+      } else {
+        ['POS_ACCESS', 'VIEW_CATALOG'].forEach(p => perms.add(p));
+      }
+    }
+    return Array.from(perms);
+  }, [isSuperAdmin, profile, currentStaffMember]);
+
+  const canAccess = useCallback((perm: string) => {
+    if (isSuperAdmin) return true;
+    if (effectivePermissions.includes('ALL')) return true;
+    if (perm === 'MANAGE_PRODUCTS' && effectivePermissions.includes('EDIT_PRODUCTS')) return true;
+    if (perm === 'MANAGE_ORDERS' && effectivePermissions.includes('DISPATCH_ORDERS')) return true;
+    if (perm === 'STORE_SETTINGS' && effectivePermissions.includes('MANAGE_SETTINGS')) return true;
+    return effectivePermissions.includes(perm);
+  }, [isSuperAdmin, effectivePermissions]);
+
+  const currentRoleName = useMemo(() => {
+    if (isSuperAdmin) return 'Super Admin';
+    return currentStaffMember?.role || (profile?.role && profile.role !== 'customer' ? profile.role : 'Staff Associate');
+  }, [isSuperAdmin, currentStaffMember, profile]);
+
+  const getInitialAuthorizedTab = useCallback(() => {
+    if (canAccess('VIEW_FINANCIALS')) return 'dashboard';
+    if (canAccess('POS_ACCESS')) return 'pos';
+    if (canAccess('VIEW_CATALOG')) return 'inventory';
+    if (canAccess('MANAGE_ORDERS')) return 'orders';
+    if (canAccess('CRM_ACCESS')) return 'customers';
+    if (canAccess('MANAGE_STAFF')) return 'staff';
+    return 'pos';
+  }, [canAccess]);
+
   const [activeTab, setActiveTab] = useState<'dashboard' | 'visitor-analytics' | 'inventory' | 'pos' | 'orders' | 'pos-sales' | 'loans' | 'debt-analytics' | 'staff' | 'customers' | 'offers' | 'settings' | 'audit-logs'>('dashboard');
+
+  const isTabPermitted = useCallback((tab: string): boolean => {
+    switch (tab) {
+      case 'dashboard':
+      case 'visitor-analytics':
+        return canAccess('VIEW_FINANCIALS');
+      case 'inventory':
+      case 'offers':
+        return canAccess('VIEW_CATALOG');
+      case 'pos':
+      case 'pos-sales':
+      case 'loans':
+      case 'debt-analytics':
+        return canAccess('POS_ACCESS');
+      case 'orders':
+        return canAccess('MANAGE_ORDERS');
+      case 'staff':
+        return canAccess('MANAGE_STAFF');
+      case 'customers':
+        return canAccess('CRM_ACCESS');
+      case 'settings':
+        return canAccess('STORE_SETTINGS');
+      case 'audit-logs':
+        return canAccess('VIEW_AUDIT_LOGS');
+      default:
+        return true;
+    }
+  }, [canAccess]);
+
+  const isCurrentTabPermitted = useMemo(() => isTabPermitted(activeTab), [isTabPermitted, activeTab]);
+
+  // Guard tab switch if activeTab is not permitted for this user
+  useEffect(() => {
+    if (!isTabPermitted(activeTab)) {
+      setActiveTab(getInitialAuthorizedTab());
+    }
+  }, [activeTab, isTabPermitted, getInitialAuthorizedTab]);
   const [posSubTab, setPosSubTab] = useState<'register' | 'loans' | 'history' | 'debt-analytics'>('register');
 
   const isPosActive = activeTab === 'pos' || activeTab === 'pos-sales' || activeTab === 'loans' || activeTab === 'debt-analytics';
@@ -5126,404 +5228,317 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
           <nav className="p-4 space-y-1.5 text-sm font-medium">
 
-            <button
-
-              onClick={() => setActiveTab('dashboard')}
-
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-
-                activeTab === 'dashboard'
-
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
-
-                  : isDark
-
-                  ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
-
-                  : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
-
-              }`}
-
-            >
-
-              <BarChart3 className="w-4 h-4" />
-
-              <span>Dashboard & Sales</span>
-
-            </button>
-
-            <button
-
-              onClick={() => setActiveTab('visitor-analytics')}
-
-              className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
-
-                activeTab === 'visitor-analytics'
-
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
-
-                  : isDark
-
-                  ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
-
-                  : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
-
-              }`}
-
-            >
-
-              <div className="flex items-center gap-3">
-                <Users className="w-4 h-4 text-blue-400" />
-                <span>Visitor Analytics</span>
-              </div>
-
-              <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${
-                activeTab === 'visitor-analytics'
-                  ? 'bg-white/20 text-white'
-                  : 'bg-emerald-500/20 text-emerald-400'
-              }`}>
-                LIVE
-              </span>
-
-            </button>
-
-            <button
-
-              onClick={() => setActiveTab('inventory')}
-
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-
-                activeTab === 'inventory'
-
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
-
-                  : isDark
-
-                  ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
-
-                  : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
-
-              }`}
-
-            >
-
-              <Package className="w-4 h-4" />
-
-              <span>Inventory & Stock</span>
-
-              {lowStockProducts.length > 0 && (
-
-                <span 
-
-                  title={`${lowStockProducts.length} items low in stock`}
-
-                  className="ml-auto bg-amber-500 text-slate-900 text-[10px] font-extrabold px-2 py-0.5 rounded-full"
-
-                >
-
-                  {lowStockProducts.length}
-
-                </span>
-
-              )}
-
-            </button>
-
-            {/* Unified POS Terminal Hub & Auto-Hiding Animated Submenu */}
-            <div className="space-y-1">
+            {canAccess('VIEW_FINANCIALS') && (
               <button
-                type="button"
-                onClick={() => {
-                  setIsPosSubmenuOpen(prev => !prev);
-                  triggerHaptic('light');
-                }}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
-                  isPosActive
+                onClick={() => setActiveTab('dashboard')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                  activeTab === 'dashboard'
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
-                    : isPosSubmenuOpen
-                    ? isDark ? 'bg-slate-800 text-white font-semibold' : 'bg-slate-200 text-slate-900 font-semibold'
                     : isDark
                     ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
                     : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <div className="flex items-center gap-2.5">
-                  <ShoppingCart className="w-4 h-4" />
-                  <span>POS Terminal</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                    isPosActive
-                      ? 'bg-white/20 text-white'
-                      : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {posTransactions.length}
-                  </span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-300 ${isPosSubmenuOpen ? 'rotate-180' : ''}`} />
-                </div>
+                <BarChart3 className="w-4 h-4" />
+                <span>Dashboard & Sales</span>
               </button>
+            )}
 
-              <AnimatePresence initial={false}>
-                {isPosSubmenuOpen && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1.0] }}
-                    className="overflow-hidden"
+            {canAccess('VIEW_FINANCIALS') && (
+              <button
+                onClick={() => setActiveTab('visitor-analytics')}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
+                  activeTab === 'visitor-analytics'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
+                    : isDark
+                    ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                    : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Users className="w-4 h-4 text-blue-400" />
+                  <span>Visitor Analytics</span>
+                </div>
+                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${
+                  activeTab === 'visitor-analytics'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-emerald-500/20 text-emerald-400'
+                }`}>
+                  LIVE
+                </span>
+              </button>
+            )}
+
+            {canAccess('VIEW_CATALOG') && (
+              <button
+                onClick={() => setActiveTab('inventory')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                  activeTab === 'inventory'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
+                    : isDark
+                    ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                    : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Package className="w-4 h-4" />
+                <span>Inventory & Stock</span>
+                {lowStockProducts.length > 0 && (
+                  <span 
+                    title={`${lowStockProducts.length} items low in stock`}
+                    className="ml-auto bg-amber-500 text-slate-900 text-[10px] font-extrabold px-2 py-0.5 rounded-full"
                   >
-                    <div className={`pl-2.5 pr-1 py-1 space-y-0.5 rounded-xl transition-all ${
-                      isPosActive
-                        ? isDark ? 'bg-slate-950/40 border border-slate-800/80' : 'bg-slate-100/70 border border-slate-200/70'
-                        : ''
-                    }`}>
-                      <button
-                        type="button"
-                        onClick={() => { setActiveTab('pos'); setPosActivePage('register'); setPosSubTab('register'); setIsMobileMenuOpen(false); }}
-                        className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                          activeTab === 'pos' && posActivePage === 'register'
-                            ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
-                            : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-                        }`}
-                      >
-                        <ShoppingCart className="w-3.5 h-3.5" />
-                        <span>Register</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => { setActiveTab('pos'); setPosActivePage('orders'); setIsMobileMenuOpen(false); }}
-                        className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                          activeTab === 'pos' && posActivePage === 'orders'
-                            ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
-                            : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-3.5 h-3.5" />
-                          <span>Quotations</span>
-                        </div>
-                        {pendingPosOrdersCount > 0 && (
-                          <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-400">
-                            {pendingPosOrdersCount}
-                          </span>
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => { setActiveTab('loans'); setPosSubTab('loans'); setIsMobileMenuOpen(false); }}
-                        className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                          activeTab === 'loans'
-                            ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
-                            : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Banknote className="w-3.5 h-3.5" />
-                          <span>Sell by Loan</span>
-                        </div>
-                        {totalLoansCount > 0 && (
-                          <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-400">
-                            {totalLoansCount}
-                          </span>
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => { setActiveTab('pos-sales'); setPosSubTab('history'); setIsMobileMenuOpen(false); }}
-                        className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                          activeTab === 'pos-sales'
-                            ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
-                            : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <History className="w-3.5 h-3.5" />
-                          <span>Sales History</span>
-                        </div>
-                        <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full ${
-                          activeTab === 'pos-sales'
-                            ? 'bg-blue-500/20 text-blue-400'
-                            : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'
-                        }`}>
-                          {posTransactions.length}
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => { setActiveTab('debt-analytics'); setPosSubTab('debt-analytics'); setIsMobileMenuOpen(false); }}
-                        className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                          activeTab === 'debt-analytics'
-                            ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
-                            : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-                        }`}
-                      >
-                        <BarChart3 className="w-3.5 h-3.5" />
-                        <span>Debt Analytics</span>
-                      </button>
-                    </div>
-                  </motion.div>
+                    {lowStockProducts.length}
+                  </span>
                 )}
-              </AnimatePresence>
-            </div>
-
-            <button
-              onClick={() => setActiveTab('orders')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                activeTab === 'orders'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
-                  : isDark
-                  ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
-                  : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Package className="w-4 h-4" />
-              <span>Online Orders</span>
-              <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                isDark ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' : 'bg-blue-100 text-blue-800 border-blue-200'
-              }`}>
-                {orders.length}
-              </span>
-            </button>
-
-            <button
-
-              onClick={() => setActiveTab('staff')}
-
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-
-                activeTab === 'staff'
-
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
-
-                  : isDark
-
-                  ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
-
-                  : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
-
-              }`}
-
-            >
-
-              <Users className="w-4 h-4" />
-
-              <span>Staff & Permissions</span>
-
-            </button>
-
-            <button
-
-              onClick={() => setActiveTab('customers')}
-
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-
-                activeTab === 'customers'
-
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
-
-                  : isDark
-
-                  ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
-
-                  : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
-
-              }`}
-
-            >
-
-              <User className="w-4 h-4" />
-
-              <span>Customers CRM</span>
-
-            </button>
-
-            <button
-
-              onClick={() => setActiveTab('offers')}
-
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-
-                activeTab === 'offers'
-
-                  ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20 font-bold'
-
-                  : isDark
-
-                  ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
-
-                  : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
-
-              }`}
-
-            >
-
-              <Zap className="w-4 h-4 text-amber-400" />
-
-              <span>Offers</span>
-
-              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-
-                {products.filter(p => p.isOnOffer || (p.originalPrice && p.originalPrice > p.price)).length}
-
-              </span>
-
-            </button>
-
-            <button
-
-              onClick={() => setActiveTab('settings')}
-
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-
-                activeTab === 'settings'
-
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
-
-                  : isDark
-
-                  ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
-
-                  : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
-
-              }`}
-
-            >
-
-              <Settings className="w-4 h-4" />
-
-              <span>Settings & Templates</span>
-
-            </button>
-
-            <button
-
-              onClick={() => setActiveTab('audit-logs')}
-
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-
-                activeTab === 'audit-logs'
-
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 font-bold'
-
-                  : isDark
-
-                  ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
-
-                  : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
-
-              }`}
-
-            >
-
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-
-              <span>Audit Logs & Security</span>
-
-            </button>
+              </button>
+            )}
+
+            {/* Unified POS Terminal Hub & Auto-Hiding Animated Submenu */}
+            {canAccess('POS_ACCESS') && (
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPosSubmenuOpen(prev => !prev);
+                    triggerHaptic('light');
+                  }}
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
+                    isPosActive
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
+                      : isPosSubmenuOpen
+                      ? isDark ? 'bg-slate-800 text-white font-semibold' : 'bg-slate-200 text-slate-900 font-semibold'
+                      : isDark
+                      ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                      : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <ShoppingCart className="w-4 h-4" />
+                    <span>POS Terminal</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                      isPosActive
+                        ? 'bg-white/20 text-white'
+                        : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {posTransactions.length}
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-300 ${isPosSubmenuOpen ? 'rotate-180' : ''}`} />
+                  </div>
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {isPosSubmenuOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1.0] }}
+                      className="overflow-hidden"
+                    >
+                      <div className={`pl-2.5 pr-1 py-1 space-y-0.5 rounded-xl transition-all ${
+                        isPosActive
+                          ? isDark ? 'bg-slate-950/40 border border-slate-800/80' : 'bg-slate-100/70 border border-slate-200/70'
+                          : ''
+                      }`}>
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('pos'); setPosActivePage('register'); setPosSubTab('register'); setIsMobileMenuOpen(false); }}
+                          className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            activeTab === 'pos' && posActivePage === 'register'
+                              ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
+                              : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                          }`}
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5" />
+                          <span>Register</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('pos'); setPosActivePage('orders'); setIsMobileMenuOpen(false); }}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            activeTab === 'pos' && posActivePage === 'orders'
+                              ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
+                              : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>Quotations</span>
+                          </div>
+                          {pendingPosOrdersCount > 0 && (
+                            <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-400">
+                              {pendingPosOrdersCount}
+                            </span>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('loans'); setPosSubTab('loans'); setIsMobileMenuOpen(false); }}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            activeTab === 'loans'
+                              ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
+                              : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Banknote className="w-3.5 h-3.5" />
+                            <span>Sell by Loan</span>
+                          </div>
+                          {totalLoansCount > 0 && (
+                            <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-400">
+                              {totalLoansCount}
+                            </span>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('pos-sales'); setPosSubTab('history'); setIsMobileMenuOpen(false); }}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            activeTab === 'pos-sales'
+                              ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
+                              : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <History className="w-3.5 h-3.5" />
+                            <span>Sales History</span>
+                          </div>
+                          <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full ${
+                            activeTab === 'pos-sales'
+                              ? 'bg-blue-500/20 text-blue-400'
+                              : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'
+                          }`}>
+                            {posTransactions.length}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('debt-analytics'); setPosSubTab('debt-analytics'); setIsMobileMenuOpen(false); }}
+                          className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            activeTab === 'debt-analytics'
+                              ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
+                              : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                          }`}
+                        >
+                          <BarChart3 className="w-3.5 h-3.5" />
+                          <span>Debt Analytics</span>
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
+            {canAccess('MANAGE_ORDERS') && (
+              <button
+                onClick={() => setActiveTab('orders')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                  activeTab === 'orders'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
+                    : isDark
+                    ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                    : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Package className="w-4 h-4" />
+                <span>Online Orders</span>
+                <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                  isDark ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' : 'bg-blue-100 text-blue-800 border-blue-200'
+                }`}>
+                  {orders.length}
+                </span>
+              </button>
+            )}
+
+            {canAccess('MANAGE_STAFF') && (
+              <button
+                onClick={() => setActiveTab('staff')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                  activeTab === 'staff'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
+                    : isDark
+                    ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                    : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span>Staff & Permissions</span>
+              </button>
+            )}
+
+            {canAccess('CRM_ACCESS') && (
+              <button
+                onClick={() => setActiveTab('customers')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                  activeTab === 'customers'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
+                    : isDark
+                    ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                    : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <User className="w-4 h-4" />
+                <span>Customers CRM</span>
+              </button>
+            )}
+
+            {canAccess('VIEW_CATALOG') && (
+              <button
+                onClick={() => setActiveTab('offers')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                  activeTab === 'offers'
+                    ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20 font-bold'
+                    : isDark
+                    ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                    : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Zap className="w-4 h-4 text-amber-400" />
+                <span>Offers</span>
+                <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  {products.filter(p => p.isOnOffer || (p.originalPrice && p.originalPrice > p.price)).length}
+                </span>
+              </button>
+            )}
+
+            {canAccess('STORE_SETTINGS') && (
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                  activeTab === 'settings'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-bold'
+                    : isDark
+                    ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                    : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+                <span>Settings & Templates</span>
+              </button>
+            )}
+
+            {canAccess('VIEW_AUDIT_LOGS') && (
+              <button
+                onClick={() => setActiveTab('audit-logs')}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                  activeTab === 'audit-logs'
+                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 font-bold'
+                    : isDark
+                    ? 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                    : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Audit Logs & Security</span>
+              </button>
+            )}
 
           </nav>
 
@@ -5561,7 +5576,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
 
-                  {profile?.role === 'admin' ? 'Super Admin' : 'Staff Admin'}
+                  {currentRoleName}
 
                 </p>
 
@@ -5649,33 +5664,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
           <div className="flex items-center gap-2">
 
-            <button
+            {canAccess('MANAGE_PRODUCTS') && (
+              <button
+                type="button"
+                onClick={handleOpenAddModal}
+                title={`Add New Product (${isMac ? '⌘N' : 'Ctrl+N'})`}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Product</span>
+                <kbd className="ml-1 px-1 py-0.5 text-[9px] font-mono bg-white/20 rounded">
+                  {isMac ? '⌘N' : 'Ctrl+N'}
+                </kbd>
+              </button>
+            )}
 
-              type="button"
-
-              onClick={handleOpenAddModal}
-
-              title={`Add New Product (${isMac ? '⌘N' : 'Ctrl+N'})`}
-
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/20 transition-all cursor-pointer"
-
-            >
-
-              <Plus className="w-3.5 h-3.5" />
-
-              <span>Add Product</span>
-
-              <kbd className="ml-1 px-1 py-0.5 text-[9px] font-mono bg-white/20 rounded">
-
-                {isMac ? '⌘N' : 'Ctrl+N'}
-
-              </kbd>
-
-            </button>
-
-
-
-            {activeTab === 'settings' && (
+            {activeTab === 'settings' && canAccess('STORE_SETTINGS') && (
 
               <button
 
@@ -5917,7 +5921,35 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             transition={{ duration: 0.18, ease: "easeOut" }}
             className="w-full"
           >
-
+          {!isCurrentTabPermitted ? (
+            <div className="p-8 text-center max-w-lg mx-auto my-16 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl">
+              <div className="w-16 h-16 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto mb-4">
+                <ShieldCheck className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-bold text-white">Access Restricted</h3>
+              <p className="text-sm text-slate-400 mt-2">
+                Your staff role (<span className="text-blue-400 font-semibold">{currentRoleName}</span>) does not have permission to access the <span className="text-slate-200 font-semibold capitalize">{String(activeTab).replace('-', ' ')}</span> module.
+              </p>
+              <div className="mt-4 p-3 bg-slate-800/60 rounded-xl text-left border border-slate-700/60">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Your Granted Permissions:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {effectivePermissions.map(p => (
+                    <span key={p} className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab(getInitialAuthorizedTab())}
+                className="mt-6 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-600/30 cursor-pointer"
+              >
+                Return to Authorized Workspace
+              </button>
+            </div>
+          ) : (
+            <>
         {activeTab === 'settings' && (
 
           <div className="space-y-6 max-w-6xl mx-auto">
@@ -11175,6 +11207,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         {activeTab === 'audit-logs' && (
           <AdminAuditLogs theme={theme} />
         )}
+            </>
+          )}
           </motion.div>
         </AnimatePresence>
       {/* New Order Notification Alert */}

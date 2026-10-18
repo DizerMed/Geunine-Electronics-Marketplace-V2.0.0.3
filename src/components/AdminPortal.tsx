@@ -1,19 +1,22 @@
 import { AdminDashboardTab } from './admin/tabs/AdminDashboardTab';
 import { AdminOrdersTab } from './admin/tabs/AdminOrdersTab';
 import { POSOrdersManager } from './POSOrdersManager';
+import { POSPurchasesManager } from './admin/pos/POSPurchasesManager';
+import { POSPurchaseReturnsManager } from './admin/pos/POSPurchaseReturnsManager';
+import { POSSalesReturnsManager } from './admin/pos/POSSalesReturnsManager';
 import { AdminStaffTab } from './admin/tabs/AdminStaffTab';
 import { AdminCustomersTab } from './admin/tabs/AdminCustomersTab';
 import { AdminOffersTab } from './admin/tabs/AdminOffersTab';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
-import { Product, Order, POSTransaction, Staff, Category, StoreSettings, formatTZS, formatToGMT3, getEATCurrentParts, BRAND_LOGO_URL, CustomerProfile, UserProfile, CategoryItem, ExtraCost, VisitorAnalyticsSummary } from '../types';
+import { Product, Order, POSTransaction, Staff, Category, StoreSettings, formatTZS, formatToGMT3, getEATCurrentParts, BRAND_LOGO_URL, CustomerProfile, UserProfile, CategoryItem, ExtraCost, VisitorAnalyticsSummary, Purchase, PurchaseReturn, SaleReturn } from '../types';
 
 import { shareProduct } from '../utils/share';
 import { exportProductsToCSV, exportSalesToCSV, exportLoansToCSV, exportTaxJournalToCSV } from '../utils/exportData';
 import { triggerHaptic } from '../utils/haptics';
 import { isLoanTransaction } from '../utils/loanUtils';
-import { LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Plus, Search, ShieldCheck, AlertTriangle, Edit, Trash2, Printer, CheckCircle, RefreshCw, DollarSign, ArrowUpRight, Check, X, QrCode, User, Mail, MapPin, Copy, Camera, Scan, Zap, Sparkles, Sun, Moon, Monitor, Settings, Tag, Tags, Upload, UploadCloud, Type, Image as ImageIcon, Eye, Grid, List, FolderPlus, Globe, Link, Lock, LogOut, Truck, Phone, Key, MessageCircle, Download, UserCheck, UserX, Calendar, BadgeCheck, Bell, BellRing, Award, FileSpreadsheet, ExternalLink, ShieldAlert, ChevronRight, Activity, Filter, Database, Server, HardDrive, CheckCircle2, Menu, Keyboard, Command, Save, FileText, Star, GripVertical, ArrowLeftRight, ImagePlus, ZoomIn, Layers, Move, Share2, ChevronUp, ChevronDown, ArrowLeft, ArrowRight, Pause, RotateCcw, Minus, Percent, Banknote, History, Wifi, WifiOff, FileCheck2, Split, Barcode, Hash, CreditCard, Store, PackagePlus, Clock, Flame } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Plus, Search, ShieldCheck, AlertTriangle, Edit, Trash2, Printer, CheckCircle, RefreshCw, DollarSign, ArrowUpRight, Check, X, QrCode, User, Mail, MapPin, Copy, Camera, Scan, Zap, Sparkles, Sun, Moon, Monitor, Settings, Tag, Tags, Upload, UploadCloud, Type, Image as ImageIcon, Eye, Grid, List, FolderPlus, Globe, Link, Lock, LogOut, Truck, Phone, Key, MessageCircle, Download, UserCheck, UserX, Calendar, BadgeCheck, Bell, BellRing, Award, FileSpreadsheet, ExternalLink, ShieldAlert, ChevronRight, Activity, Filter, Database, Server, HardDrive, CheckCircle2, Menu, Keyboard, Command, Save, FileText, Star, GripVertical, ArrowLeftRight, ImagePlus, ZoomIn, Layers, Move, Share2, ChevronUp, ChevronDown, ArrowLeft, ArrowRight, Pause, RotateCcw, Minus, Percent, Banknote, History, Wifi, WifiOff, FileCheck2, Split, Barcode, Hash, CreditCard, Store, PackagePlus, Clock, Flame, Undo2 } from 'lucide-react';
 import { DiscountCountdown } from './DiscountCountdown';
 import { AdminGlobalSearchBar } from './AdminGlobalSearchBar';
 import { calculateProductSearchScore } from '../utils/adminSearch';
@@ -711,6 +714,24 @@ interface AdminPortalProps {
 
   clearPOSTransactions?: () => Promise<any> | void;
 
+  purchases?: Purchase[];
+  onAddPurchase?: (purchase: Purchase) => Promise<any> | void;
+  onUpdatePurchase?: (purchase: Purchase) => Promise<any> | void;
+  onDeletePurchase?: (purchaseId: string) => Promise<any> | void;
+  clearPurchases?: () => Promise<any> | void;
+
+  purchaseReturns?: PurchaseReturn[];
+  onAddPurchaseReturn?: (ret: PurchaseReturn) => Promise<any> | void;
+  onUpdatePurchaseReturn?: (ret: PurchaseReturn) => Promise<any> | void;
+  onDeletePurchaseReturn?: (returnId: string) => Promise<any> | void;
+  clearPurchaseReturns?: () => Promise<any> | void;
+
+  salesReturns?: SaleReturn[];
+  onAddSaleReturn?: (ret: SaleReturn) => Promise<any> | void;
+  onUpdateSaleReturn?: (ret: SaleReturn) => Promise<any> | void;
+  onDeleteSaleReturn?: (returnId: string) => Promise<any> | void;
+  clearSalesReturns?: () => Promise<any> | void;
+
   staff: Staff[];
 
   addStaff?: (staffData: Omit<Staff, 'id' | 'createdAt'> & { password?: string }) => Promise<any> | void;
@@ -1138,6 +1159,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   clearPOSTransactions,
 
+  purchases = [],
+  onAddPurchase,
+  onUpdatePurchase,
+  onDeletePurchase,
+  clearPurchases,
+
+  purchaseReturns = [],
+  onAddPurchaseReturn,
+  onUpdatePurchaseReturn,
+  onDeletePurchaseReturn,
+  clearPurchaseReturns,
+
+  salesReturns = [],
+  onAddSaleReturn,
+  onUpdateSaleReturn,
+  onDeleteSaleReturn,
+  clearSalesReturns,
+
   staff,
 
   addStaff,
@@ -1201,13 +1240,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const role = (currentStaffMember?.role || profile?.role || '').toLowerCase();
     if (perms.size === 0) {
       if (role.includes('manager')) {
-        ['POS_ACCESS', 'VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'CRM_ACCESS', 'VIEW_FINANCIALS', 'STORE_SETTINGS'].forEach(p => perms.add(p));
+        ['POS_ACCESS', 'VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'CRM_ACCESS', 'VIEW_FINANCIALS', 'STORE_SETTINGS', 'MANAGE_PURCHASES', 'PURCHASE_RETURNS', 'SALE_RETURNS'].forEach(p => perms.add(p));
       } else if (role.includes('cashier') || role.includes('pos')) {
-        ['POS_ACCESS', 'VIEW_CATALOG'].forEach(p => perms.add(p));
+        ['POS_ACCESS', 'VIEW_CATALOG', 'SALE_RETURNS'].forEach(p => perms.add(p));
       } else if (role.includes('inventory') || role.includes('storekeeper') || role.includes('dispatch')) {
-        ['VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'DISPATCH_ORDERS'].forEach(p => perms.add(p));
+        ['VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'DISPATCH_ORDERS', 'MANAGE_PURCHASES', 'PURCHASE_RETURNS', 'SALE_RETURNS'].forEach(p => perms.add(p));
       } else if (role.includes('support')) {
-        ['VIEW_CATALOG', 'CRM_ACCESS', 'MANAGE_ORDERS'].forEach(p => perms.add(p));
+        ['VIEW_CATALOG', 'CRM_ACCESS', 'MANAGE_ORDERS', 'SALE_RETURNS'].forEach(p => perms.add(p));
       } else if (role.includes('technician')) {
         ['VIEW_CATALOG', 'MANAGE_ORDERS'].forEach(p => perms.add(p));
       } else {
@@ -1241,7 +1280,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     return 'pos';
   }, [canAccess]);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'visitor-analytics' | 'inventory' | 'pos' | 'orders' | 'pos-sales' | 'loans' | 'debt-analytics' | 'staff' | 'customers' | 'offers' | 'settings' | 'audit-logs'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'visitor-analytics' | 'inventory' | 'pos' | 'orders' | 'pos-sales' | 'loans' | 'debt-analytics' | 'staff' | 'customers' | 'offers' | 'settings' | 'audit-logs' | 'purchases' | 'purchase-returns' | 'sales-returns'>('dashboard');
 
   const isTabPermitted = useCallback((tab: string): boolean => {
     switch (tab) {
@@ -1256,6 +1295,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       case 'loans':
       case 'debt-analytics':
         return canAccess('POS_ACCESS');
+      case 'purchases':
+        return canAccess('MANAGE_PURCHASES');
+      case 'purchase-returns':
+        return canAccess('PURCHASE_RETURNS');
+      case 'sales-returns':
+        return canAccess('SALE_RETURNS');
       case 'orders':
         return canAccess('MANAGE_ORDERS');
       case 'staff':
@@ -1281,8 +1326,147 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   }, [activeTab, isTabPermitted, getInitialAuthorizedTab]);
   const [posSubTab, setPosSubTab] = useState<'register' | 'loans' | 'history' | 'debt-analytics'>('register');
 
-  const isPosActive = activeTab === 'pos' || activeTab === 'pos-sales' || activeTab === 'loans' || activeTab === 'debt-analytics';
+  const isPosActive = activeTab === 'pos' || activeTab === 'pos-sales' || activeTab === 'loans' || activeTab === 'debt-analytics' || activeTab === 'purchases' || activeTab === 'purchase-returns' || activeTab === 'sales-returns';
   const [isPosSubmenuOpen, setIsPosSubmenuOpen] = useState(isPosActive);
+
+  // Persistence and stock synchronization handlers for purchases, purchase returns, and sales returns
+  const handleAddPurchase = useCallback(async (purchase: Purchase) => {
+    if (onAddPurchase) {
+      await onAddPurchase(purchase);
+    } else {
+      try {
+        await fetch('/api/data/purchases', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(purchase)
+        });
+      } catch (e) {
+        console.warn('Failed to add purchase:', e);
+      }
+    }
+  }, [onAddPurchase]);
+
+  const handleUpdatePurchase = useCallback(async (purchase: Purchase) => {
+    if (onUpdatePurchase) {
+      await onUpdatePurchase(purchase);
+    } else {
+      try {
+        await fetch(`/api/data/purchases/${purchase.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(purchase)
+        });
+      } catch (e) {
+        console.warn('Failed to update purchase:', e);
+      }
+    }
+  }, [onUpdatePurchase]);
+
+  const handleDeletePurchase = useCallback(async (purchaseId: string) => {
+    if (onDeletePurchase) {
+      await onDeletePurchase(purchaseId);
+    } else {
+      try {
+        await fetch(`/api/data/purchases/${purchaseId}`, {
+          method: 'DELETE'
+        });
+      } catch (e) {
+        console.warn('Failed to delete purchase:', e);
+      }
+    }
+  }, [onDeletePurchase]);
+
+  const handleAddPurchaseReturn = useCallback(async (ret: PurchaseReturn) => {
+    if (onAddPurchaseReturn) {
+      await onAddPurchaseReturn(ret);
+    } else {
+      try {
+        await fetch('/api/data/purchaseReturns', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ret)
+        });
+      } catch (e) {
+        console.warn('Failed to add purchase return:', e);
+      }
+    }
+  }, [onAddPurchaseReturn]);
+
+  const handleUpdatePurchaseReturn = useCallback(async (ret: PurchaseReturn) => {
+    if (onUpdatePurchaseReturn) {
+      await onUpdatePurchaseReturn(ret);
+    } else {
+      try {
+        await fetch(`/api/data/purchaseReturns/${ret.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ret)
+        });
+      } catch (e) {
+        console.warn('Failed to update purchase return:', e);
+      }
+    }
+  }, [onUpdatePurchaseReturn]);
+
+  const handleDeletePurchaseReturn = useCallback(async (returnId: string) => {
+    if (onDeletePurchaseReturn) {
+      await onDeletePurchaseReturn(returnId);
+    } else {
+      try {
+        await fetch(`/api/data/purchaseReturns/${returnId}`, {
+          method: 'DELETE'
+        });
+      } catch (e) {
+        console.warn('Failed to delete purchase return:', e);
+      }
+    }
+  }, [onDeletePurchaseReturn]);
+
+  const handleAddSaleReturn = useCallback(async (ret: SaleReturn) => {
+    if (onAddSaleReturn) {
+      await onAddSaleReturn(ret);
+    } else {
+      try {
+        await fetch('/api/data/salesReturns', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ret)
+        });
+      } catch (e) {
+        console.warn('Failed to add sale return:', e);
+      }
+    }
+  }, [onAddSaleReturn]);
+
+  const handleUpdateSaleReturn = useCallback(async (ret: SaleReturn) => {
+    if (onUpdateSaleReturn) {
+      await onUpdateSaleReturn(ret);
+    } else {
+      try {
+        await fetch(`/api/data/salesReturns/${ret.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ret)
+        });
+      } catch (e) {
+        console.warn('Failed to update sale return:', e);
+      }
+    }
+  }, [onUpdateSaleReturn]);
+
+  const handleDeleteSaleReturn = useCallback(async (returnId: string) => {
+    if (onDeleteSaleReturn) {
+      await onDeleteSaleReturn(returnId);
+    } else {
+      try {
+        await fetch(`/api/data/salesReturns/${returnId}`, {
+          method: 'DELETE'
+        });
+      } catch (e) {
+        console.warn('Failed to delete sale return:', e);
+      }
+    }
+  }, [onDeleteSaleReturn]);
 
   const totalLoansCount = useMemo(() => {
     const posLoans = (posTransactions || []).filter(tx => isLoanTransaction(tx)).length;
@@ -5375,6 +5559,84 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           )}
                         </button>
 
+                        {canAccess('MANAGE_PURCHASES') && (
+                          <button
+                            type="button"
+                            onClick={() => { setActiveTab('purchases'); setIsMobileMenuOpen(false); }}
+                            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                              activeTab === 'purchases'
+                                ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
+                                : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <PackagePlus className="w-3.5 h-3.5" />
+                              <span>Purchases</span>
+                            </div>
+                            {purchases.length > 0 && (
+                              <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full ${
+                                activeTab === 'purchases'
+                                  ? 'bg-blue-500/20 text-blue-400'
+                                  : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'
+                              }`}>
+                                {purchases.length}
+                              </span>
+                            )}
+                          </button>
+                        )}
+
+                        {canAccess('PURCHASE_RETURNS') && (
+                          <button
+                            type="button"
+                            onClick={() => { setActiveTab('purchase-returns'); setIsMobileMenuOpen(false); }}
+                            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                              activeTab === 'purchase-returns'
+                                ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
+                                : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Purchase Returns</span>
+                            </div>
+                            {purchaseReturns.length > 0 && (
+                              <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full ${
+                                activeTab === 'purchase-returns'
+                                  ? 'bg-blue-500/20 text-blue-400'
+                                  : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'
+                              }`}>
+                                {purchaseReturns.length}
+                              </span>
+                            )}
+                          </button>
+                        )}
+
+                        {canAccess('SALE_RETURNS') && (
+                          <button
+                            type="button"
+                            onClick={() => { setActiveTab('sales-returns'); setIsMobileMenuOpen(false); }}
+                            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                              activeTab === 'sales-returns'
+                                ? 'bg-blue-600/15 text-blue-500 font-bold border border-blue-500/30'
+                                : isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Undo2 className="w-3.5 h-3.5" />
+                              <span>Sales Returns</span>
+                            </div>
+                            {salesReturns.length > 0 && (
+                              <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full ${
+                                activeTab === 'sales-returns'
+                                  ? 'bg-blue-500/20 text-blue-400'
+                                  : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'
+                              }`}>
+                                {salesReturns.length}
+                              </span>
+                            )}
+                          </button>
+                        )}
+
                         <button
                           type="button"
                           onClick={() => { setActiveTab('loans'); setPosSubTab('loans'); setIsMobileMenuOpen(false); }}
@@ -8938,6 +9200,54 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       </span>
                     )}
                   </button>
+                  {canAccess('MANAGE_PURCHASES') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('purchases');
+                        triggerHaptic('light');
+                      }}
+                      className={`px-3 py-1 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+                        isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                      title="Stock Purchases (Goods Inward)"
+                    >
+                      <PackagePlus className="w-3.5 h-3.5" />
+                      <span>Purchases</span>
+                    </button>
+                  )}
+                  {canAccess('PURCHASE_RETURNS') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('purchase-returns');
+                        triggerHaptic('light');
+                      }}
+                      className={`px-3 py-1 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+                        isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                      title="Purchase Returns to Supplier (Debit Notes)"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Purchase Returns</span>
+                    </button>
+                  )}
+                  {canAccess('SALE_RETURNS') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('sales-returns');
+                        triggerHaptic('light');
+                      }}
+                      className={`px-3 py-1 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+                        isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                      title="Customer Sales Returns & Restock"
+                    >
+                      <Undo2 className="w-3.5 h-3.5" />
+                      <span>Sales Returns</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Wholesale / Retail Price Tier Selector */}
@@ -11087,6 +11397,90 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             textTitle={textTitle}
             textSub={textSub}
             onGoToLoans={() => setActiveTab('loans')}
+          />
+        )}
+
+        {/* PURCHASES / STOCK INWARD (POS Module) */}
+        {activeTab === 'purchases' && (
+          <POSPurchasesManager
+            purchases={purchases}
+            products={products}
+            storeSettings={storeSettings || ({} as any)}
+            onAddPurchase={handleAddPurchase}
+            onUpdatePurchase={handleUpdatePurchase}
+            onDeletePurchase={handleDeletePurchase}
+            onUpdateProduct={updateProduct}
+            onSwitchToRegister={() => {
+              setActiveTab('pos');
+              setPosActivePage('register');
+              setPosSubTab('register');
+            }}
+            onSwitchToPurchaseReturns={() => setActiveTab('purchase-returns')}
+            isDark={isDark}
+            cardBg={cardBg}
+            textTitle={textTitle}
+            textSub={textSub}
+            inputBg={inputBg}
+            modalBg={modalBg}
+            formatTZS={formatTZS}
+            formatToGMT3={formatToGMT3}
+            activeCashierName={staff.find(s => s.id === (typeof localStorage !== 'undefined' ? localStorage.getItem('cashierId') : ''))?.name || profile?.fullName || profile?.name || 'Admin'}
+            showAlert={showAlert}
+          />
+        )}
+
+        {/* PURCHASE RETURNS (Debit Notes / Vendor Returns) */}
+        {activeTab === 'purchase-returns' && (
+          <POSPurchaseReturnsManager
+            purchaseReturns={purchaseReturns}
+            purchases={purchases}
+            products={products}
+            storeSettings={storeSettings || ({} as any)}
+            onAddPurchaseReturn={handleAddPurchaseReturn}
+            onUpdatePurchaseReturn={handleUpdatePurchaseReturn}
+            onDeletePurchaseReturn={handleDeletePurchaseReturn}
+            onUpdateProduct={updateProduct}
+            onSwitchToPurchases={() => setActiveTab('purchases')}
+            isDark={isDark}
+            cardBg={cardBg}
+            textTitle={textTitle}
+            textSub={textSub}
+            inputBg={inputBg}
+            modalBg={modalBg}
+            formatTZS={formatTZS}
+            formatToGMT3={formatToGMT3}
+            activeCashierName={staff.find(s => s.id === (typeof localStorage !== 'undefined' ? localStorage.getItem('cashierId') : ''))?.name || profile?.fullName || profile?.name || 'Admin'}
+            showAlert={showAlert}
+          />
+        )}
+
+        {/* SALES RETURNS (Customer Returns & Refunds / Restock) */}
+        {activeTab === 'sales-returns' && (
+          <POSSalesReturnsManager
+            salesReturns={salesReturns}
+            posTransactions={posTransactions}
+            orders={orders}
+            products={products}
+            storeSettings={storeSettings || ({} as any)}
+            onAddSaleReturn={handleAddSaleReturn}
+            onUpdateSaleReturn={handleUpdateSaleReturn}
+            onDeleteSaleReturn={handleDeleteSaleReturn}
+            onUpdateProduct={updateProduct}
+            onSwitchToRegister={() => {
+              setActiveTab('pos');
+              setPosActivePage('register');
+              setPosSubTab('register');
+            }}
+            isDark={isDark}
+            cardBg={cardBg}
+            textTitle={textTitle}
+            textSub={textSub}
+            inputBg={inputBg}
+            modalBg={modalBg}
+            formatTZS={formatTZS}
+            formatToGMT3={formatToGMT3}
+            activeCashierName={staff.find(s => s.id === (typeof localStorage !== 'undefined' ? localStorage.getItem('cashierId') : ''))?.name || profile?.fullName || profile?.name || 'Admin'}
+            showAlert={showAlert}
           />
         )}
 

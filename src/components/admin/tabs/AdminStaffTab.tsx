@@ -1395,15 +1395,15 @@ export const AdminStaffTab: React.FC<AdminStaffTabProps> = ({
                       const newRole = e.target.value;
                       let recommended: string[] = ['POS_ACCESS', 'VIEW_CATALOG'];
                       if (newRole === 'Super Admin' || newRole === 'Administrator') {
-                        recommended = ['ALL', 'POS_ACCESS', 'VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'CRM_ACCESS', 'VIEW_FINANCIALS', 'STORE_SETTINGS', 'MANAGE_STAFF', 'VIEW_AUDIT_LOGS'];
+                        recommended = ['ALL', 'POS_ACCESS', 'VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'CRM_ACCESS', 'VIEW_FINANCIALS', 'STORE_SETTINGS', 'MANAGE_STAFF', 'VIEW_AUDIT_LOGS', 'MANAGE_PURCHASES', 'PURCHASE_RETURNS', 'SALE_RETURNS'];
                       } else if (newRole === 'Store Manager' || newRole === 'Branch Manager') {
-                        recommended = ['POS_ACCESS', 'VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'CRM_ACCESS', 'VIEW_FINANCIALS', 'STORE_SETTINGS'];
+                        recommended = ['POS_ACCESS', 'VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'CRM_ACCESS', 'VIEW_FINANCIALS', 'STORE_SETTINGS', 'MANAGE_PURCHASES', 'PURCHASE_RETURNS', 'SALE_RETURNS'];
                       } else if (newRole === 'Cashier / POS Associate') {
-                        recommended = ['POS_ACCESS', 'VIEW_CATALOG'];
+                        recommended = ['POS_ACCESS', 'VIEW_CATALOG', 'SALE_RETURNS'];
                       } else if (newRole === 'Storekeeper / Dispatch' || newRole === 'Inventory Specialist') {
-                        recommended = ['VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS'];
+                        recommended = ['VIEW_CATALOG', 'MANAGE_PRODUCTS', 'MANAGE_ORDERS', 'MANAGE_PURCHASES', 'PURCHASE_RETURNS', 'SALE_RETURNS'];
                       } else if (newRole === 'Customer Support') {
-                        recommended = ['VIEW_CATALOG', 'CRM_ACCESS', 'MANAGE_ORDERS'];
+                        recommended = ['VIEW_CATALOG', 'CRM_ACCESS', 'MANAGE_ORDERS', 'SALE_RETURNS'];
                       } else if (newRole === 'Service Technician') {
                         recommended = ['VIEW_CATALOG', 'MANAGE_ORDERS'];
                       }
@@ -1589,6 +1589,9 @@ export const AdminStaffTab: React.FC<AdminStaffTabProps> = ({
                     { id: 'POS_ACCESS', label: 'POS Sales Terminal', desc: 'Process customer checkouts & register' },
                     { id: 'VIEW_CATALOG', label: 'Product Catalog', desc: 'Browse catalog & stock inventory' },
                     { id: 'MANAGE_PRODUCTS', label: 'Product & Stock Manager', desc: 'Add / Edit / Delete items & stock' },
+                    { id: 'MANAGE_PURCHASES', label: 'Purchases & Goods Inward', desc: 'Record supplier stock purchases & update cost prices' },
+                    { id: 'PURCHASE_RETURNS', label: 'Purchase Returns (Debit Notes)', desc: 'Process goods returned to vendor & debit notes' },
+                    { id: 'SALE_RETURNS', label: 'Sales Returns & Restock', desc: 'Process customer POS returns, refunds & restock items' },
                     { id: 'MANAGE_ORDERS', label: 'Orders & Dispatch', desc: 'Update delivery status & tracking' },
                     { id: 'CRM_ACCESS', label: 'Customer CRM', desc: 'View customer contacts & history' },
                     { id: 'VIEW_FINANCIALS', label: 'Sales & Revenue Analytics', desc: 'Access executive dashboard & visitor logs' },

@@ -810,3 +810,175 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
+-- =========================================================================
+-- 12. PURCHASES TABLE (GOODS INWARD FROM SUPPLIERS)
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS purchases (
+  id VARCHAR(100) PRIMARY KEY
+);
+
+-- Drop dependent policies before altering column type to avoid dependency errors
+DROP POLICY IF EXISTS "Public Access Purchases" ON purchases;
+
+DO $$ 
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'purchases' AND column_name = 'id' AND data_type NOT IN ('character varying', 'text')
+  ) THEN
+    ALTER TABLE purchases ALTER COLUMN id TYPE VARCHAR(100);
+  END IF;
+END $$;
+
+ALTER TABLE purchases
+  ADD COLUMN IF NOT EXISTS purchase_number VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS "purchaseNumber" VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS supplier_name VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS "supplierName" VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS supplier_phone VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS "supplierPhone" VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS supplier_email VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS "supplierEmail" VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS "invoiceNumber" VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS items JSONB DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS total_amount DECIMAL(12, 2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "totalAmount" DECIMAL(12, 2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS paid_amount DECIMAL(12, 2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "paidAmount" DECIMAL(12, 2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) DEFAULT 'Paid',
+  ADD COLUMN IF NOT EXISTS "paymentStatus" VARCHAR(50) DEFAULT 'Paid',
+  ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT 'Cash',
+  ADD COLUMN IF NOT EXISTS "paymentMethod" VARCHAR(50) DEFAULT 'Cash',
+  ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Received',
+  ADD COLUMN IF NOT EXISTS received_by VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS "receivedBy" VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS notes TEXT,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+
+-- Fast indexes for purchases
+CREATE INDEX IF NOT EXISTS idx_purchases_supplier_name ON purchases (supplier_name);
+CREATE INDEX IF NOT EXISTS idx_purchases_created_at ON purchases (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_purchases_payment_status ON purchases (payment_status);
+
+-- RLS policies for purchases
+ALTER TABLE purchases ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Access Purchases" ON purchases;
+CREATE POLICY "Public Access Purchases" ON purchases FOR ALL USING (true) WITH CHECK (true);
+
+
+-- =========================================================================
+-- 13. PURCHASE RETURNS TABLE (DEBIT NOTES / RETURN TO SUPPLIERS)
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS purchase_returns (
+  id VARCHAR(100) PRIMARY KEY
+);
+
+-- Drop dependent policies before altering column type to avoid dependency errors
+DROP POLICY IF EXISTS "Public Access Purchase Returns" ON purchase_returns;
+
+DO $$ 
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'purchase_returns' AND column_name = 'id' AND data_type NOT IN ('character varying', 'text')
+  ) THEN
+    ALTER TABLE purchase_returns ALTER COLUMN id TYPE VARCHAR(100);
+  END IF;
+END $$;
+
+ALTER TABLE purchase_returns
+  ADD COLUMN IF NOT EXISTS return_number VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS "returnNumber" VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS purchase_id VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS "purchaseId" VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS purchase_number VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS "purchaseNumber" VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS supplier_name VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS "supplierName" VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS items JSONB DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS total_amount DECIMAL(12, 2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "totalAmount" DECIMAL(12, 2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS refund_status VARCHAR(50) DEFAULT 'Refunded',
+  ADD COLUMN IF NOT EXISTS "refundStatus" VARCHAR(50) DEFAULT 'Refunded',
+  ADD COLUMN IF NOT EXISTS reason TEXT,
+  ADD COLUMN IF NOT EXISTS notes TEXT,
+  ADD COLUMN IF NOT EXISTS processed_by VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS "processedBy" VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+
+-- Fast indexes for purchase_returns
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_supplier ON purchase_returns (supplier_name);
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_created_at ON purchase_returns (created_at DESC);
+
+-- RLS policies for purchase_returns
+ALTER TABLE purchase_returns ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Access Purchase Returns" ON purchase_returns;
+CREATE POLICY "Public Access Purchase Returns" ON purchase_returns FOR ALL USING (true) WITH CHECK (true);
+
+
+-- =========================================================================
+-- 14. SALES RETURNS TABLE (POS CUSTOMER RETURNS & RESTOCK)
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS sales_returns (
+  id VARCHAR(100) PRIMARY KEY
+);
+
+-- Drop dependent policies before altering column type to avoid dependency errors
+DROP POLICY IF EXISTS "Public Access Sales Returns" ON sales_returns;
+
+DO $$ 
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'sales_returns' AND column_name = 'id' AND data_type NOT IN ('character varying', 'text')
+  ) THEN
+    ALTER TABLE sales_returns ALTER COLUMN id TYPE VARCHAR(100);
+  END IF;
+END $$;
+
+ALTER TABLE sales_returns
+  ADD COLUMN IF NOT EXISTS return_number VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS "returnNumber" VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS reference_type VARCHAR(50) DEFAULT 'pos',
+  ADD COLUMN IF NOT EXISTS "referenceType" VARCHAR(50) DEFAULT 'pos',
+  ADD COLUMN IF NOT EXISTS reference_id VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS "referenceId" VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS receipt_number VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS "receiptNumber" VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS customer_name VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS "customerName" VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS "customerPhone" VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS items JSONB DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS total_refund_amount DECIMAL(12, 2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "totalRefundAmount" DECIMAL(12, 2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS refund_method VARCHAR(50) DEFAULT 'Cash',
+  ADD COLUMN IF NOT EXISTS "refundMethod" VARCHAR(50) DEFAULT 'Cash',
+  ADD COLUMN IF NOT EXISTS refund_status VARCHAR(50) DEFAULT 'Completed',
+  ADD COLUMN IF NOT EXISTS "refundStatus" VARCHAR(50) DEFAULT 'Completed',
+  ADD COLUMN IF NOT EXISTS reason TEXT,
+  ADD COLUMN IF NOT EXISTS restock_items BOOLEAN DEFAULT true,
+  ADD COLUMN IF NOT EXISTS "restockItems" BOOLEAN DEFAULT true,
+  ADD COLUMN IF NOT EXISTS notes TEXT,
+  ADD COLUMN IF NOT EXISTS processed_by VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS "processedBy" VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+
+-- Fast indexes for sales_returns
+CREATE INDEX IF NOT EXISTS idx_sales_returns_receipt_number ON sales_returns (receipt_number);
+CREATE INDEX IF NOT EXISTS idx_sales_returns_created_at ON sales_returns (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sales_returns_customer_phone ON sales_returns (customer_phone);
+
+-- RLS policies for sales_returns
+ALTER TABLE sales_returns ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Access Sales Returns" ON sales_returns;
+CREATE POLICY "Public Access Sales Returns" ON sales_returns FOR ALL USING (true) WITH CHECK (true);
+
+
+

@@ -83,6 +83,12 @@ export interface CartItem {
 
 export interface OrderItem {
   product: Product;
+  productId?: string;
+  product_id?: string;
+  name?: string;
+  image?: string;
+  costPrice?: number;
+  cost_price?: number;
   quantity: number;
   price?: number;
   serialNumbers?: string[];
@@ -216,8 +222,11 @@ export interface POSTransaction {
   splitPayments?: { method: string; amount: number; reference?: string }[];
   priceTier?: 'retail' | 'wholesale';
   receiptNumber?: string;
+  receipt_number?: string;
   customerName?: string;
+  customer_name?: string;
   customerPhone?: string;
+  customer_phone?: string;
   customerEmail?: string;
   customerTin?: string;
   shippingAddress?: string;
@@ -277,7 +286,131 @@ export type StaffPermission =
   | 'MANAGE_SETTINGS'
   | 'MANAGE_LOANS'
   | 'VIEW_AUDIT_LOGS'
-  | 'DISPATCH_ORDERS';
+  | 'DISPATCH_ORDERS'
+  | 'MANAGE_PURCHASES'
+  | 'PURCHASE_RETURNS'
+  | 'SALE_RETURNS';
+
+// Stock Purchase (Goods Inward from Suppliers)
+export interface PurchaseItem {
+  id?: string;
+  productId: string;
+  productName: string;
+  sku?: string;
+  barcode?: string;
+  category?: string;
+  quantity: number;
+  unitCost: number;
+  totalCost: number;
+}
+
+export interface Purchase {
+  id: string;
+  purchaseNumber: string;
+  purchase_number?: string;
+  supplierName: string;
+  supplier_name?: string;
+  supplierPhone?: string;
+  supplier_phone?: string;
+  supplierEmail?: string;
+  supplier_email?: string;
+  invoiceNumber?: string;
+  invoice_number?: string;
+  items: PurchaseItem[];
+  totalAmount: number;
+  total_amount?: number;
+  paidAmount?: number;
+  paid_amount?: number;
+  paymentStatus: 'Paid' | 'Partial' | 'Unpaid';
+  payment_status?: string;
+  paymentMethod: string;
+  payment_method?: string;
+  notes?: string;
+  status: 'Received' | 'Ordered' | 'Cancelled';
+  receivedBy?: string;
+  received_by?: string;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+}
+
+// Purchase Return (Debit Note / Return to Supplier)
+export interface PurchaseReturnItem {
+  id?: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitCost: number;
+  totalRefund: number;
+  reason?: string;
+}
+
+export interface PurchaseReturn {
+  id: string;
+  returnNumber: string;
+  return_number?: string;
+  purchaseId?: string;
+  purchase_id?: string;
+  purchaseNumber?: string;
+  purchase_number?: string;
+  supplierName: string;
+  supplier_name?: string;
+  items: PurchaseReturnItem[];
+  totalAmount: number;
+  total_amount?: number;
+  refundStatus: 'Refunded' | 'Pending' | 'Credit Note';
+  refund_status?: string;
+  reason: string;
+  notes?: string;
+  processedBy?: string;
+  processed_by?: string;
+  createdAt?: string;
+  created_at?: string;
+}
+
+// Sale Return (Customer POS Return & Restock / Credit Note)
+export interface SaleReturnItem {
+  id?: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  totalRefund: number;
+  condition: 'Restockable' | 'Damaged';
+  reason?: string;
+}
+
+export interface SaleReturn {
+  id: string;
+  returnNumber: string;
+  return_number?: string;
+  referenceType: 'pos' | 'order' | 'manual';
+  reference_type?: string;
+  referenceId?: string;
+  reference_id?: string;
+  receiptNumber?: string;
+  receipt_number?: string;
+  customerName?: string;
+  customer_name?: string;
+  customerPhone?: string;
+  customer_phone?: string;
+  items: SaleReturnItem[];
+  totalRefundAmount: number;
+  total_refund_amount?: number;
+  refundMethod: 'Cash' | 'Mobile Money' | 'Bank Transfer' | 'Store Credit' | 'Exchange';
+  refund_method?: string;
+  refundStatus: 'Completed' | 'Pending';
+  refund_status?: string;
+  reason: string;
+  restockItems: boolean;
+  restock_items?: boolean;
+  notes?: string;
+  processedBy?: string;
+  processed_by?: string;
+  createdAt?: string;
+  created_at?: string;
+}
 
 export interface Staff {
   id: string;
@@ -319,10 +452,13 @@ export interface AuditLog {
     | 'SETTINGS_UPDATED'
     | 'NOTIFICATION_DISPATCHED'
     | 'BULK_STOCK_UPDATED'
+    | 'PURCHASE_CREATED'
+    | 'PURCHASE_RETURN_CREATED'
+    | 'SALE_RETURN_CREATED'
     | 'EXPORT_DATA'
     | string;
   targetId?: string;
-  targetType?: 'product' | 'order' | 'pos_transaction' | 'loan' | 'staff' | 'settings' | 'notification' | 'system';
+  targetType?: 'product' | 'order' | 'pos_transaction' | 'loan' | 'staff' | 'settings' | 'notification' | 'purchase' | 'purchase_return' | 'sales_return' | 'system';
   details: string;
   changesSummary?: { field: string; oldVal: any; newVal: any }[];
   ipAddress?: string;

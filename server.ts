@@ -110,7 +110,10 @@ let memoryStore: Record<string, Record<string, any>> = {
   settings: {},
   audit_logs: {},
   notification_logs: {},
-  visitor_logs: {}
+  visitor_logs: {},
+  purchases: {},
+  purchaseReturns: {},
+  salesReturns: {}
 };
 
 function loadDiskDb() {
@@ -515,6 +518,127 @@ function loadDiskDb() {
       };
     });
 
+    saveDiskDb();
+  }
+
+  // Seed default stock purchases if empty
+  if (!memoryStore['purchases'] || Object.keys(memoryStore['purchases']).length === 0) {
+    if (!memoryStore['purchases']) memoryStore['purchases'] = {};
+    const samplePurchases = [
+      {
+        id: 'po-2026-001',
+        purchaseNumber: 'PO-2026-001',
+        purchase_number: 'PO-2026-001',
+        supplierName: 'Samsung East Africa Logistics Ltd',
+        supplierPhone: '+255 22 211 4000',
+        supplierEmail: 'orders.tz@samsung-ea.com',
+        invoiceNumber: 'INV-SAM-98210',
+        items: [
+          {
+            id: 'poi-1',
+            productId: 'prod-samsung-side-fridge',
+            productName: 'Samsung 647L SpaceMax™ Side-by-Side Inverter Refrigerator',
+            quantity: 5,
+            unitCost: 2850000,
+            totalCost: 14250000
+          },
+          {
+            id: 'poi-2',
+            productId: 'prod-samsung-windfree-ac',
+            productName: 'Samsung 1.5 HP WindFree™ Smart Inverter Air Conditioner',
+            quantity: 8,
+            unitCost: 1100000,
+            totalCost: 8800000
+          }
+        ],
+        totalAmount: 23050000,
+        paidAmount: 23050000,
+        paymentStatus: 'Paid',
+        paymentMethod: 'Bank Transfer',
+        notes: 'Official consignment received at Kariakoo Central Warehouse with manufacturer warranty certificate.',
+        status: 'Received',
+        receivedBy: 'Amina Rashid',
+        createdAt: '2026-04-02 10:30',
+        updatedAt: '2026-04-02 10:30'
+      }
+    ];
+    samplePurchases.forEach(p => {
+      memoryStore['purchases'][p.id] = p;
+    });
+    saveDiskDb();
+  }
+
+  // Seed default purchase returns (debit notes) if empty
+  if (!memoryStore['purchaseReturns'] || Object.keys(memoryStore['purchaseReturns']).length === 0) {
+    if (!memoryStore['purchaseReturns']) memoryStore['purchaseReturns'] = {};
+    const samplePurchaseReturns = [
+      {
+        id: 'pr-2026-001',
+        returnNumber: 'PR-2026-001',
+        purchaseId: 'po-2026-001',
+        purchaseNumber: 'PO-2026-001',
+        supplierName: 'Samsung East Africa Logistics Ltd',
+        items: [
+          {
+            id: 'pri-1',
+            productId: 'prod-samsung-windfree-ac',
+            productName: 'Samsung 1.5 HP WindFree™ Smart Inverter Air Conditioner',
+            quantity: 1,
+            unitCost: 1100000,
+            totalRefund: 1100000,
+            reason: 'Factory packaging seal broken during shipment'
+          }
+        ],
+        totalAmount: 1100000,
+        refundStatus: 'Credit Note',
+        reason: 'Consignment transit defect',
+        notes: 'Supplier approved debit note deducted from upcoming shipment invoice.',
+        processedBy: 'Amina Rashid',
+        createdAt: '2026-04-05 14:15'
+      }
+    ];
+    samplePurchaseReturns.forEach(r => {
+      memoryStore['purchaseReturns'][r.id] = r;
+    });
+    saveDiskDb();
+  }
+
+  // Seed default sales returns (customer POS returns) if empty
+  if (!memoryStore['salesReturns'] || Object.keys(memoryStore['salesReturns']).length === 0) {
+    if (!memoryStore['salesReturns']) memoryStore['salesReturns'] = {};
+    const sampleSalesReturns = [
+      {
+        id: 'sr-2026-001',
+        returnNumber: 'SR-2026-001',
+        referenceType: 'pos',
+        receiptNumber: 'RCP-2026-1042',
+        customerName: 'Amani Mushi',
+        customerPhone: '+255 754 112 233',
+        items: [
+          {
+            id: 'sri-1',
+            productId: 'prod-sony-bravia-65',
+            productName: 'Sony BRAVIA XR 65" 4K HDR Google TV',
+            quantity: 1,
+            unitPrice: 2800000,
+            totalRefund: 2800000,
+            condition: 'Restockable',
+            reason: 'Customer opted to upgrade to 75-inch model within 48h policy'
+          }
+        ],
+        totalRefundAmount: 2800000,
+        refundMethod: 'Store Credit',
+        refundStatus: 'Completed',
+        reason: 'Exchange / Model Upgrade',
+        restockItems: true,
+        notes: 'Original box sealed and inspected by Juma Bakari. Item returned to inventory shelf.',
+        processedBy: 'Juma Bakari',
+        createdAt: '2026-04-10 16:45'
+      }
+    ];
+    sampleSalesReturns.forEach(sr => {
+      memoryStore['salesReturns'][sr.id] = sr;
+    });
     saveDiskDb();
   }
 
@@ -2726,7 +2850,11 @@ app.post('/api/upload/delete', async (req, res) => {
 });
 
 // Allowed collections
-const ALLOWED_COLLECTIONS = ['products', 'orders', 'posTransactions', 'pos_transactions', 'staff', 'categories', 'profiles', 'settings', 'store_settings', 'offers', 'reviews', 'visitor_logs', 'visitorLogs'];
+const ALLOWED_COLLECTIONS = [
+  'products', 'orders', 'posTransactions', 'pos_transactions', 'staff', 'categories', 
+  'profiles', 'settings', 'store_settings', 'offers', 'reviews', 'visitor_logs', 'visitorLogs',
+  'purchases', 'purchaseReturns', 'purchase_returns', 'salesReturns', 'sales_returns'
+];
 
 function validateCollection(name: string) {
   if (!ALLOWED_COLLECTIONS.includes(name)) {
@@ -2739,6 +2867,9 @@ function getSqlTableName(colName: string): string {
   if (colName === 'posTransactions' || colName === 'pos_transactions') return 'pos_transactions';
   if (colName === 'settings' || colName === 'store_settings') return 'store_settings';
   if (colName === 'visitorLogs' || colName === 'visitor_logs') return 'visitor_logs';
+  if (colName === 'purchases') return 'purchases';
+  if (colName === 'purchaseReturns' || colName === 'purchase_returns') return 'purchase_returns';
+  if (colName === 'salesReturns' || colName === 'sales_returns') return 'sales_returns';
   return colName;
 }
 
@@ -3669,6 +3800,76 @@ async function syncRelationalPOSItems(supabase: any, sqlTable: string, parentId:
   }
 }
 
+async function syncStockFromInventoryMovement(colName: string, item: any) {
+  if (!item || !Array.isArray(item.items)) return;
+  const isPurchase = colName === 'purchases';
+  const isPurchaseReturn = colName === 'purchaseReturns' || colName === 'purchase_returns';
+  const isSaleReturn = colName === 'salesReturns' || colName === 'sales_returns';
+
+  if (!isPurchase && !isPurchaseReturn && !isSaleReturn) return;
+
+  const supabase = getSupabaseAdmin();
+  if (!memoryStore['products']) memoryStore['products'] = {};
+
+  for (const it of item.items) {
+    const prodId = it.productId || it.product_id;
+    if (!prodId) continue;
+    const qty = Number(it.quantity) || 0;
+    if (qty <= 0) continue;
+
+    let existingProduct = memoryStore['products'][prodId];
+    if (!existingProduct && supabase) {
+      try {
+        const { data } = await supabase.from('products').select('*').eq('id', prodId).maybeSingle();
+        if (data) existingProduct = normalizeFromSupabase('products', data);
+      } catch (_) {}
+    }
+
+    if (existingProduct) {
+      let currentStock = Number(existingProduct.stock) || 0;
+      let newStock = currentStock;
+
+      if (isPurchase) {
+        newStock = currentStock + qty;
+        if (it.unitCost && Number(it.unitCost) > 0) {
+          existingProduct.costPrice = Number(it.unitCost);
+        }
+      } else if (isPurchaseReturn) {
+        newStock = Math.max(0, currentStock - qty);
+      } else if (isSaleReturn) {
+        const shouldRestock = it.condition !== 'Damaged' && item.restockItems !== false;
+        if (shouldRestock) {
+          newStock = currentStock + qty;
+        }
+      }
+
+      existingProduct.stock = newStock;
+      memoryStore['products'][prodId] = existingProduct;
+
+      if (supabase) {
+        try {
+          await supabase.from('products').update({
+            stock: newStock,
+            cost_price: existingProduct.costPrice || 0,
+            updated_at: new Date().toISOString()
+          }).eq('id', prodId);
+        } catch (e) {
+          console.warn('Failed to update product stock in Supabase:', e);
+        }
+      }
+
+      broadcastEvent({
+        type: 'COLLECTION_UPDATE',
+        collection: 'products',
+        action: 'UPDATE',
+        id: prodId,
+        item: existingProduct,
+        timestamp: Date.now()
+      });
+    }
+  }
+}
+
 // Intelligent Supabase upsert with adaptive schema healing, automatic casing translation & fast-timeout protection
 const globalMissingColumnsCache: Record<string, Set<string>> = {};
 async function safeSupabaseUpsert(supabase: any, sqlTable: string, item: any): Promise<{ data: any | null; error: any | null }> {
@@ -4294,6 +4495,9 @@ app.post('/api/data/:collection', async (req, res) => {
       normalized.loanStatus = itemToSave.loanStatus;
     }
 
+    // Adjust stock automatically for Purchases, Purchase Returns, and Sales Returns
+    await syncStockFromInventoryMovement(colName, itemToSave);
+
     // Broadcast change globally to all connected visitors and admins
     broadcastEvent({
       type: 'COLLECTION_UPDATE',
@@ -4412,6 +4616,9 @@ app.put('/api/data/:collection/:id', async (req, res) => {
     if (itemToSave.loanStatus !== undefined) {
       normalized.loanStatus = itemToSave.loanStatus;
     }
+
+    // Adjust stock automatically for Purchases, Purchase Returns, and Sales Returns
+    await syncStockFromInventoryMovement(colName, itemToSave);
 
     // Broadcast change globally to all connected visitors and admins immediately
     broadcastEvent({

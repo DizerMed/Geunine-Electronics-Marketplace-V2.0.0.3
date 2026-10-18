@@ -486,7 +486,10 @@ export function useSupabaseCollection<T extends { id: string }>(
     }
 
     // Defer heavy admin-only collections until admin mode is active
-    const adminOnlyCollections = ['posTransactions', 'pos_transactions', 'staff', 'profiles'];
+    const adminOnlyCollections = [
+      'posTransactions', 'pos_transactions', 'staff', 'profiles', 
+      'purchases', 'purchaseReturns', 'purchase_returns', 'salesReturns', 'sales_returns'
+    ];
     if (adminOnlyCollections.includes(tableName) && !isAdmin) {
       setLoading(false);
       return;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
-import { Product, CartItem, Order, POSTransaction, StoreSettings, CategoryItem, BRAND_LOGO_URL, Staff, UserProfile, Review, getEATCurrentParts } from './types';
+import { Product, CartItem, Order, POSTransaction, StoreSettings, CategoryItem, BRAND_LOGO_URL, Staff, UserProfile, Review, getEATCurrentParts, Purchase, PurchaseReturn, SaleReturn } from './types';
 import { Navbar } from './components/Navbar';
 import { FullScreenSaveLoader } from './components/FullScreenSaveLoader';
 import { useSupabaseCollection, useSupabaseAuth } from './lib/useSupabase';
@@ -109,6 +109,9 @@ export default function App() {
   const { data: staff, updateItem: updateSupabaseStaff, deleteItem: deleteSupabaseStaff, clearCollection: clearStaff } = useSupabaseCollection<Staff>('staff', [], isAdmin);
   const { data: profiles, updateItem: updateSupabaseProfile, deleteItem: deleteSupabaseProfile, clearCollection: clearProfiles } = useSupabaseCollection<UserProfile>('profiles', [], isAdmin);
   const { data: categories, addItem: addFirestoreCategory, updateItem: updateFirestoreCategory, deleteItem: deleteFirestoreCategory, clearCollection: clearCategories } = useSupabaseCollection<CategoryItem>('categories', [], isAdmin);
+  const { data: purchases, addItem: addSupabasePurchase, updateItem: updateSupabasePurchase, deleteItem: deleteSupabasePurchase, clearCollection: clearPurchases } = useSupabaseCollection<Purchase>('purchases', [], isAdmin);
+  const { data: purchaseReturns, addItem: addSupabasePurchaseReturn, updateItem: updateSupabasePurchaseReturn, deleteItem: deleteSupabasePurchaseReturn, clearCollection: clearPurchaseReturns } = useSupabaseCollection<PurchaseReturn>('purchaseReturns', [], isAdmin);
+  const { data: salesReturns, addItem: addSupabaseSaleReturn, updateItem: updateSupabaseSaleReturn, deleteItem: deleteSupabaseSaleReturn, clearCollection: clearSalesReturns } = useSupabaseCollection<SaleReturn>('salesReturns', [], isAdmin);
   const { data: reviews } = useSupabaseCollection<Review>('reviews', []);
 
   const isStaffOrAdmin = useMemo(() => isStaffOrAdminUser(user, profile, staff), [user, profile, staff]);
@@ -1049,6 +1052,21 @@ export default function App() {
                     updatePOSTransaction={updatePOSTransaction}
                     deletePOSTransaction={deletePOSTransaction}
                     clearPOSTransactions={clearPOSTransactions}
+                    purchases={purchases}
+                    onAddPurchase={addSupabasePurchase}
+                    onUpdatePurchase={updateSupabasePurchase}
+                    onDeletePurchase={deleteSupabasePurchase}
+                    clearPurchases={clearPurchases}
+                    purchaseReturns={purchaseReturns}
+                    onAddPurchaseReturn={addSupabasePurchaseReturn}
+                    onUpdatePurchaseReturn={updateSupabasePurchaseReturn}
+                    onDeletePurchaseReturn={deleteSupabasePurchaseReturn}
+                    clearPurchaseReturns={clearPurchaseReturns}
+                    salesReturns={salesReturns}
+                    onAddSaleReturn={addSupabaseSaleReturn}
+                    onUpdateSaleReturn={updateSupabaseSaleReturn}
+                    onDeleteSaleReturn={deleteSupabaseSaleReturn}
+                    clearSalesReturns={clearSalesReturns}
                     staff={staff}
                     addStaff={addStaff}
                     updateStaff={updateStaff}

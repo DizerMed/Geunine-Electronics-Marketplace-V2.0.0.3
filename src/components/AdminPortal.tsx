@@ -20,6 +20,7 @@ import { LayoutDashboard, Package, ShoppingCart, Users, BarChart3, Plus, Search,
 import { DiscountCountdown } from './DiscountCountdown';
 import { AdminGlobalSearchBar } from './AdminGlobalSearchBar';
 import { calculateProductSearchScore } from '../utils/adminSearch';
+import { isCompletedSaleReturn, getSaleReturnAmount, getSaleReturnCreatedAt } from '../utils/salesReturnUtils';
 
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line, ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
@@ -1499,13 +1500,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   // Inventory Table Real-Time Search & Ranking State
   const [inventoryProductSearchQuery, setInventoryProductSearchQuery] = useState('');
+  const [inventoryChannelFilter, setInventoryChannelFilter] = useState<'all' | 'online' | 'offline'>('all');
 
   // Filtered and smart-ranked products in Inventory using string length & prefix ranking
   const filteredInventoryProducts = useMemo(() => {
-    const q = inventoryProductSearchQuery.trim();
-    if (!q) return products;
+    const channelFiltered = products.filter((p) => {
+      if (inventoryChannelFilter === 'online') return !p.isLocalOnly;
+      if (inventoryChannelFilter === 'offline') return Boolean(p.isLocalOnly);
+      return true;
+    });
 
-    return products
+    const q = inventoryProductSearchQuery.trim();
+    if (!q) return channelFiltered;
+
+    return channelFiltered
       .map(p => ({
         product: p,
         score: calculateProductSearchScore(p, q),
@@ -1513,7 +1521,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       .filter(item => item.score > 0)
       .sort((a, b) => b.score - a.score)
       .map(item => item.product);
-  }, [products, inventoryProductSearchQuery]);
+  }, [products, inventoryProductSearchQuery, inventoryChannelFilter]);
 
   // Keyboard Shortcuts & Command Palette States
 
@@ -3069,7 +3077,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [posCustomItemBarcode, setPosCustomItemBarcode] = useState('');
   const [posCustomItemSaveToInventory, setPosCustomItemSaveToInventory] = useState(true);
   const [posCustomItemIsSubmitting, setPosCustomItemIsSubmitting] = useState(false);
-  const [posFilterLocalOnly, setPosFilterLocalOnly] = useState<boolean>(false);
+  const [posChannelFilter, setPosChannelFilter] = useState<'all' | 'online' | 'offline'>('all');
 
   const [isSplitPaymentMode, setIsSplitPaymentMode] = useState(false);
   const [splitPaymentsList, setSplitPaymentsList] = useState<{ method: string; amount: number; reference?: string }[]>([
@@ -3484,12 +3492,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     };
   };
 
+  const completedSalesReturns = React.useMemo(
+    () => (salesReturns || []).filter(isCompletedSaleReturn),
+    [salesReturns]
+  );
+  const totalSalesReturnsDeduction = completedSalesReturns.reduce(
+    (sum, r) => sum + getSaleReturnAmount(r),
+    0
+  );
+
   const totalInventoryValue = products.reduce((sum, p) => sum + Number(p.price || 0) * Math.max(0, Number(p.stock || 0)), 0);
   const recognizedOnlineRevenue = orders
     .filter(isRecognizedOrder)
     .reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
-  const recognizedPosRevenue = posTransactions
-    .reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0);
+  const recognizedPosRevenue = Math.max(
+    0,
+    posTransactions.reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0) -
+      totalSalesReturnsDeduction
+  );
   const totalRevenue = recognizedOnlineRevenue + recognizedPosRevenue;
   const lowStockProducts = products.filter((p) => Number(p.stock || 0) <= 0);
 
@@ -3504,10 +3524,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       const online = recognizedOrders
         .filter(o => getTanzaniaDateParts(o.createdAt)?.dateKey === key)
         .reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
-      const pos = posTransactions
+      const posGross = posTransactions
         .filter(t => getTanzaniaDateParts(t.createdAt)?.dateKey === key)
         .reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0);
-      return { online, pos };
+      const posRet = completedSalesReturns
+        .filter(r => getTanzaniaDateParts(getSaleReturnCreatedAt(r))?.dateKey === key)
+        .reduce((sum, r) => sum + getSaleReturnAmount(r), 0);
+      return { online, pos: Math.max(0, posGross - posRet) };
     };
 
     const days: any[] = [];
@@ -3551,7 +3574,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         return Boolean(key && key >= startKey && key < endKey);
       };
       const online = recognizedOrders.filter(o => inRange(o.createdAt)).reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
-      const pos = posTransactions.filter(t => inRange(t.createdAt)).reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0);
+      const posGross = posTransactions.filter(t => inRange(t.createdAt)).reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0);
+      const posRet = completedSalesReturns.filter(r => inRange(getSaleReturnCreatedAt(r))).reduce((sum, r) => sum + getSaleReturnAmount(r), 0);
+      const pos = Math.max(0, posGross - posRet);
       const txs = recognizedOrders.filter(o => inRange(o.createdAt)).length + posTransactions.filter(t => inRange(t.createdAt)).length;
       weeks.push({
         label: w === 0 ? 'This Week' : `Week ${4 - w}`,
@@ -3571,13 +3596,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       const prefix = `${year}-${String(m + 1).padStart(2, '0')}`;
       const inMonth = (createdAt: string) => getTanzaniaDateParts(createdAt)?.dateKey.startsWith(prefix);
       const online = recognizedOrders.filter(o => inMonth(o.createdAt)).reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
-      const pos = posTransactions.filter(t => inMonth(t.createdAt)).reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0);
+      const posGross = posTransactions.filter(t => inMonth(t.createdAt)).reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0);
+      const posRet = completedSalesReturns.filter(r => inMonth(getSaleReturnCreatedAt(r))).reduce((sum, r) => sum + getSaleReturnAmount(r), 0);
+      const pos = Math.max(0, posGross - posRet);
       const txs = recognizedOrders.filter(o => inMonth(o.createdAt)).length + posTransactions.filter(t => inMonth(t.createdAt)).length;
       years.push({ label: months[m], subLabel: `${year}`, fullLabel: `${months[m]} ${year} Performance`, revenue: online + pos, onlineRevenue: online, posRevenue: pos, transactions: txs });
     }
 
     return { days, weeks, years };
-  }, [orders, posTransactions]);
+  }, [orders, posTransactions, completedSalesReturns]);
 
   const { growthLastMonth, salesPerWeek } = React.useMemo(() => {
     const now = new Date();
@@ -3591,7 +3618,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const previousMonthPrefix = `${previousYear}-${String(previousMonth).padStart(2, '0')}`;
 
     const orderRevenueForPrefix = (prefix: string) => orders.filter(o => isRecognizedOrder(o) && getTanzaniaDateParts(o.createdAt)?.dateKey.startsWith(prefix)).reduce((a, b) => a + Number(b.totalAmount || 0), 0);
-    const posRevenueForPrefix = (prefix: string) => posTransactions.filter(t => getTanzaniaDateParts(t.createdAt)?.dateKey.startsWith(prefix)).reduce((a, b) => a + Number(b.total ?? (b as any).totalAmount ?? 0), 0);
+    const posRevenueForPrefix = (prefix: string) => {
+      const gross = posTransactions.filter(t => getTanzaniaDateParts(t.createdAt)?.dateKey.startsWith(prefix)).reduce((a, b) => a + Number(b.total ?? (b as any).totalAmount ?? 0), 0);
+      const ret = completedSalesReturns.filter(r => getTanzaniaDateParts(getSaleReturnCreatedAt(r))?.dateKey.startsWith(prefix)).reduce((a, r) => a + getSaleReturnAmount(r), 0);
+      return Math.max(0, gross - ret);
+    };
 
     const thisMonthRev = orderRevenueForPrefix(currentMonthPrefix) + posRevenueForPrefix(currentMonthPrefix);
     const lastMonthRev = orderRevenueForPrefix(previousMonthPrefix) + posRevenueForPrefix(previousMonthPrefix);
@@ -3611,7 +3642,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const salesPerWeek = orders.filter(o => isRecognizedOrder(o) && inWeek(o.createdAt)).length + posTransactions.filter(t => inWeek(t.createdAt)).length;
 
     return { growthLastMonth: growth.toFixed(1), salesPerWeek };
-  }, [orders, posTransactions]);
+  }, [orders, posTransactions, completedSalesReturns]);
 
   const handleOpenAddModal = () => {
 
@@ -3764,6 +3795,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setFormOfferEndsAt(product.offerEndsAt || '');
 
     setFormOfferTitle(product.offerTitle || 'LIMITED TIME OFFER');
+
+    setFormIsLocalOnly(Boolean(product.isLocalOnly));
 
     setFormStock(product.stock);
 
@@ -4637,10 +4670,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         (p.sku && String(p.sku).toLowerCase().includes(q)) ||
         (p.brand && String(p.brand).toLowerCase().includes(q));
       const matchesStock = !posFilterInStockOnly || Number(p.stock || 0) > 0;
-      const matchesLocalOnly = !posFilterLocalOnly || Boolean(p.isLocalOnly);
-      return matchesCategory && matchesQuery && matchesStock && matchesLocalOnly;
+      const matchesChannel =
+        posChannelFilter === 'all'
+          ? true
+          : posChannelFilter === 'online'
+          ? !p.isLocalOnly
+          : Boolean(p.isLocalOnly);
+      return matchesCategory && matchesQuery && matchesStock && matchesChannel;
     });
-  }, [products, selectedPOSCategory, posBarcodeQuery, posFilterInStockOnly, posFilterLocalOnly]);
+  }, [products, selectedPOSCategory, posBarcodeQuery, posFilterInStockOnly, posChannelFilter]);
 
   const handleApplyPosShortageAsDiscount = (shortage: number) => {
     if (shortage <= 0) return;
@@ -7739,6 +7777,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             products={products}
             orders={orders}
             posTransactions={posTransactions}
+            salesReturns={salesReturns}
             categories={categories}
             setActiveTab={setActiveTab}
             onOpenAddModal={handleOpenAddModal}
@@ -7986,15 +8025,56 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 shrink-0 justify-between sm:justify-end">
-                  <span>
-                    Showing <strong className="text-slate-900 dark:text-slate-100 font-bold">{filteredInventoryProducts.length}</strong> of {products.length} products
-                  </span>
-                  {inventoryProductSearchQuery && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 font-bold border border-blue-500/20">
-                      Ranked by match & length
+                <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-end">
+                  {/* Channel Filter: All vs Online vs Offline */}
+                  <div className={`inline-flex items-center p-0.5 rounded-xl border text-[11px] font-bold ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-200'}`}>
+                    <button
+                      type="button"
+                      onClick={() => setInventoryChannelFilter('all')}
+                      className={`px-2.5 py-1 rounded-lg transition-all ${
+                        inventoryChannelFilter === 'all'
+                          ? 'bg-slate-700 text-white shadow-xs'
+                          : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      All ({products.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInventoryChannelFilter('online')}
+                      className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all ${
+                        inventoryChannelFilter === 'online'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : isDark ? 'text-slate-400 hover:text-blue-400' : 'text-slate-600 hover:text-blue-600'
+                      }`}
+                    >
+                      <Globe className="w-3 h-3" />
+                      <span>Online ({products.filter(p => !p.isLocalOnly).length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInventoryChannelFilter('offline')}
+                      className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all ${
+                        inventoryChannelFilter === 'offline'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : isDark ? 'text-slate-400 hover:text-amber-400' : 'text-slate-600 hover:text-amber-600'
+                      }`}
+                    >
+                      <Store className="w-3 h-3" />
+                      <span>Offline ({products.filter(p => Boolean(p.isLocalOnly)).length})</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 shrink-0">
+                    <span>
+                      Showing <strong className="text-slate-900 dark:text-slate-100 font-bold">{filteredInventoryProducts.length}</strong> of {products.length}
                     </span>
-                  )}
+                    {inventoryProductSearchQuery && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 font-bold border border-blue-500/20">
+                        Ranked by match
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -8041,7 +8121,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       </th>
                       <th className="p-4">Product</th>
 
-                      <th className="p-4">Category</th>
+                      <th className="p-4">Category & Channel</th>
 
                       <th className="p-4">SKU / Barcode</th>
 
@@ -8114,7 +8194,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                         </td>
 
-                        <td className={`p-4 font-medium whitespace-nowrap ${textSub}`}>{p.category}</td>
+                        <td className="p-4 whitespace-nowrap">
+                          <div className={`font-medium ${textSub}`}>{p.category}</div>
+                          <div className="mt-1">
+                            {p.isLocalOnly ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/25">
+                                <Store className="w-3 h-3 shrink-0" />
+                                <span>Offline (POS Only)</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/25">
+                                <Globe className="w-3 h-3 shrink-0" />
+                                <span>Online + POS</span>
+                              </span>
+                            )}
+                          </div>
+                        </td>
 
                         <td className="p-4 font-mono text-[11px] whitespace-nowrap">
 
@@ -9345,15 +9440,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 )}
 
                 <div className={`px-3 py-1.5 rounded-xl border text-xs flex items-center gap-2.5 ${cardBg}`}>
-                  <span className={textSub}>Today:</span>
+                  <span className={textSub}>Today Net:</span>
                   <span className="font-extrabold text-blue-500">
                     {formatTZS(
-                      (posTransactions || [])
-                        .filter(t => {
-                          const todayStr = new Date().toISOString().split('T')[0];
-                          return t.createdAt && t.createdAt.startsWith(todayStr);
-                        })
-                        .reduce((sum, t) => sum + Number(t.total || 0), 0)
+                      Math.max(
+                        0,
+                        (posTransactions || [])
+                          .filter(t => {
+                            const todayStr = new Date().toISOString().split('T')[0];
+                            return t.createdAt && t.createdAt.startsWith(todayStr);
+                          })
+                          .reduce((sum, t) => sum + Number(t.total || 0), 0) -
+                          completedSalesReturns
+                            .filter(r => {
+                              const todayStr = new Date().toISOString().split('T')[0];
+                              return getSaleReturnCreatedAt(r).startsWith(todayStr);
+                            })
+                            .reduce((sum, r) => sum + getSaleReturnAmount(r), 0)
+                      )
                     )}
                   </span>
                   <span className={`text-[10px] font-semibold ${textSub}`}>
@@ -9483,10 +9587,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     </div>
                   </div>
 
-                  {/* Filter Pills & In-Stock Filter */}
-                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/80">
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide no-scrollbar flex-1">
+                  {/* Filter Pills & Channel / Stock Controls */}
+                  <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                    {/* Row 1: Category Pills */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide no-scrollbar">
                       <button
+                        type="button"
                         onClick={() => setSelectedPOSCategory('All')}
                         className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap transition-all border ${
                           selectedPOSCategory === 'All'
@@ -9501,6 +9607,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         return (
                           <button
                             key={cat.id}
+                            type="button"
                             onClick={() => setSelectedPOSCategory(cat.name)}
                             className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap transition-all border ${
                               selectedPOSCategory === cat.name
@@ -9514,30 +9621,61 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       })}
                     </div>
 
-                    <button
-                      onClick={() => setPosFilterInStockOnly(!posFilterInStockOnly)}
-                      className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap transition-all border shrink-0 flex items-center gap-1.5 ${
-                        posFilterInStockOnly
-                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                          : isDark ? 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <Check className={`w-3 h-3 ${posFilterInStockOnly ? 'opacity-100' : 'opacity-40'}`} />
-                      <span>In-Stock Only</span>
-                    </button>
+                    {/* Row 2: Dedicated Channel (All / Online / Offline) + In-Stock Filter */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className={`inline-flex items-center p-0.5 rounded-xl border text-[11px] font-bold ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'}`}>
+                        <button
+                          type="button"
+                          onClick={() => setPosChannelFilter('all')}
+                          className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
+                            posChannelFilter === 'all'
+                              ? 'bg-slate-700 text-white shadow-xs'
+                              : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          All Channels ({products.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPosChannelFilter('online')}
+                          className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all whitespace-nowrap ${
+                            posChannelFilter === 'online'
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : isDark ? 'text-slate-400 hover:text-blue-400' : 'text-slate-600 hover:text-blue-600'
+                          }`}
+                          title="Products synced to the Online Storefront & POS"
+                        >
+                          <Globe className="w-3 h-3 shrink-0" />
+                          <span>Online ({products.filter(p => !p.isLocalOnly).length})</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPosChannelFilter('offline')}
+                          className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all whitespace-nowrap ${
+                            posChannelFilter === 'offline'
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : isDark ? 'text-slate-400 hover:text-amber-400' : 'text-slate-600 hover:text-amber-600'
+                          }`}
+                          title="Local in-store stock available on POS only"
+                        >
+                          <Store className="w-3 h-3 shrink-0" />
+                          <span>Offline ({products.filter(p => Boolean(p.isLocalOnly)).length})</span>
+                        </button>
+                      </div>
 
-                    <button
-                      onClick={() => setPosFilterLocalOnly(!posFilterLocalOnly)}
-                      className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap transition-all border shrink-0 flex items-center gap-1.5 ${
-                        posFilterLocalOnly
-                          ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                          : isDark ? 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                      }`}
-                      title="Filter to Local In-Store Stock"
-                    >
-                      <Store className={`w-3 h-3 ${posFilterLocalOnly ? 'opacity-100' : 'opacity-40'}`} />
-                      <span>Local Stock Only</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setPosFilterInStockOnly(!posFilterInStockOnly)}
+                        className={`px-3 py-1 rounded-xl text-[11px] font-bold whitespace-nowrap transition-all border shrink-0 flex items-center gap-1.5 ${
+                          posFilterInStockOnly
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                            : isDark ? 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <Check className={`w-3.5 h-3.5 ${posFilterInStockOnly ? 'opacity-100' : 'opacity-40'}`} />
+                        <span>In-Stock Only</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -9551,19 +9689,61 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         <Package className="w-12 h-12 text-slate-400 mb-3 stroke-[1.5]" />
                         <h4 className={`text-base font-bold ${textTitle}`}>No products found</h4>
                         <p className={`text-xs mt-1 max-w-sm ${textSub}`}>
-                          Try clearing the search query or adjusting category filters.
+                          Try clearing the search query or adjusting category/channel filters.
                         </p>
-                        {posBarcodeQuery && (
+                        {(posBarcodeQuery || posChannelFilter !== 'all' || selectedPOSCategory !== 'All') && (
                           <button
-                            onClick={() => setPosBarcodeQuery('')}
+                            type="button"
+                            onClick={() => {
+                              setPosBarcodeQuery('');
+                              setPosChannelFilter('all');
+                              setSelectedPOSCategory('All');
+                            }}
                             className="mt-4 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 shadow-sm"
                           >
-                            Clear Search
+                            Reset Filters
                           </button>
                         )}
                       </div>
                     );
                   }
+
+                  const renderChannelBadge = (p: Product) =>
+                    p.isLocalOnly ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap shrink-0">
+                        <Store className="w-3 h-3 shrink-0" />
+                        <span>Offline</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/25 whitespace-nowrap shrink-0">
+                        <Globe className="w-3 h-3 shrink-0" />
+                        <span>Online</span>
+                      </span>
+                    );
+
+                  const renderStockBadge = (p: Product) => {
+                    const stock = Number(p.stock || 0);
+                    const minAlert = Number(p.minStockAlert || 3);
+                    if (stock <= 0) {
+                      return (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/10 text-rose-500 border border-rose-500/25 whitespace-nowrap shrink-0">
+                          Empty (0)
+                        </span>
+                      );
+                    }
+                    if (stock <= minAlert) {
+                      return (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 whitespace-nowrap shrink-0">
+                          Low ({stock})
+                        </span>
+                      );
+                    }
+                    return (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 whitespace-nowrap shrink-0">
+                        {stock} in stock
+                      </span>
+                    );
+                  };
 
                   const renderInlineCard = (p: Product) => {
                     const stock = Number(p.stock || 0);
@@ -9572,7 +9752,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <div
                         key={p.id}
                         onClick={() => handleAddToCartPOS(p)}
-                        className={`p-2.5 sm:p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 relative group ${
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 relative group ${
                           isDark
                             ? 'bg-slate-900/90 border-slate-800 hover:border-blue-500 hover:bg-slate-850'
                             : 'bg-white border-slate-200 hover:border-blue-500 hover:shadow-md'
@@ -9592,26 +9772,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
-                            <span className="text-[10px] text-emerald-500 font-bold uppercase truncate max-w-[120px]">{p.brand || p.category}</span>
-                            {p.isLocalOnly && (
-                              <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-0.5 shrink-0">
-                                <Store className="w-2.5 h-2.5" />
-                                Local Stock
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase truncate">
+                              {p.brand || p.category}
+                            </span>
+                            {(p.sku || p.barcode) && (
+                              <span className="text-[9.5px] font-mono text-slate-400 truncate shrink-0">
+                                #{p.sku || p.barcode}
                               </span>
                             )}
-                            <span className={`px-1.5 py-0.2 rounded text-[8.5px] font-black shrink-0 ${
-                              stock <= 0
-                                ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
-                                : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
-                            }`}>
-                              {stock <= 0 ? 'Empty (0)' : `${stock} left`}
-                            </span>
                           </div>
-                          <h4 className={`font-bold text-xs truncate ${textTitle}`} title={p.name}>{p.name}</h4>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-xs font-black text-blue-500">{formatTZS(p.price)}</span>
-                            {(p.sku || p.barcode) && <span className="text-[9.5px] font-mono text-slate-400 truncate hidden xs:inline">#{p.sku || p.barcode}</span>}
+                          <h4 className={`font-bold text-xs truncate mt-0.5 ${textTitle}`} title={p.name}>{p.name}</h4>
+                          <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
+                            <span className="text-xs font-black text-blue-500 mr-0.5 whitespace-nowrap">{formatTZS(p.price)}</span>
+                            {renderChannelBadge(p)}
+                            {renderStockBadge(p)}
                           </div>
                         </div>
 
@@ -9678,6 +9853,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 <th className="p-3">Product</th>
                                 <th className="p-3">SKU / Barcode</th>
                                 <th className="p-3">Category</th>
+                                <th className="p-3 text-center">Channel</th>
                                 <th className="p-3 text-center">Stock</th>
                                 <th className="p-3 text-right">Price</th>
                                 <th className="p-3 text-center">Action</th>
@@ -9699,32 +9875,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                       <div className="flex items-center gap-3">
                                         <img src={p.image} alt={p.name} className="w-9 h-9 rounded-lg object-contain p-0.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 shrink-0" />
                                         <div className="min-w-0">
-                                          <div className={`font-bold truncate ${textTitle}`}>{p.name}</div>
-                                          <div className="flex items-center gap-1.5 mt-0.5">
-                                            <span className="text-[10px] text-emerald-500 font-semibold">{p.brand}</span>
-                                            {p.isLocalOnly && (
-                                              <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-0.5 shrink-0">
-                                                <Store className="w-2.5 h-2.5" />
-                                                Local Stock
-                                              </span>
-                                            )}
-                                          </div>
+                                          <div className={`font-bold truncate max-w-[200px] ${textTitle}`}>{p.name}</div>
+                                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold block truncate">{p.brand}</span>
                                         </div>
                                       </div>
                                     </td>
-                                    <td className="p-3 font-mono text-[11px] text-slate-400">{p.sku || p.barcode}</td>
-                                    <td className="p-3 text-slate-400">{p.category}</td>
-                                    <td className="p-3 text-center">
-                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                                        stock <= 0
-                                          ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
-                                          : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
-                                      }`}>
-                                        {stock <= 0 ? 'Empty (0)' : `${stock} left`}
-                                      </span>
+                                    <td className="p-3 font-mono text-[11px] text-slate-400 whitespace-nowrap">{p.sku || p.barcode}</td>
+                                    <td className="p-3 text-slate-400 whitespace-nowrap">{p.category}</td>
+                                    <td className="p-3 text-center whitespace-nowrap">
+                                      {renderChannelBadge(p)}
                                     </td>
-                                    <td className="p-3 text-right font-extrabold text-blue-500">{formatTZS(p.price)}</td>
-                                    <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                    <td className="p-3 text-center whitespace-nowrap">
+                                      {renderStockBadge(p)}
+                                    </td>
+                                    <td className="p-3 text-right font-extrabold text-blue-500 whitespace-nowrap">{formatTZS(p.price)}</td>
+                                    <td className="p-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                       {stock <= 0 ? (
                                         <button
                                           type="button"
@@ -9788,6 +9953,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                   : 'bg-white border-slate-200 hover:border-blue-500 hover:shadow-md'
                               } ${inCart ? 'ring-2 ring-blue-500/50 border-blue-500' : ''}`}
                             >
+                              {/* Top Media + Details (Brand, Title, SKU only - zero badge collision) */}
                               <div className="flex gap-3 items-start">
                                 <div className="relative shrink-0">
                                   <img
@@ -9802,31 +9968,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                   )}
                                 </div>
 
-                                <div className="flex-1 min-w-0 overflow-hidden">
-                                  <div className="flex items-center justify-between gap-1 mb-0.5">
-                                    <div className="flex items-center gap-1.5 min-w-0">
-                                      <span className="text-[10px] text-emerald-500 font-bold uppercase truncate">{p.brand || p.category}</span>
-                                      {p.isLocalOnly && (
-                                        <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-0.5 shrink-0">
-                                          <Store className="w-2.5 h-2.5" />
-                                          Local Stock
-                                        </span>
-                                      )}
-                                    </div>
-                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-black shrink-0 ${
-                                      stock <= 0
-                                        ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
-                                        : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
-                                    }`}>
-                                      {stock <= 0 ? 'Empty (0)' : `${stock} left`}
-                                    </span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase truncate">
+                                    {p.brand || p.category}
                                   </div>
-                                  <h4 className={`font-bold text-xs line-clamp-2 leading-snug ${textTitle}`}>{p.name}</h4>
+                                  <h4 className={`font-bold text-xs line-clamp-2 leading-snug mt-0.5 ${textTitle}`} title={p.name}>{p.name}</h4>
                                   <div className="text-[10px] font-mono text-slate-400 mt-1 truncate">SKU: {p.sku || p.barcode}</div>
                                 </div>
                               </div>
 
-                              <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                              {/* Dedicated Non-Overlapping Channel & Stock Strip */}
+                              <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-dashed border-slate-200/80 dark:border-slate-800">
+                                {renderChannelBadge(p)}
+                                {renderStockBadge(p)}
+                              </div>
+
+                              {/* Bottom Price & Action Row */}
+                              <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                                 <div className="text-xs font-black text-blue-500 whitespace-nowrap">{formatTZS(p.price)}</div>
                                 {stock <= 0 ? (
                                   <button
@@ -11375,8 +11533,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           <POSSalesHistory
             posTransactions={posTransactions}
             orders={orders}
+            salesReturns={salesReturns}
             storeSettings={storeSettings}
             onOpenReceipt={(tx) => setLastReceipt(tx)}
+            onOpenSalesReturns={canAccess('SALE_RETURNS') ? () => setActiveTab('sales-returns') : undefined}
             onDeleteTransaction={deletePOSTransaction}
             onClearAllTransactions={clearPOSTransactions}
             isDark={isDark}
@@ -11465,6 +11625,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             onAddSaleReturn={handleAddSaleReturn}
             onUpdateSaleReturn={handleUpdateSaleReturn}
             onDeleteSaleReturn={handleDeleteSaleReturn}
+            onUpdatePOSTransaction={updatePOSTransaction}
             onUpdateProduct={updateProduct}
             onSwitchToRegister={() => {
               setActiveTab('pos');
@@ -13119,6 +13280,56 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                       </span>
 
+                    </div>
+
+                    {/* Sales Channel Visibility (Online Storefront + POS vs Offline In-Store POS Only) */}
+                    <div className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      formIsLocalOnly
+                        ? 'bg-amber-500/10 border-amber-500/30'
+                        : 'bg-blue-500/10 border-blue-500/30'
+                    }`}>
+                      <div className="flex items-start gap-2.5">
+                        <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${formIsLocalOnly ? 'bg-amber-500/20 text-amber-500' : 'bg-blue-500/20 text-blue-500'}`}>
+                          {formIsLocalOnly ? <Store className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
+                        </div>
+                        <div>
+                          <span className={`text-xs font-black block ${textTitle}`}>
+                            {formIsLocalOnly ? 'Offline Stock (POS Register Only)' : 'Online + POS Catalog Stock'}
+                          </span>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                            {formIsLocalOnly
+                              ? 'Hidden from the public online storefront — sellable strictly in-store at the POS terminal.'
+                              : 'Visible on the public online website and available for counter sales on the POS terminal.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className={`inline-flex items-center p-0.5 rounded-xl border text-[11px] font-bold shrink-0 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+                        <button
+                          type="button"
+                          onClick={() => setFormIsLocalOnly(false)}
+                          className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all ${
+                            !formIsLocalOnly
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <Globe className="w-3 h-3" />
+                          <span>Online</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormIsLocalOnly(true)}
+                          className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all ${
+                            formIsLocalOnly
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <Store className="w-3 h-3" />
+                          <span>Offline</span>
+                        </button>
+                      </div>
                     </div>
 
 
@@ -16720,24 +16931,29 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   className="w-14 h-14 sm:w-16 sm:h-16 object-contain p-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0"
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                    <span className="text-[10px] text-emerald-500 font-bold uppercase truncate max-w-[120px]">
-                      {posOutOfStockProduct.brand || posOutOfStockProduct.category}
-                    </span>
-                    {posOutOfStockProduct.isLocalOnly && (
-                      <span className="px-1.5 py-0.2 rounded text-[8.5px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-0.5">
-                        <Store className="w-2.5 h-2.5" />
-                        Local Stock
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase truncate">
+                    {posOutOfStockProduct.brand || posOutOfStockProduct.category}
+                  </div>
+                  <h4 className={`font-black text-sm truncate mt-0.5 ${textTitle}`} title={posOutOfStockProduct.name}>
+                    {posOutOfStockProduct.name}
+                  </h4>
+                  <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                    {posOutOfStockProduct.isLocalOnly ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                        <Store className="w-3 h-3" />
+                        <span>Offline</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/25">
+                        <Globe className="w-3 h-3" />
+                        <span>Online</span>
                       </span>
                     )}
-                    <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-rose-500/10 text-rose-500 border border-rose-500/20">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/10 text-rose-500 border border-rose-500/25">
                       Empty (0)
                     </span>
                   </div>
-                  <h4 className={`font-black text-sm truncate ${textTitle}`} title={posOutOfStockProduct.name}>
-                    {posOutOfStockProduct.name}
-                  </h4>
-                  <div className="flex items-center gap-2 mt-1 text-xs">
+                  <div className="flex items-center gap-2 mt-1.5 text-xs">
                     <span className="font-extrabold text-blue-500">{formatTZS(posOutOfStockProduct.price)}</span>
                     {(posOutOfStockProduct.sku || posOutOfStockProduct.barcode) && (
                       <span className="font-mono text-[10px] text-slate-400">
@@ -17238,6 +17454,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       {isZReportOpen && (
         <POSZReportModal
           transactions={posTransactions}
+          salesReturns={salesReturns}
           storeSettings={storeSettings}
           cashierName={user?.name || profile?.name || 'Authorized Cashier'}
           onClose={() => setIsZReportOpen(false)}

@@ -25,17 +25,29 @@ import {
   CheckCircle2,
   TrendingUp,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  Undo2,
+  RotateCcw
 } from 'lucide-react';
-import { POSTransaction, StoreSettings, Order } from '../types';
+import { POSTransaction, SaleReturn, StoreSettings, Order } from '../types';
 import { isLoanTransaction } from '../utils/loanUtils';
 import { customAlert, customConfirm } from '../utils/dialog';
+import {
+  isCompletedSaleReturn,
+  getSaleReturnAmount,
+  getSaleReturnCreatedAt,
+  getSaleReturnMethod,
+  buildTransactionReturnSummaryMap,
+  matchSaleReturnToTransaction,
+} from '../utils/salesReturnUtils';
 
 interface POSSalesHistoryProps {
   posTransactions: POSTransaction[];
   orders?: Order[];
+  salesReturns?: SaleReturn[];
   storeSettings?: StoreSettings;
   onOpenReceipt: (tx: POSTransaction) => void;
+  onOpenSalesReturns?: () => void;
   onDeleteTransaction?: (id: string) => Promise<void> | void;
   onClearAllTransactions?: () => Promise<void> | void;
   isDark: boolean;
@@ -138,8 +150,10 @@ const KNOWN_PAYMENT_CONFIGS = [
 export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
   posTransactions = [],
   orders = [],
+  salesReturns = [],
   storeSettings,
   onOpenReceipt,
+  onOpenSalesReturns,
   onDeleteTransaction,
   onClearAllTransactions,
   isDark,
@@ -234,6 +248,46 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
   const q = (searchQuery || '').toLowerCase().trim();
   const filterMethod = (paymentMethodFilter || '').toLowerCase().trim();
 
+  const matchesActiveDateFilter = (dateValue?: string): boolean => {
+    if (dateFilter === 'All Time') return true;
+    if (!dateValue) return false;
+    const txDate = new Date(dateValue);
+    if (Number.isNaN(txDate.getTime())) return false;
+    const now = new Date();
+
+    if (dateFilter === 'Today') {
+      return txDate.toDateString() === now.toDateString();
+    } else if (dateFilter === 'Yesterday') {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return txDate.toDateString() === yesterday.toDateString();
+    } else if (dateFilter === 'This Week') {
+      const firstDayOfWeek = new Date(now);
+      firstDayOfWeek.setDate(now.getDate() - now.getDay());
+      firstDayOfWeek.setHours(0, 0, 0, 0);
+      return txDate >= firstDayOfWeek;
+    } else if (dateFilter === 'This Month') {
+      return (
+        txDate.getMonth() === now.getMonth() &&
+        txDate.getFullYear() === now.getFullYear()
+      );
+    } else if (dateFilter === 'Custom Date' && customDate) {
+      const customD = new Date(customDate + 'T00:00:00');
+      return (
+        txDate.getFullYear() === customD.getFullYear() &&
+        txDate.getMonth() === customD.getMonth() &&
+        txDate.getDate() === customD.getDate()
+      );
+    }
+    return true;
+  };
+
+  // Pre-build return map across all transactions so every receipt row accurately displays refund history
+  const allReturnSummaryMap = useMemo(
+    () => buildTransactionReturnSummaryMap(allTransactions, salesReturns),
+    [allTransactions, salesReturns]
+  );
+
   // 1. Transactions matching Search Query & Date Filter (base scope for payment breakdown)
   const basePeriodTransactions = useMemo(() => {
     return allTransactions.filter((tx) => {
@@ -248,38 +302,30 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
           (item.product?.name || '').toLowerCase().includes(q)
         );
 
-      let matchesDate = true;
-      if (dateFilter !== 'All Time' && tx.createdAt) {
-        const txDate = new Date(tx.createdAt);
-        const now = new Date();
-
-        if (dateFilter === 'Today') {
-          matchesDate = txDate.toDateString() === now.toDateString();
-        } else if (dateFilter === 'Yesterday') {
-          const yesterday = new Date(now);
-          yesterday.setDate(yesterday.getDate() - 1);
-          matchesDate = txDate.toDateString() === yesterday.toDateString();
-        } else if (dateFilter === 'This Week') {
-          const firstDayOfWeek = new Date(now);
-          firstDayOfWeek.setDate(now.getDate() - now.getDay());
-          firstDayOfWeek.setHours(0, 0, 0, 0);
-          matchesDate = txDate >= firstDayOfWeek;
-        } else if (dateFilter === 'This Month') {
-          matchesDate =
-            txDate.getMonth() === now.getMonth() &&
-            txDate.getFullYear() === now.getFullYear();
-        } else if (dateFilter === 'Custom Date' && customDate) {
-          const customD = new Date(customDate + 'T00:00:00');
-          matchesDate =
-            txDate.getFullYear() === customD.getFullYear() &&
-            txDate.getMonth() === customD.getMonth() &&
-            txDate.getDate() === customD.getDate();
-        }
-      }
-
-      return matchesSearch && matchesDate;
+      return matchesSearch && matchesActiveDateFilter(tx.createdAt);
     });
-  }, [posTransactions, q, dateFilter, customDate]);
+  }, [allTransactions, q, dateFilter, customDate]);
+
+  // Completed sales returns matching current period & search scope
+  const completedSalesReturns = useMemo(
+    () => (salesReturns || []).filter(isCompletedSaleReturn),
+    [salesReturns]
+  );
+
+  const periodReturns = useMemo(() => {
+    return completedSalesReturns.filter((ret) => {
+      const created = getSaleReturnCreatedAt(ret);
+      if (!matchesActiveDateFilter(created)) return false;
+      if (!q) return true;
+      const rNum = String(ret.returnNumber || ret.return_number || '').toLowerCase();
+      const rcp = String(ret.receiptNumber || ret.receipt_number || '').toLowerCase();
+      const cName = String(ret.customerName || ret.customer_name || '').toLowerCase();
+      const processedBy = String(ret.processedBy || ret.processed_by || '').toLowerCase();
+      const itemsMatch = (ret.items || []).some((it) => (it.productName || '').toLowerCase().includes(q));
+      const linkedTxMatches = basePeriodTransactions.some((tx) => matchSaleReturnToTransaction(ret, tx));
+      return rNum.includes(q) || rcp.includes(q) || cName.includes(q) || processedBy.includes(q) || itemsMatch || linkedTxMatches;
+    });
+  }, [completedSalesReturns, basePeriodTransactions, q, dateFilter, customDate]);
 
   // Normalize payment method string into canonical group
   const dynamicPaymentConfigs = useMemo(() => {
@@ -343,7 +389,23 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
     return methodRaw || 'Cash';
   };
 
-  // 2. Compute dynamic Payment Methods Breakdown from basePeriodTransactions
+  // Resolve which canonical payment channel a SaleReturn deducts from
+  const resolveReturnChannel = (ret: SaleReturn): string => {
+    const linkedTx = allTransactions.find((tx) => matchSaleReturnToTransaction(ret, tx));
+    const retMethod = getSaleReturnMethod(ret);
+    if (linkedTx) {
+      // For Mobile Money refunds on a specific mobile wallet sale (e.g. M-Pesa / Tigo Pesa), keep the linked channel aligned
+      if (retMethod === 'Mobile Money' || retMethod === linkedTx.paymentMethod) {
+        if (linkedTx.splitPayments && linkedTx.splitPayments.length > 0) {
+          return getCanonicalGroup(linkedTx.splitPayments[0].method);
+        }
+        return getCanonicalGroup(linkedTx.paymentMethod || retMethod);
+      }
+    }
+    return getCanonicalGroup(retMethod);
+  };
+
+  // 2. Compute dynamic Payment Methods Breakdown from basePeriodTransactions minus periodReturns
   const paymentBreakdownData = useMemo(() => {
     const map: Record<
       string,
@@ -352,7 +414,10 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
         label: string;
         subLabel: string;
         amount: number;
+        grossAmount: number;
+        refundedAmount: number;
         count: number;
+        refundCount: number;
         icon: any;
         colorClass: string;
         badgeClass: string;
@@ -362,6 +427,28 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
       }
     > = {};
 
+    const ensureBucket = (group: string) => {
+      if (!map[group]) {
+        map[group] = {
+          key: group,
+          label: group,
+          subLabel: 'Other Payment',
+          amount: 0,
+          grossAmount: 0,
+          refundedAmount: 0,
+          count: 0,
+          refundCount: 0,
+          icon: CircleDollarSign,
+          colorClass: 'text-slate-400',
+          badgeClass: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+          cardBorder: 'border-slate-500/30 hover:border-slate-400',
+          activeRing: 'ring-2 ring-slate-400 border-slate-400',
+          progressColor: 'bg-slate-400',
+        };
+      }
+      return map[group];
+    };
+
     // Initialize all standard payment configs with 0
     dynamicPaymentConfigs.forEach((cfg) => {
       map[cfg.key] = {
@@ -369,7 +456,10 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
         label: cfg.label,
         subLabel: cfg.subLabel,
         amount: 0,
+        grossAmount: 0,
+        refundedAmount: 0,
         count: 0,
+        refundCount: 0,
         icon: cfg.icon,
         colorClass: cfg.colorClass,
         badgeClass: cfg.badgeClass,
@@ -379,54 +469,42 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
       };
     });
 
-    let totalPeriodRevenue = 0;
+    let totalPeriodGross = 0;
 
     basePeriodTransactions.forEach((tx) => {
       const txTotal = tx.total ?? tx.totalAmount ?? 0;
-      totalPeriodRevenue += txTotal;
+      totalPeriodGross += txTotal;
 
       if (tx.splitPayments && tx.splitPayments.length > 0) {
         tx.splitPayments.forEach((sp) => {
           const group = getCanonicalGroup(sp.method);
-          if (!map[group]) {
-            map[group] = {
-              key: group,
-              label: group,
-              subLabel: 'Other Payment',
-              amount: 0,
-              count: 0,
-              icon: CircleDollarSign,
-              colorClass: 'text-slate-400',
-              badgeClass: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
-              cardBorder: 'border-slate-500/30 hover:border-slate-400',
-              activeRing: 'ring-2 ring-slate-400 border-slate-400',
-              progressColor: 'bg-slate-400',
-            };
-          }
-          map[group].amount += sp.amount || 0;
-          map[group].count += 1;
+          const bucket = ensureBucket(group);
+          const spAmt = sp.amount || 0;
+          bucket.grossAmount += spAmt;
+          bucket.amount += spAmt;
+          bucket.count += 1;
         });
       } else {
         const group = getCanonicalGroup(tx.paymentMethod || 'Cash');
-        if (!map[group]) {
-          map[group] = {
-            key: group,
-            label: group,
-            subLabel: 'Other Payment',
-            amount: 0,
-            count: 0,
-            icon: CircleDollarSign,
-            colorClass: 'text-slate-400',
-            badgeClass: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
-            cardBorder: 'border-slate-500/30 hover:border-slate-400',
-            activeRing: 'ring-2 ring-slate-400 border-slate-400',
-            progressColor: 'bg-slate-400',
-          };
-        }
-        map[group].amount += txTotal;
-        map[group].count += 1;
+        const bucket = ensureBucket(group);
+        bucket.grossAmount += txTotal;
+        bucket.amount += txTotal;
+        bucket.count += 1;
       }
     });
+
+    let totalPeriodReturns = 0;
+    periodReturns.forEach((ret) => {
+      const rAmount = getSaleReturnAmount(ret);
+      totalPeriodReturns += rAmount;
+      const group = resolveReturnChannel(ret);
+      const bucket = ensureBucket(group);
+      bucket.refundedAmount += rAmount;
+      bucket.refundCount += 1;
+      bucket.amount = Math.max(0, bucket.amount - rAmount);
+    });
+
+    const totalPeriodRevenue = Math.max(0, totalPeriodGross - totalPeriodReturns);
 
     // Convert map to array and sort so active methods (amount > 0) appear first
     const list = Object.values(map).sort((a, b) => {
@@ -434,8 +512,8 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
       return b.count - a.count;
     });
 
-    return { list, totalPeriodRevenue };
-  }, [basePeriodTransactions]);
+    return { list, totalPeriodRevenue, totalPeriodGross, totalPeriodReturns };
+  }, [basePeriodTransactions, periodReturns, dynamicPaymentConfigs, allTransactions]);
 
   // 3. Final filtered transactions applying payment method filter as well
   const filteredTransactions = useMemo(() => {
@@ -460,14 +538,31 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
     });
   }, [basePeriodTransactions, paymentMethodFilter]);
 
-  const totalPOSRevenue = posTransactions.reduce(
+  const totalPOSGrossRevenue = posTransactions.reduce(
     (sum, tx) => sum + (tx.total ?? tx.totalAmount ?? 0),
     0
   );
-  const filteredPOSRevenue = filteredTransactions.reduce(
+  const totalPOSReturnsAmount = completedSalesReturns.reduce(
+    (sum, r) => sum + getSaleReturnAmount(r),
+    0
+  );
+  const totalPOSRevenue = Math.max(0, totalPOSGrossRevenue - totalPOSReturnsAmount);
+
+  const filteredPOSGrossRevenue = filteredTransactions.reduce(
     (sum, tx) => sum + (tx.total ?? tx.totalAmount ?? 0),
     0
   );
+  const filteredMethodReturnsAmount = useMemo(() => {
+    if (paymentMethodFilter === 'All') {
+      return paymentBreakdownData.totalPeriodReturns;
+    }
+    const targetLower = String(paymentMethodFilter || '').toLowerCase().trim();
+    return periodReturns
+      .filter((ret) => resolveReturnChannel(ret).toLowerCase() === targetLower)
+      .reduce((sum, r) => sum + getSaleReturnAmount(r), 0);
+  }, [paymentMethodFilter, paymentBreakdownData.totalPeriodReturns, periodReturns, allTransactions]);
+
+  const filteredPOSRevenue = Math.max(0, filteredPOSGrossRevenue - filteredMethodReturnsAmount);
   const averageOrderValue =
     basePeriodTransactions.length > 0
       ? paymentBreakdownData.totalPeriodRevenue / basePeriodTransactions.length
@@ -491,7 +586,9 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
       'Customer',
       'Payment Method',
       'Items Count',
-      'Total Amount',
+      'Gross Amount',
+      'Returned Amount',
+      'Net Amount',
       'Status',
     ];
     const csvContent = [
@@ -500,6 +597,10 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
         const dateStr = tx.createdAt ? new Date(tx.createdAt).toLocaleString() : '';
         const itemsCount = (tx.items || []).reduce((a, c) => a + c.quantity, 0);
         const amount = tx.total ?? tx.totalAmount ?? 0;
+        const retInfo = allReturnSummaryMap.byTxId[tx.id];
+        const returnedAmt = retInfo?.returnedAmount || 0;
+        const netAmt = Math.max(0, amount - returnedAmt);
+        const statusLabel = retInfo?.isFullyRefunded ? 'Refunded' : retInfo?.isPartiallyRefunded ? 'Partial Return' : (tx.status || 'Completed');
         return [
           `"${tx.receiptNumber || tx.id}"`,
           `"${dateStr}"`,
@@ -508,7 +609,9 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
           `"${tx.paymentMethod || 'Cash'}"`,
           itemsCount,
           amount,
-          `"${tx.status || 'Completed'}"`,
+          returnedAmt,
+          netAmt,
+          `"${statusLabel}"`,
         ].join(',');
       }),
     ].join('\n');
@@ -540,7 +643,7 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
             POS Sales History & Registers
           </h2>
           <p className={`text-xs mt-0.5 ${textSub}`}>
-            View and audit offline counter sales, search cashiers, filter payment channels, and reprint receipts.
+            View and audit offline counter sales, track returns & refunds, filter payment channels, and reprint receipts.
           </p>
         </div>
 
@@ -561,9 +664,28 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
                 ? 'bg-blue-950/40 border-blue-800 text-blue-300'
                 : 'bg-blue-50 border-blue-200 text-blue-700'
             }`}
+            title={totalPOSReturnsAmount > 0 ? `Gross: ${formatTZS(totalPOSGrossRevenue)} minus Returns: ${formatTZS(totalPOSReturnsAmount)}` : undefined}
           >
-            {formatTZS(totalPOSRevenue)} Total Revenue
+            {formatTZS(totalPOSRevenue)} Net Revenue
           </span>
+
+          {totalPOSReturnsAmount > 0 && (
+            <button
+              type="button"
+              onClick={() => onOpenSalesReturns && onOpenSalesReturns()}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all ${
+                onOpenSalesReturns ? 'cursor-pointer hover:bg-rose-500/20' : 'cursor-default'
+              } ${
+                isDark
+                  ? 'bg-rose-950/40 border-rose-800 text-rose-300'
+                  : 'bg-rose-50 border-rose-200 text-rose-700'
+              }`}
+              title="Completed sales returns deducted from net revenue"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+              <span>-{formatTZS(totalPOSReturnsAmount)} Returns ({completedSalesReturns.length})</span>
+            </button>
+          )}
 
           {selectedIds.length > 0 && onDeleteTransaction && (
             <button
@@ -701,8 +823,13 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
               </span>
               <span className="text-slate-300 dark:text-slate-700">•</span>
               <span className="font-bold text-emerald-500">
-                Volume: {formatTZS(filteredPOSRevenue)}
+                Net Volume: {formatTZS(filteredPOSRevenue)}
               </span>
+              {filteredMethodReturnsAmount > 0 && (
+                <span className="font-bold text-rose-500">
+                  (-{formatTZS(filteredMethodReturnsAmount)} Returns)
+                </span>
+              )}
               {paymentMethodFilter !== 'All' && (
                 <span className="px-2 py-0.5 rounded-md bg-blue-600/10 text-blue-600 dark:text-blue-400 font-bold border border-blue-500/20">
                   Channel: {paymentMethodFilter}
@@ -727,7 +854,7 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
 
       {/* 🌟 PAYMENT METHODS SUMMARY CARDS (Dynamic & Filter-Aware) */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <CreditCard className="w-4 h-4 text-blue-500" />
             <h3 className={`text-xs font-black uppercase tracking-wider ${textTitle}`}>
@@ -735,7 +862,7 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
             </h3>
           </div>
           <span className="text-[11px] text-slate-400">
-            Click any card to filter transactions by that payment channel
+            Click any card to filter transactions by that payment channel (returns deducted)
           </span>
         </div>
 
@@ -761,7 +888,7 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
                 )}
               </div>
               <p className={`text-[11px] font-extrabold mt-2 ${textTitle}`}>All Methods</p>
-              <span className="text-[10px] text-slate-400 block font-medium">Combined Total</span>
+              <span className="text-[10px] text-slate-400 block font-medium">Net Combined Total</span>
             </div>
 
             <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800/80">
@@ -771,6 +898,11 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
               <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
                 {basePeriodTransactions.length} receipts (100%)
               </span>
+              {paymentBreakdownData.totalPeriodReturns > 0 && (
+                <span className="text-[9.5px] text-rose-500 font-bold block mt-0.5 truncate">
+                  Returns: -{formatTZS(paymentBreakdownData.totalPeriodReturns)}
+                </span>
+              )}
             </div>
           </div>
 
@@ -838,6 +970,9 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
 
                   <span className="text-[10px] text-slate-400 font-semibold block">
                     {method.count} {method.count === 1 ? 'sale' : 'sales'}
+                    {method.refundedAmount > 0 && (
+                      <span className="text-rose-500 font-bold ml-1">(-{formatTZS(method.refundedAmount)})</span>
+                    )}
                   </span>
                 </div>
               </div>
@@ -857,13 +992,18 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
             <div className="p-2.5 bg-emerald-600/10 text-emerald-500 rounded-xl">
               <DollarSign className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className={`text-[10px] font-bold uppercase tracking-wider ${textSub}`}>
-                Active Scope Revenue
+                Active Scope Net Revenue
               </p>
-              <h3 className={`text-base font-black mt-0.5 text-emerald-600 dark:text-emerald-400`}>
+              <h3 className={`text-base font-black mt-0.5 text-emerald-600 dark:text-emerald-400 truncate`}>
                 {formatTZS(filteredPOSRevenue)}
               </h3>
+              {filteredMethodReturnsAmount > 0 && (
+                <p className="text-[10px] text-rose-500 font-semibold truncate">
+                  Gross {formatTZS(filteredPOSGrossRevenue)} · -{formatTZS(filteredMethodReturnsAmount)} returns
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -976,6 +1116,11 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
                   const isLoan = isLoanTransaction(tx);
                   const itemsCount = (tx.items || []).reduce((a, c) => a + c.quantity, 0);
                   const amount = tx.total ?? tx.totalAmount ?? 0;
+                  const retSummary = allReturnSummaryMap.byTxId[tx.id];
+                  const returnedAmount = retSummary?.returnedAmount || 0;
+                  const netAmount = retSummary ? retSummary.netAmount : amount;
+                  const isRefunded = retSummary?.isFullyRefunded || tx.status === 'Refunded';
+                  const isPartialReturn = Boolean(retSummary?.isPartiallyRefunded);
 
                   return (
                     <tr
@@ -1003,7 +1148,17 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
                         </button>
                       </td>
                       <td className="p-3.5 font-bold font-mono text-blue-500">
-                        {tx.receiptNumber || tx.id.slice(0, 8)}
+                        <div>{tx.receiptNumber || tx.id.slice(0, 8)}</div>
+                        {(isRefunded || isPartialReturn) && (
+                          <span className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${
+                            isRefunded
+                              ? 'bg-rose-500/15 text-rose-500 border border-rose-500/30'
+                              : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                          }`}>
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            {isRefunded ? 'Refunded' : 'Partial Return'}
+                          </span>
+                        )}
                       </td>
                       <td className="p-3.5 text-slate-500 dark:text-slate-400 whitespace-nowrap">
                         {formatToGMT3(tx.createdAt)}
@@ -1037,8 +1192,24 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
                         </div>
                       </td>
                       <td className="p-3.5 font-medium">{itemsCount} items</td>
-                      <td className="p-3.5 font-black text-emerald-500 whitespace-nowrap">
-                        {formatTZS(amount)}
+                      <td className="p-3.5 font-black whitespace-nowrap">
+                        {returnedAmount > 0 ? (
+                          <div>
+                            <div className={isRefunded ? 'text-rose-500' : 'text-emerald-500'}>
+                              {formatTZS(netAmount)}
+                            </div>
+                            <div className="text-[10px] font-semibold text-slate-400 line-through">
+                              {formatTZS(amount)}
+                            </div>
+                            <div className="text-[10px] font-bold text-rose-500">
+                              -{formatTZS(returnedAmount)} returned
+                            </div>
+                          </div>
+                        ) : (
+                          <span className={isRefunded ? 'text-rose-500 line-through' : 'text-emerald-500'}>
+                            {formatTZS(amount)}
+                          </span>
+                        )}
                       </td>
                       <td className="p-3.5 text-center">
                         <button
@@ -1153,26 +1324,65 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Total Paid</span>
-                <h3 className="text-lg font-black text-emerald-500">
-                  {formatTZS(viewingTx.total ?? viewingTx.totalAmount ?? 0)}
-                </h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    onOpenReceipt(viewingTx);
-                    setViewingTx(null);
-                  }}
-                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-sm"
-                >
-                  <Receipt className="w-3.5 h-3.5" />
-                  <span>Open Receipt</span>
-                </button>
-              </div>
-            </div>
+            {(() => {
+              const retSummary = allReturnSummaryMap.byTxId[viewingTx.id];
+              const grossPaid = viewingTx.total ?? viewingTx.totalAmount ?? 0;
+              const retAmt = retSummary?.returnedAmount || 0;
+              const netPaid = Math.max(0, grossPaid - retAmt);
+              return (
+                <>
+                  {retSummary && retSummary.returns.length > 0 && (
+                    <div className="p-3 rounded-xl border border-rose-500/25 bg-rose-500/10 space-y-1.5 text-xs">
+                      <div className="flex items-center justify-between font-black text-rose-500">
+                        <span className="flex items-center gap-1.5">
+                          <Undo2 className="w-3.5 h-3.5" />
+                          Sales Returns Recorded ({retSummary.returns.length})
+                        </span>
+                        <span>-{formatTZS(retAmt)}</span>
+                      </div>
+                      {retSummary.returns.map((r) => (
+                        <div key={r.id} className="flex items-center justify-between text-[11px] text-slate-400">
+                          <span>
+                            {r.returnNumber || r.return_number || r.id} · {getSaleReturnMethod(r)}
+                          </span>
+                          <span className="font-bold text-rose-400">-{formatTZS(getSaleReturnAmount(r))}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">
+                        {retAmt > 0 ? 'Net Revenue (After Returns)' : 'Total Paid'}
+                      </span>
+                      <div className="flex items-baseline gap-2">
+                        <h3 className={`text-lg font-black ${netPaid === 0 && retAmt > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                          {formatTZS(netPaid)}
+                        </h3>
+                        {retAmt > 0 && (
+                          <span className="text-xs text-slate-400 line-through">
+                            {formatTZS(grossPaid)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          onOpenReceipt(viewingTx);
+                          setViewingTx(null);
+                        }}
+                        className="px-3.5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-sm"
+                      >
+                        <Receipt className="w-3.5 h-3.5" />
+                        <span>Open Receipt</span>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

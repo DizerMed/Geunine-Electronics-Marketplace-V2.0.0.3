@@ -1,10 +1,12 @@
 import React, { useState, useRef } from 'react';
-import { POSTransaction, StoreSettings, formatTZS, formatToGMT3 } from '../types';
+import { POSTransaction, SaleReturn, StoreSettings, formatTZS, formatToGMT3 } from '../types';
 import { Printer, Download, X, Calendar, DollarSign, CreditCard, Smartphone, CheckCircle, FileText, ArrowDownRight } from 'lucide-react';
 import { triggerHaptic } from '../utils/haptics';
+import { isCompletedSaleReturn, getSaleReturnAmount, getSaleReturnCreatedAt, getSaleReturnMethod } from '../utils/salesReturnUtils';
 
 interface POSZReportModalProps {
   transactions: POSTransaction[];
+  salesReturns?: SaleReturn[];
   storeSettings?: StoreSettings;
   cashierName?: string;
   onClose: () => void;
@@ -12,6 +14,7 @@ interface POSZReportModalProps {
 
 export const POSZReportModal: React.FC<POSZReportModalProps> = ({
   transactions,
+  salesReturns = [],
   storeSettings,
   cashierName,
   onClose,
@@ -24,15 +27,25 @@ export const POSZReportModal: React.FC<POSZReportModalProps> = ({
   const [actualClosingCash, setActualClosingCash] = useState<number>(0);
   const reportRef = useRef<HTMLDivElement>(null);
 
-  // Filter transactions for selected date
+  // Filter non-parked transactions for selected date (include refunded in Gross so returns below deduct once accurately)
   const filteredTransactions = transactions.filter((t) => {
     if (!t.createdAt) return false;
     const tDate = t.createdAt.split('T')[0];
-    return tDate === selectedDate && t.status !== 'Refunded';
+    return tDate === selectedDate && t.status !== 'Parked';
   });
 
-  // Financial calculations
-  const totalSales = filteredTransactions.reduce((sum, t) => sum + (t.total || t.totalAmount || 0), 0);
+  // Filter completed sales returns on selected date
+  const dateReturns = (salesReturns || []).filter((r) => {
+    if (!isCompletedSaleReturn(r)) return false;
+    const created = getSaleReturnCreatedAt(r);
+    if (!created) return false;
+    return created.slice(0, 10) === selectedDate;
+  });
+
+  // Financial calculations (Gross vs Returns vs Net)
+  const grossSalesCollected = filteredTransactions.reduce((sum, t) => sum + (t.total || t.totalAmount || 0), 0);
+  const totalReturnsRefunded = dateReturns.reduce((sum, r) => sum + getSaleReturnAmount(r), 0);
+  const totalSales = Math.max(0, grossSalesCollected - totalReturnsRefunded);
   const totalDiscount = filteredTransactions.reduce((sum, t) => sum + (t.discount || 0), 0);
   const totalVat = filteredTransactions.reduce((sum, t) => sum + (t.tax || 0), 0);
   const totalNetSubtotal = filteredTransactions.reduce((sum, t) => sum + (t.subtotal || 0), 0);
@@ -41,29 +54,44 @@ export const POSZReportModal: React.FC<POSZReportModalProps> = ({
     0
   );
 
-  // Breakdown by payment method
-  const paymentBreakdown: Record<string, { count: number; total: number }> = {};
+  // Breakdown by payment method (gross sales minus refunds issued per method)
+  const paymentBreakdown: Record<string, { count: number; total: number; refunded: number }> = {};
   filteredTransactions.forEach((t) => {
-    const method = t.paymentMethod || 'Cash';
-    if (!paymentBreakdown[method]) {
-      paymentBreakdown[method] = { count: 0, total: 0 };
-    }
-    paymentBreakdown[method].count += 1;
-    paymentBreakdown[method].total += (t.total || t.totalAmount || 0);
-
-    // Also account for split payments if present
     if (t.splitPayments && t.splitPayments.length > 0) {
       t.splitPayments.forEach((sp) => {
         const spMethod = sp.method || 'Cash';
         if (!paymentBreakdown[spMethod]) {
-          paymentBreakdown[spMethod] = { count: 0, total: 0 };
+          paymentBreakdown[spMethod] = { count: 0, total: 0, refunded: 0 };
         }
+        paymentBreakdown[spMethod].count += 1;
+        paymentBreakdown[spMethod].total += Number(sp.amount || 0);
       });
+    } else {
+      const method = t.paymentMethod || 'Cash';
+      if (!paymentBreakdown[method]) {
+        paymentBreakdown[method] = { count: 0, total: 0, refunded: 0 };
+      }
+      paymentBreakdown[method].count += 1;
+      paymentBreakdown[method].total += (t.total || t.totalAmount || 0);
     }
   });
 
-  const cashCollected = paymentBreakdown['Cash']?.total || 0;
-  const expectedClosingCash = openingCash + cashCollected;
+  let cashRefundsPaidOut = 0;
+  dateReturns.forEach((r) => {
+    const rMethod = getSaleReturnMethod(r);
+    const rAmount = getSaleReturnAmount(r);
+    if (!paymentBreakdown[rMethod]) {
+      paymentBreakdown[rMethod] = { count: 0, total: 0, refunded: 0 };
+    }
+    paymentBreakdown[rMethod].refunded += rAmount;
+    paymentBreakdown[rMethod].total -= rAmount;
+    if (rMethod.toLowerCase().includes('cash')) {
+      cashRefundsPaidOut += rAmount;
+    }
+  });
+
+  const cashCollected = paymentBreakdown['Cash'] ? paymentBreakdown['Cash'].total + cashRefundsPaidOut : 0;
+  const expectedClosingCash = Math.max(0, openingCash + cashCollected - cashRefundsPaidOut);
   const cashDiscrepancy = actualClosingCash > 0 ? actualClosingCash - expectedClosingCash : 0;
 
   const handlePrint = () => {
@@ -75,7 +103,7 @@ export const POSZReportModal: React.FC<POSZReportModalProps> = ({
 
   const handleExportCSV = () => {
     triggerHaptic('light');
-    const headers = ['Receipt No', 'Date Time (EAT)', 'Cashier', 'Customer Name', 'Customer TIN', 'Payment Method', 'Items Count', 'Subtotal (Net)', `VAT ${activeVatPct}%`, 'Total Amount'];
+    const headers = ['Receipt No', 'Date Time (EAT)', 'Cashier', 'Customer Name', 'Customer TIN', 'Payment Method', 'Items Count', 'Subtotal (Net)', `VAT ${activeVatPct}%`, 'Total Amount', 'Status'];
     const rows = filteredTransactions.map((t) => [
       `"${t.id || t.receiptNumber || ''}"`,
       `"${formatToGMT3(t.createdAt)}"`,
@@ -87,7 +115,23 @@ export const POSZReportModal: React.FC<POSZReportModalProps> = ({
       t.subtotal || 0,
       t.tax || 0,
       t.total || t.totalAmount || 0,
+      `"${t.status || 'Completed'}"`,
     ]);
+    dateReturns.forEach((r) => {
+      rows.push([
+        `"RETURN: ${r.returnNumber || r.return_number || r.id}"`,
+        `"${formatToGMT3(getSaleReturnCreatedAt(r))}"`,
+        `"${r.processedBy || r.processed_by || ''}"`,
+        `"${r.customerName || r.customer_name || 'Walk-in'}"`,
+        `""`,
+        `"${getSaleReturnMethod(r)}"`,
+        -(r.items || []).reduce((acc, i) => acc + Number(i.quantity || 1), 0),
+        -getSaleReturnAmount(r),
+        0,
+        -getSaleReturnAmount(r),
+        `"Refunded"`,
+      ]);
+    });
 
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -223,12 +267,18 @@ export const POSZReportModal: React.FC<POSZReportModalProps> = ({
               <p className="font-black uppercase tracking-wider text-[11px] border-b border-dashed border-black pb-0.5">SALES REVENUE SUMMARY</p>
               <div className="flex justify-between">
                 <span>GROSS SALES:</span>
-                <span className="font-black">{formatTZS(totalSales + totalDiscount)}</span>
+                <span className="font-black">{formatTZS(grossSalesCollected + totalDiscount)}</span>
               </div>
               {totalDiscount > 0 && (
                 <div className="flex justify-between text-black">
                   <span>TOTAL DISCOUNTS GIVEN:</span>
                   <span className="font-black">-{formatTZS(totalDiscount)}</span>
+                </div>
+              )}
+              {totalReturnsRefunded > 0 && (
+                <div className="flex justify-between text-red-700">
+                  <span>SALES RETURNS ({dateReturns.length}x):</span>
+                  <span className="font-black">-{formatTZS(totalReturnsRefunded)}</span>
                 </div>
               )}
               <div className="flex justify-between">
@@ -240,7 +290,7 @@ export const POSZReportModal: React.FC<POSZReportModalProps> = ({
                 <span className="font-black">{formatTZS(totalVat)}</span>
               </div>
               <div className="flex justify-between pt-1 border-t-2 border-black font-black text-sm bg-black/5 px-1">
-                <span>TOTAL REVENUE (Z-TOTAL):</span>
+                <span>NET Z-TOTAL REVENUE:</span>
                 <span>{formatTZS(totalSales)}</span>
               </div>
             </div>
@@ -253,7 +303,9 @@ export const POSZReportModal: React.FC<POSZReportModalProps> = ({
               ) : (
                 Object.entries(paymentBreakdown).map(([method, data]) => (
                   <div key={method} className="flex justify-between">
-                    <span>{method.toUpperCase()} ({data.count}x):</span>
+                    <span>
+                      {method.toUpperCase()} ({data.count}x{data.refunded > 0 ? ` · Ref -${formatTZS(data.refunded)}` : ''}):
+                    </span>
                     <span className="font-black">{formatTZS(data.total)}</span>
                   </div>
                 ))
@@ -271,6 +323,12 @@ export const POSZReportModal: React.FC<POSZReportModalProps> = ({
                 <span>(+) CASH SALES COLLECTED:</span>
                 <span className="font-black">{formatTZS(cashCollected)}</span>
               </div>
+              {cashRefundsPaidOut > 0 && (
+                <div className="flex justify-between text-red-700">
+                  <span>(-) CASH REFUNDS PAID OUT:</span>
+                  <span className="font-black">-{formatTZS(cashRefundsPaidOut)}</span>
+                </div>
+              )}
               <div className="flex justify-between border-t border-black pt-0.5 font-black">
                 <span>(=) EXPECTED CASH IN DRAWER:</span>
                 <span className="font-black">{formatTZS(expectedClosingCash)}</span>

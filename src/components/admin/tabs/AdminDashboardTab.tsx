@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Product, Order, POSTransaction, CategoryItem, VisitorAnalyticsSummary } from "../../../types";
+import { Product, Order, POSTransaction, SaleReturn, CategoryItem, VisitorAnalyticsSummary } from "../../../types";
+import { isCompletedSaleReturn, getSaleReturnAmount, getSaleReturnCreatedAt } from "../../../utils/salesReturnUtils";
 import { VisitorActivityHeatmap } from "../../VisitorActivityHeatmap";
 import { TopViewedProductsBreakdown } from "../../TopViewedProductsBreakdown";
 import { fetchVisitorSummary } from "../../../lib/visitorTrackingService";
@@ -42,6 +43,7 @@ export interface AdminDashboardTabProps {
   products: Product[];
   orders: Order[];
   posTransactions: POSTransaction[];
+  salesReturns?: SaleReturn[];
   categories?: CategoryItem[];
   setActiveTab: (tab: any) => void;
   onOpenAddModal?: () => void;
@@ -62,6 +64,7 @@ export const AdminDashboardTab: React.FC<AdminDashboardTabProps> = ({
   products = [],
   orders = [],
   posTransactions = [],
+  salesReturns = [],
   categories = [],
   setActiveTab,
   onOpenAddModal,
@@ -100,10 +103,21 @@ export const AdminDashboardTab: React.FC<AdminDashboardTabProps> = ({
       .reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
   }, [orders]);
 
+  const completedReturns = useMemo(
+    () => (salesReturns || []).filter(isCompletedSaleReturn),
+    [salesReturns]
+  );
+
+  const totalReturnsDeduction = useMemo(
+    () => completedReturns.reduce((sum, r) => sum + getSaleReturnAmount(r), 0),
+    [completedReturns]
+  );
+
   const recognizedPosRevenue = useMemo(() => {
-    return posTransactions
+    const gross = posTransactions
       .reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0);
-  }, [posTransactions]);
+    return Math.max(0, gross - totalReturnsDeduction);
+  }, [posTransactions, totalReturnsDeduction]);
 
   const totalRevenue = recognizedOnlineRevenue + recognizedPosRevenue;
   const lowStockProducts = useMemo(() => products.filter((p) => Number(p.stock || 0) <= 0), [products]);
@@ -143,10 +157,13 @@ export const AdminDashboardTab: React.FC<AdminDashboardTabProps> = ({
       const online = recognizedOrders
         .filter(o => getTanzaniaDateParts(o.createdAt)?.dateKey === key)
         .reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
-      const pos = posTransactions
+      const posGross = posTransactions
         .filter(t => getTanzaniaDateParts(t.createdAt)?.dateKey === key)
         .reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0);
-      return { online, pos };
+      const posRet = completedReturns
+        .filter(r => getTanzaniaDateParts(getSaleReturnCreatedAt(r))?.dateKey === key)
+        .reduce((sum, r) => sum + getSaleReturnAmount(r), 0);
+      return { online, pos: Math.max(0, posGross - posRet) };
     };
 
     const days: any[] = [];
@@ -190,7 +207,9 @@ export const AdminDashboardTab: React.FC<AdminDashboardTabProps> = ({
         return Boolean(key && key >= startKey && key < endKey);
       };
       const online = recognizedOrders.filter(o => inRange(o.createdAt)).reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
-      const pos = posTransactions.filter(t => inRange(t.createdAt)).reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0);
+      const posGross = posTransactions.filter(t => inRange(t.createdAt)).reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0);
+      const posRet = completedReturns.filter(r => inRange(getSaleReturnCreatedAt(r))).reduce((sum, r) => sum + getSaleReturnAmount(r), 0);
+      const pos = Math.max(0, posGross - posRet);
       const txs = recognizedOrders.filter(o => inRange(o.createdAt)).length + posTransactions.filter(t => inRange(t.createdAt)).length;
 
       weeks.push({
@@ -211,13 +230,15 @@ export const AdminDashboardTab: React.FC<AdminDashboardTabProps> = ({
       const prefix = `${year}-${String(m + 1).padStart(2, "0")}`;
       const inMonth = (createdAt: string) => getTanzaniaDateParts(createdAt)?.dateKey.startsWith(prefix);
       const online = recognizedOrders.filter(o => inMonth(o.createdAt)).reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
-      const pos = posTransactions.filter(t => inMonth(t.createdAt)).reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0);
+      const posGross = posTransactions.filter(t => inMonth(t.createdAt)).reduce((sum, t) => sum + Number(t.total ?? (t as any).totalAmount ?? 0), 0);
+      const posRet = completedReturns.filter(r => inMonth(getSaleReturnCreatedAt(r))).reduce((sum, r) => sum + getSaleReturnAmount(r), 0);
+      const pos = Math.max(0, posGross - posRet);
       const txs = recognizedOrders.filter(o => inMonth(o.createdAt)).length + posTransactions.filter(t => inMonth(t.createdAt)).length;
       years.push({ label: months[m], subLabel: `${year}`, fullLabel: `${months[m]} ${year} Performance`, revenue: online + pos, onlineRevenue: online, posRevenue: pos, transactions: txs });
     }
 
     return { days, weeks, years };
-  }, [orders, posTransactions]);
+  }, [orders, posTransactions, completedReturns]);
 
   const { growthLastMonth, salesPerWeek } = useMemo(() => {
     const now = new Date();
@@ -229,7 +250,11 @@ export const AdminDashboardTab: React.FC<AdminDashboardTabProps> = ({
     const previousMonth = previousDate.getUTCMonth() + 1;
     const previousMonthPrefix = `${previousYear}-${String(previousMonth).padStart(2, "0")}`;
     const orderRevenueForPrefix = (prefix: string) => orders.filter(o => isRecognizedOrder(o) && getTanzaniaDateParts(o.createdAt)?.dateKey.startsWith(prefix)).reduce((a, b) => a + Number(b.totalAmount || 0), 0);
-    const posRevenueForPrefix = (prefix: string) => posTransactions.filter(t => getTanzaniaDateParts(t.createdAt)?.dateKey.startsWith(prefix)).reduce((a, b) => a + Number(b.total ?? (b as any).totalAmount ?? 0), 0);
+    const posRevenueForPrefix = (prefix: string) => {
+      const gross = posTransactions.filter(t => getTanzaniaDateParts(t.createdAt)?.dateKey.startsWith(prefix)).reduce((a, b) => a + Number(b.total ?? (b as any).totalAmount ?? 0), 0);
+      const ret = completedReturns.filter(r => getTanzaniaDateParts(getSaleReturnCreatedAt(r))?.dateKey.startsWith(prefix)).reduce((a, r) => a + getSaleReturnAmount(r), 0);
+      return Math.max(0, gross - ret);
+    };
     const thisMonthRev = orderRevenueForPrefix(currentMonthPrefix) + posRevenueForPrefix(currentMonthPrefix);
     const lastMonthRev = orderRevenueForPrefix(previousMonthPrefix) + posRevenueForPrefix(previousMonthPrefix);
     const growth = lastMonthRev > 0 ? ((thisMonthRev - lastMonthRev) / lastMonthRev) * 100 : thisMonthRev > 0 ? 100 : 0;
@@ -249,7 +274,7 @@ export const AdminDashboardTab: React.FC<AdminDashboardTabProps> = ({
       growthLastMonth: growth.toFixed(1),
       salesPerWeek: weekTxs,
     };
-  }, [orders, posTransactions]);
+  }, [orders, posTransactions, completedReturns]);
 
   return (
     <>

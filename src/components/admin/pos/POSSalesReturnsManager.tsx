@@ -38,6 +38,7 @@ export interface POSSalesReturnsManagerProps {
   onAddSaleReturn: (ret: SaleReturn) => Promise<void> | void;
   onUpdateSaleReturn?: (ret: SaleReturn) => Promise<void> | void;
   onDeleteSaleReturn?: (returnId: string) => Promise<void> | void;
+  onUpdatePOSTransaction?: (tx: POSTransaction) => Promise<any> | void;
   onUpdateProduct: (product: Product) => Promise<void> | void;
   onSwitchToRegister: () => void;
   isDark: boolean;
@@ -61,6 +62,7 @@ export const POSSalesReturnsManager: React.FC<POSSalesReturnsManagerProps> = ({
   onAddSaleReturn,
   onUpdateSaleReturn,
   onDeleteSaleReturn,
+  onUpdatePOSTransaction,
   onUpdateProduct,
   onSwitchToRegister,
   isDark,
@@ -278,6 +280,31 @@ export const POSSalesReturnsManager: React.FC<POSSalesReturnsManagerProps> = ({
 
       await onAddSaleReturn(newReturn);
 
+      // Update linked POS transaction status when full return is completed
+      if (selectedTransaction && refundStatus === 'Completed' && onUpdatePOSTransaction) {
+        const txGross = Number(selectedTransaction.total ?? selectedTransaction.totalAmount ?? 0);
+        const txIdLower = String(selectedTransaction.id || '').toLowerCase();
+        const txReceiptLower = String(selectedTransaction.receiptNumber || selectedTransaction.receipt_number || '').toLowerCase();
+        const priorReturned = salesReturns
+          .filter((r) => {
+            const st = String(r.refundStatus || r.refund_status || 'Completed').toLowerCase();
+            if (st === 'pending' || st === 'cancelled') return false;
+            const refId = String(r.referenceId || r.reference_id || '').toLowerCase();
+            const rcp = String(r.receiptNumber || r.receipt_number || '').toLowerCase();
+            return (refId && (refId === txIdLower || (txReceiptLower && refId === txReceiptLower))) ||
+              (rcp && (rcp === txIdLower || (txReceiptLower && rcp === txReceiptLower)));
+          })
+          .reduce((sum, r) => sum + (Number(r.totalRefundAmount ?? r.total_refund_amount ?? 0) || 0), 0);
+
+        if (txGross > 0 && priorReturned + returnGrandTotal >= txGross && selectedTransaction.status !== 'Refunded') {
+          await onUpdatePOSTransaction({
+            ...selectedTransaction,
+            status: 'Refunded',
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
+
       // Increment inventory stock if restockable
       if (restockItems) {
         for (const it of returnItems) {
@@ -294,7 +321,7 @@ export const POSSalesReturnsManager: React.FC<POSSalesReturnsManagerProps> = ({
 
       setIsNewReturnModalOpen(false);
       setSelectedReturnForView(newReturn);
-      showAlert('Return Processed', `Sales return ${generatedReturnNumber} processed successfully. Credit note generated!`, 'success');
+      showAlert('Return Processed', `Sales return ${generatedReturnNumber} processed successfully. Sales history & inventory updated!`, 'success');
     } catch (err: any) {
       console.error('Error saving sales return:', err);
       showAlert('Save Error', err?.message || 'Failed to process sales return.', 'error');

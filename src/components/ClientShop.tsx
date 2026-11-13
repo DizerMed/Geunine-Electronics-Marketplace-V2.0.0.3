@@ -3768,15 +3768,17 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
       )}
 
       {/* Thermal POS / Official Payment Receipt Modal */}
-      {printingReceiptOrder && (
-        <React.Suspense fallback={null}>
-<POSReceiptModal
-          receipt={printingReceiptOrder}
-          onClose={() => setPrintingReceiptOrder(null)}
-          storeSettings={storeSettings}
-        />
-</React.Suspense>
-      )}
+      <AnimatePresence>
+        {printingReceiptOrder && (
+          <React.Suspense key={printingReceiptOrder.id} fallback={null}>
+            <POSReceiptModal
+              receipt={printingReceiptOrder}
+              onClose={() => setPrintingReceiptOrder(null)}
+              storeSettings={storeSettings}
+            />
+          </React.Suspense>
+        )}
+      </AnimatePresence>
 
       {/* Product Comparison Floating Bar & Modal */}
       <React.Suspense fallback={null}>

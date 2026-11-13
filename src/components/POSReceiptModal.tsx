@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { POSTransaction, formatTZS, formatToGMT3, BRAND_LOGO_URL, StoreSettings } from '../types';
 import { Printer, Download, X, Check, Copy, MessageCircle, Stamp, User, Edit3, ChevronDown, ChevronUp, Share2 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
@@ -49,6 +50,23 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showShareFormatModal]);
+
+  // Close share dropdown or modal on Escape key
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (showShareFormatModal) {
+          setShowShareFormatModal(false);
+        } else {
+          onClose();
+        }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showShareFormatModal, onClose]);
 
   const isSwahili = receiptLang === 'sw';
   const isBilingual = receiptLang === 'bi';
@@ -388,7 +406,19 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2, ease: 'easeOut' }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Thermal POS Receipt Preview ${receipt.id}`}
+      className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
+    >
       {/* Print Specific CSS to enforce maximum contrast pure black and exact thermal head density */}
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
@@ -432,6 +462,10 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
             position: absolute;
             left: 0;
             top: 0;
+            transform: none !important;
+            opacity: 1 !important;
+            animation: none !important;
+            transition: none !important;
             width: ${paperWidth === '58mm' ? '54mm' : '76mm'} !important;
             max-width: 100% !important;
             margin: 0 auto !important;
@@ -452,7 +486,14 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
         }
       `}} />
 
-      <div className="bg-slate-900 text-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-800 overflow-hidden flex flex-col my-auto max-h-[95vh]">
+      <motion.div
+        initial={{ opacity: 0, y: 24, scale: 0.94 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 16, scale: 0.95 }}
+        transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-slate-900 text-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-800 overflow-hidden flex flex-col my-auto max-h-[95vh] will-change-transform"
+      >
         
         {/* Top Control Bar (Hidden on Print) */}
         <div className="no-print bg-slate-950 text-white px-4 py-3 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 shrink-0">
@@ -582,44 +623,52 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
               </button>
 
               {/* Share Format Selection Dropdown */}
-              {showShareFormatModal && (
-                <div className="absolute top-full mt-2 right-0 w-52 bg-white text-slate-900 border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 p-1.5 space-y-1">
-                  <div className="text-[10px] font-black text-slate-400 uppercase px-2.5 py-1">Select Format</div>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); shareNative('pdf'); }}
-                    className="w-full text-left px-2.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
+              <AnimatePresence>
+                {showShareFormatModal && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                    transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                    className="absolute top-full mt-2 right-0 w-52 bg-white text-slate-900 border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden p-1.5 space-y-1 origin-top-right"
                   >
-                    <span className="text-sm">📄</span>
-                    <div>
-                      <div className="font-extrabold text-slate-900">Share as PDF</div>
-                      <div className="text-[9px] text-slate-500 font-normal">Thermal receipt PDF document</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); shareNative('image'); }}
-                    className="w-full text-left px-2.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
-                  >
-                    <span className="text-sm">📸</span>
-                    <div>
-                      <div className="font-extrabold text-slate-900">Share as Image (PNG)</div>
-                      <div className="text-[9px] text-slate-500 font-normal">High-res thermal image</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); shareNative('text'); }}
-                    className="w-full text-left px-2.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
-                  >
-                    <span className="text-sm">📝</span>
-                    <div>
-                      <div className="font-extrabold text-slate-900">Share as Text</div>
-                      <div className="text-[9px] text-slate-500 font-normal">Text message format</div>
-                    </div>
-                  </button>
-                </div>
-              )}
+                    <div className="text-[10px] font-black text-slate-400 uppercase px-2.5 py-1">Select Format</div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); shareNative('pdf'); }}
+                      className="w-full text-left px-2.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
+                    >
+                      <span className="text-sm">📄</span>
+                      <div>
+                        <div className="font-extrabold text-slate-900">Share as PDF</div>
+                        <div className="text-[9px] text-slate-500 font-normal">Thermal receipt PDF document</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); shareNative('image'); }}
+                      className="w-full text-left px-2.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
+                    >
+                      <span className="text-sm">📸</span>
+                      <div>
+                        <div className="font-extrabold text-slate-900">Share as Image (PNG)</div>
+                        <div className="text-[9px] text-slate-500 font-normal">High-res thermal image</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); shareNative('text'); }}
+                      className="w-full text-left px-2.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
+                    >
+                      <span className="text-sm">📝</span>
+                      <div>
+                        <div className="font-extrabold text-slate-900">Share as Text</div>
+                        <div className="text-[9px] text-slate-500 font-normal">Text message format</div>
+                      </div>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             <button
@@ -664,78 +713,91 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
         </div>
 
         {/* Interactive Customer / Buyer Business Info Editor (Hidden on physical print) */}
-        {showBuyerEditor && (
-          <div className="no-print bg-slate-950 p-3.5 border-b border-slate-800 text-xs animate-in slide-in-from-top-2 duration-200">
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="font-extrabold text-blue-400 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
-                <Edit3 className="w-3.5 h-3.5" />
-                Buyer / Customer Business Details
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowBuyerEditor(false)}
-                className="text-[10px] text-slate-400 hover:text-white font-bold px-2 py-0.5 bg-slate-900 rounded border border-slate-800 cursor-pointer"
-              >
-                Done
-              </button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <div>
-                <label htmlFor="receipt-buyer-name" className="block text-[10px] text-slate-400 font-bold mb-1">Customer / Buyer Name</label>
-                <input
-                  id="receipt-buyer-name"
-                  type="text"
-                  autoComplete="name"
-                  inputMode="text"
-                  autoCapitalize="words"
-                  spellCheck={false}
-                  name="name"
-                  placeholder="e.g. Ally Said / Enterprise Ltd"
-                  value={buyerName}
-                  onChange={(e) => setBuyerName(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-semibold"
-                />
+        <AnimatePresence initial={false}>
+          {showBuyerEditor && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="no-print bg-slate-950 border-b border-slate-800 text-xs overflow-hidden shrink-0"
+            >
+              <div className="p-3.5">
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="font-extrabold text-blue-400 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                    <Edit3 className="w-3.5 h-3.5" />
+                    Buyer / Customer Business Details
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowBuyerEditor(false)}
+                    className="text-[10px] text-slate-400 hover:text-white font-bold px-2 py-0.5 bg-slate-900 rounded border border-slate-800 cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label htmlFor="receipt-buyer-name" className="block text-[10px] text-slate-400 font-bold mb-1">Customer / Buyer Name</label>
+                    <input
+                      id="receipt-buyer-name"
+                      type="text"
+                      autoComplete="name"
+                      inputMode="text"
+                      autoCapitalize="words"
+                      spellCheck={false}
+                      name="name"
+                      placeholder="e.g. Ally Said / Enterprise Ltd"
+                      value={buyerName}
+                      onChange={(e) => setBuyerName(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="receipt-buyer-phone" className="block text-[10px] text-slate-400 font-bold mb-1">Phone Number (Optional)</label>
+                    <input
+                      id="receipt-buyer-phone"
+                      type="tel"
+                      autoComplete="tel"
+                      inputMode="tel"
+                      name="tel"
+                      placeholder="e.g. +255 768 929 203"
+                      value={buyerPhone}
+                      onChange={(e) => setBuyerPhone(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="receipt-buyer-tin" className="block text-[10px] text-slate-400 font-bold mb-1">Buyer TIN (Optional for B2B / Tax)</label>
+                    <input
+                      id="receipt-buyer-tin"
+                      type="text"
+                      autoComplete="off"
+                      inputMode="text"
+                      name="tax-id"
+                      spellCheck={false}
+                      placeholder="e.g. 9-digit TIN"
+                      value={buyerTin}
+                      onChange={(e) => setBuyerTin(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-semibold"
+                    />
+                  </div>
+                </div>
               </div>
-              <div>
-                <label htmlFor="receipt-buyer-phone" className="block text-[10px] text-slate-400 font-bold mb-1">Phone Number (Optional)</label>
-                <input
-                  id="receipt-buyer-phone"
-                  type="tel"
-                  autoComplete="tel"
-                  inputMode="tel"
-                  name="tel"
-                  placeholder="e.g. +255 768 929 203"
-                  value={buyerPhone}
-                  onChange={(e) => setBuyerPhone(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-semibold"
-                />
-              </div>
-              <div>
-                <label htmlFor="receipt-buyer-tin" className="block text-[10px] text-slate-400 font-bold mb-1">Buyer TIN (Optional for B2B / Tax)</label>
-                <input
-                  id="receipt-buyer-tin"
-                  type="text"
-                  autoComplete="off"
-                  inputMode="text"
-                  name="tax-id"
-                  spellCheck={false}
-                  placeholder="e.g. 9-digit TIN"
-                  value={buyerTin}
-                  onChange={(e) => setBuyerTin(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-semibold"
-                />
-              </div>
-            </div>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Scrollable Receipt Preview Container */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-950/70 flex justify-center items-start">
           
           {/* Authentic High-Contrast Modern POS Receipt Paper (Optimized for Low-Quality 203 DPI EFD Printers) */}
-          <div 
+          <motion.div 
             ref={receiptRef}
-            className={`printable-receipt-root font-mono leading-tight bg-white text-black p-4 sm:p-5 shadow-2xl border-0 rounded-none transition-all ${
+            initial={{ opacity: 0, y: 18, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.32, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
+            className={`printable-receipt-root font-mono leading-tight bg-white text-black p-4 sm:p-5 shadow-2xl border-0 rounded-none transition-[max-width,font-size] duration-200 ${
               paperWidth === '58mm' ? 'w-full max-w-[280px] text-[10.5px]' : 'w-full max-w-[360px] text-[11.5px]'
             }`}
             style={{ 
@@ -1090,10 +1152,10 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
               </div>
             </div>
 
-          </div>
+          </motion.div>
         </div>
 
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

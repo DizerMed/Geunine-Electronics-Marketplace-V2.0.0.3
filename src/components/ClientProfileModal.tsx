@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { AnimatePresence } from 'motion/react';
 import { 
   User, Mail, Phone, MapPin, Package, Clock, CheckCircle2, 
   Truck, ShieldCheck, Printer, Download, Search, X, ChevronRight, 
@@ -958,12 +959,15 @@ export const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
       )}
 
       {/* POS Receipt Modal Preview overlay */}
-      {activeReceiptTx && (
-        <POSReceiptModal
-          receipt={activeReceiptTx}
-          onClose={() => setActiveReceiptTx(null)}
-        />
-      )}
+      <AnimatePresence>
+        {activeReceiptTx && (
+          <POSReceiptModal
+            key={activeReceiptTx.id}
+            receipt={activeReceiptTx}
+            onClose={() => setActiveReceiptTx(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

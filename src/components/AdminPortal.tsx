@@ -15038,18 +15038,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
 
       {/* POS Receipt Modal */}
-
-      {lastReceipt && (
-
-        <POSReceiptModal storeSettings={storeSettings}
-
-          receipt={lastReceipt}
-
-          onClose={() => setLastReceipt(null)}
-
-        />
-
-      )}
+      <AnimatePresence>
+        {lastReceipt && (
+          <POSReceiptModal
+            key={lastReceipt.id}
+            storeSettings={storeSettings}
+            receipt={lastReceipt}
+            onClose={() => setLastReceipt(null)}
+          />
+        )}
+      </AnimatePresence>
 
 
 

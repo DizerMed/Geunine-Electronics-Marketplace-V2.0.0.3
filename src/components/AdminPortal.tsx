@@ -3171,28 +3171,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [selectedPosIds, setSelectedPosIds] = useState<string[]>([]);
 
-  // Auto-switch POS price tier based on cart volume (more than 2 products)
-  const posTotalQuantity = useMemo(() => posCart.reduce((sum, item) => sum + item.quantity, 0), [posCart]);
-  const prevPosTotalQuantityRef = useRef(posTotalQuantity);
-
-  useEffect(() => {
-    const prevQty = prevPosTotalQuantityRef.current;
-    const currentQty = posTotalQuantity;
-    
-    // Switch to Wholesale if total quantity crosses >= 2
-    if (prevQty < 2 && currentQty >= 2) {
-      setPosPriceTier('wholesale');
-      triggerHaptic('success');
-    }
-    // Switch back to Retail if total quantity drops to < 2
-    else if (prevQty >= 2 && currentQty < 2) {
-      setPosPriceTier('retail');
-      triggerHaptic('light');
-    }
-    
-    prevPosTotalQuantityRef.current = currentQty;
-  }, [posTotalQuantity]);
-
   // Dynamic POS Payment Options from saved store settings (including Cash and upcoming disabled Orbi Pay)
 
   const posAvailablePaymentMethods = useMemo(() => {

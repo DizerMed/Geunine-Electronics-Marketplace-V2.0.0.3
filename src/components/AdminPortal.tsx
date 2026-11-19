@@ -3087,8 +3087,38 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   ]);
   const [activeSerialInputItem, setActiveSerialInputItem] = useState<{ productId: string; productName: string; quantity: number; currentSerials: string[] } | null>(null);
   const [posDiscount, setPosDiscount] = useState(0);
-  const [editingPosItemPrice, setEditingPosItemPrice] = useState<{ productId: string; value: string } | null>(null);
-  const [posMarginNotice, setPosMarginNotice] = useState<string | null>(null);
+  const [posDiscountDraft, setPosDiscountDraft] = useState<string | null>(null);
+  const [activePriceEditorItem, setActivePriceEditorItem] = useState<{
+    productId: string;
+    productName: string;
+    productImage?: string;
+    quantity: number;
+    catalogPrice: number;
+    currentPrice: number;
+    value: string;
+  } | null>(null);
+  const [pendingSafePricePrompt, setPendingSafePricePrompt] = useState<
+    | {
+        kind: 'item_price';
+        productId: string;
+        productName: string;
+        productImage?: string;
+        quantity: number;
+        catalogPrice: number;
+        requestedPrice: number;
+        safePrice: number;
+        continueToCheckout?: boolean;
+      }
+    | {
+        kind: 'discount';
+        requestedDiscount: number;
+        safeDiscount: number;
+        previousDiscount: number;
+        safeTotal: number;
+        continueToCheckout?: boolean;
+      }
+    | null
+  >(null);
   const [posExtraCosts, setPosExtraCosts] = useState<ExtraCost[]>([]);
   const [posIncludeVat, setPosIncludeVat] = useState<boolean>(false);
   const [posSendReceiptEmail, setPosSendReceiptEmail] = useState<boolean>(true);
@@ -4257,8 +4287,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const handleClearCartPOS = () => {
     setPosCart([]);
     setPosDiscount(0);
-    setEditingPosItemPrice(null);
-    setPosMarginNotice(null);
+    setPosDiscountDraft(null);
+    setActivePriceEditorItem(null);
+    setPendingSafePricePrompt(null);
     setPosIncludeVat(false);
     setPosExtraCosts([]);
     setPosTenderedAmount(0);
@@ -4576,13 +4607,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     } catch {}
   };
 
-  const showPosMarginNotice = (msg: string) => {
-    setPosMarginNotice(msg);
-    setTimeout(() => {
-      setPosMarginNotice((curr) => (curr === msg ? null : curr));
-    }, 4500);
-  };
-
   const getPosItemCostPrice = (product: Product): number => {
     return Math.max(0, Number(product?.costPrice ?? (product as any)?.cost_price ?? 0) || 0);
   };
@@ -4641,9 +4665,26 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     return getPosItemCatalogPrice(item);
   };
 
-  const handleUpdatePosItemPrice = (productId: string, rawPrice: number) => {
-    const targetItem = posCart.find((item) => item.product.id === productId);
-    if (!targetItem) return;
+  const applyPosItemUnitPriceDirectly = (productId: string, price: number) => {
+    setPosCart((prev) =>
+      prev.map((item) => {
+        if (item.product.id !== productId) return item;
+        const catalogPrice = getPosItemCatalogPrice(item);
+        return {
+          ...item,
+          price: price === catalogPrice ? undefined : price,
+        };
+      })
+    );
+  };
+
+  const handleConfirmPosPriceEditor = (rawPrice: number, continueToCheckout = false) => {
+    if (!activePriceEditorItem) return;
+    const targetItem = posCart.find((item) => item.product.id === activePriceEditorItem.productId);
+    if (!targetItem) {
+      setActivePriceEditorItem(null);
+      return;
+    }
 
     const catalogPrice = getPosItemCatalogPrice(targetItem);
     const minMarginPrice = getPosItemMinAllowedPrice(targetItem.product);
@@ -4652,24 +4693,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         ? (catalogPrice > 0 && catalogPrice < minMarginPrice ? catalogPrice : minMarginPrice)
         : 0;
 
-    let finalPrice = Math.max(0, Math.round(Number(rawPrice) || 0));
+    const finalPrice = Math.max(0, Math.round(Number(rawPrice) || 0));
+    setActivePriceEditorItem(null);
+
     if (effectiveMinPrice > 0 && finalPrice < effectiveMinPrice) {
-      finalPrice = effectiveMinPrice;
       triggerHaptic('warning');
-      showPosMarginNotice(
-        `Price for "${targetItem.product.name}" was below the approved selling limit and has been adjusted.`
-      );
-    } else {
-      triggerHaptic('light');
+      setPendingSafePricePrompt({
+        kind: 'item_price',
+        productId: targetItem.product.id,
+        productName: targetItem.product.name,
+        productImage: targetItem.product.image,
+        quantity: targetItem.quantity,
+        catalogPrice,
+        requestedPrice: finalPrice,
+        safePrice: effectiveMinPrice,
+        continueToCheckout,
+      });
+      return;
     }
 
-    setPosCart((prev) =>
-      prev.map((item) =>
-        item.product.id === productId
-          ? { ...item, price: finalPrice === catalogPrice ? undefined : finalPrice }
-          : item
-      )
-    );
+    applyPosItemUnitPriceDirectly(targetItem.product.id, finalPrice);
+    triggerHaptic('success');
   };
 
   const posVatPct = Math.min(100, Math.max(0, Number(storeSettings?.vatPercentage ?? 18)));
@@ -4697,6 +4741,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     : 0;
   const posSubtotal = (posIncludeVat && posTax > 0) ? posDiscountedGross - posTax : posDiscountedGross;
   const posTotal = Math.max(0, posDiscountedGross + posExtraCostsTotal);
+
+  const handleCommitPosDiscount = (rawDiscount: number, continueToCheckout = false): boolean => {
+    const parsedDisc = Math.max(0, Math.round(Number(rawDiscount) || 0));
+    setPosDiscountDraft(null);
+    if (posCart.length > 0 && parsedDisc > posMaxAllowedDiscount) {
+      const safeTotal = Math.max(0, posCartGross - posMaxAllowedDiscount + posExtraCostsTotal);
+      triggerHaptic('warning');
+      setPendingSafePricePrompt({
+        kind: 'discount',
+        requestedDiscount: parsedDisc,
+        safeDiscount: posMaxAllowedDiscount,
+        previousDiscount: posDiscountClamped,
+        safeTotal,
+        continueToCheckout,
+      });
+      return false;
+    }
+    setPosDiscount(parsedDisc);
+    return true;
+  };
+
+  const handleOpenPosCheckoutPreview = () => {
+    if (posCart.length === 0) return;
+    if (pendingSafePricePrompt) return;
+    if (posDiscountDraft !== null) {
+      const ok = handleCommitPosDiscount(Number(posDiscountDraft) || 0, true);
+      if (!ok) return;
+    }
+    setShowPOSSalePreview(true);
+  };
   const posSplitTotalPaid = splitPaymentsList.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
   const isPosOrderLoan = Boolean(
@@ -10595,7 +10669,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         const unitPrice = getPosItemUnitPrice(item);
                         const isWholesale = (item.priceTier || posPriceTier) === 'wholesale';
                         const isNegotiatedPrice = item.price !== undefined && Number(item.price) !== catalogPrice;
-                        const isEditingThisPrice = editingPosItemPrice?.productId === item.product.id;
                         const serialCount = (item.serialNumbers || []).length;
                         return (
                           <div
@@ -10639,53 +10712,32 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                   )}
                                 </div>
 
-                                {/* Negotiable Unit Price Control (Protected silently in background) */}
+                                {/* Negotiable Unit Price Trigger (Opens Custom Price Editor Modal) */}
                                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                  {isEditingThisPrice ? (
-                                    <div className="flex items-center gap-1">
-                                      <span className="text-[10px] font-bold text-slate-400">TZS</span>
-                                      <input
-                                        type="number"
-                                        autoFocus
-                                        min="0"
-                                        value={editingPosItemPrice.value}
-                                        onChange={(e) =>
-                                          setEditingPosItemPrice({ productId: item.product.id, value: e.target.value })
-                                        }
-                                        onFocus={(e) => e.target.select()}
-                                        onBlur={() => {
-                                          handleUpdatePosItemPrice(item.product.id, Number(editingPosItemPrice.value));
-                                          setEditingPosItemPrice(null);
-                                        }}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
-                                            e.preventDefault();
-                                            handleUpdatePosItemPrice(item.product.id, Number(editingPosItemPrice.value));
-                                            setEditingPosItemPrice(null);
-                                          } else if (e.key === 'Escape') {
-                                            setEditingPosItemPrice(null);
-                                          }
-                                        }}
-                                        className={`w-24 px-1.5 py-0.5 rounded-lg text-[11px] font-extrabold border border-blue-500 outline-none ${inputBg}`}
-                                      />
-                                    </div>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setEditingPosItemPrice({ productId: item.product.id, value: String(unitPrice) })
-                                      }
-                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[11px] font-extrabold transition-all cursor-pointer ${
-                                        isNegotiatedPrice
-                                          ? 'bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20'
-                                          : 'bg-blue-500/10 text-blue-500 border-blue-500/25 hover:bg-blue-500/20'
-                                      }`}
-                                      title="Click to edit unit price"
-                                    >
-                                      <span>{formatTZS(unitPrice)}</span>
-                                      <Edit className="w-2.5 h-2.5 opacity-75" />
-                                    </button>
-                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      triggerHaptic('light');
+                                      setActivePriceEditorItem({
+                                        productId: item.product.id,
+                                        productName: item.product.name,
+                                        productImage: item.product.image,
+                                        quantity: item.quantity,
+                                        catalogPrice,
+                                        currentPrice: unitPrice,
+                                        value: String(unitPrice),
+                                      });
+                                    }}
+                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[11px] font-extrabold transition-all cursor-pointer ${
+                                      isNegotiatedPrice
+                                        ? 'bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20'
+                                        : 'bg-blue-500/10 text-blue-500 border-blue-500/25 hover:bg-blue-500/20'
+                                    }`}
+                                    title="Click to open Custom Price Editor"
+                                  >
+                                    <span>{formatTZS(unitPrice)}</span>
+                                    <Edit className="w-2.5 h-2.5 opacity-75" />
+                                  </button>
 
                                   {catalogPrice > unitPrice && (
                                     <span className="text-[10px] text-slate-400 line-through">{formatTZS(catalogPrice)}</span>
@@ -10700,7 +10752,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                             ci.product.id === item.product.id ? { ...ci, price: undefined } : ci
                                           )
                                         );
-                                        setEditingPosItemPrice(null);
                                         triggerHaptic('light');
                                       }}
                                       className="text-[9.5px] font-bold text-slate-400 hover:text-blue-500 underline cursor-pointer"
@@ -10828,7 +10879,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       </span>
                     </label>
 
-                    {/* Optional Discount Input (Margin limit enforced silently in background) */}
+                    {/* Optional Discount Input (Prompt modal handles over-limit adjustments cleanly) */}
                     <div className="col-span-2 flex items-center gap-1.5 p-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
                       <Percent className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 shrink-0">Discount (TZS):</span>
@@ -10836,30 +10887,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         type="number"
                         placeholder="0 (Optional)"
                         min="0"
-                        value={posDiscountClamped || ''}
-                        onChange={(e) => {
-                          const raw = Math.max(0, Number(e.target.value) || 0);
-                          if (posCart.length > 0 && raw > posMaxAllowedDiscount) {
-                            setPosDiscount(posMaxAllowedDiscount);
-                            triggerHaptic('warning');
-                            showPosMarginNotice(
-                              'Entered discount exceeded the approved selling limit and was adjusted.'
-                            );
-                          } else {
-                            setPosDiscount(raw);
+                        value={posDiscountDraft !== null ? posDiscountDraft : (posDiscountClamped || '')}
+                        onFocus={() => setPosDiscountDraft(posDiscountClamped > 0 ? String(posDiscountClamped) : '')}
+                        onChange={(e) => setPosDiscountDraft(e.target.value)}
+                        onBlur={() => {
+                          if (posDiscountDraft !== null) {
+                            handleCommitPosDiscount(Number(posDiscountDraft) || 0, false);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleCommitPosDiscount(Number(posDiscountDraft ?? posDiscountClamped) || 0, false);
+                            (e.target as HTMLInputElement).blur();
+                          } else if (e.key === 'Escape') {
+                            setPosDiscountDraft(null);
+                            (e.target as HTMLInputElement).blur();
                           }
                         }}
                         className={`w-full bg-transparent text-xs font-bold outline-none px-1 text-right ${textTitle}`}
                       />
                     </div>
                   </div>
-
-                  {posMarginNotice && (
-                    <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-500 text-[10.5px] font-bold flex items-center gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                      <span>{posMarginNotice}</span>
-                    </div>
-                  )}
 
                   {/* Extra Costs & Services (Transport, Delivery, Installation, Custom) */}
                   <div className={`p-2.5 rounded-2xl border ${isDark ? 'bg-slate-800/30 border-slate-700/70' : 'bg-slate-50 border-slate-200'}`}>
@@ -11418,7 +11467,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <div className="space-y-2">
                     <button
                       type="button"
-                      onClick={() => setShowPOSSalePreview(true)}
+                      onClick={handleOpenPosCheckoutPreview}
                       disabled={posCart.length === 0}
                       className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-extrabold py-3.5 rounded-2xl shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 text-sm active:scale-[0.99] cursor-pointer"
                     >
@@ -11533,7 +11582,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           showAlert('Cart is Empty', 'Please add products to the register cart first before checking out.', 'warning');
                           return;
                         }
-                        setShowPOSSalePreview(true);
+                        handleOpenPosCheckoutPreview();
                       }}
                       disabled={posCart.length === 0}
                       className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-black px-4 py-2 rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 transition-all active:scale-95 text-xs"
@@ -17708,6 +17757,441 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* POS Custom Item Unit Price Editor Modal */}
+      <AnimatePresence>
+        {activePriceEditorItem && (() => {
+          const rawStr = activePriceEditorItem.value.trim();
+          const parsedVal = rawStr === '' ? NaN : Math.round(Number(rawStr));
+          const isValidNumber = !Number.isNaN(parsedVal) && parsedVal >= 0;
+          const isPriceEdited = isValidNumber && parsedVal !== activePriceEditorItem.currentPrice;
+          const priceDeltaFromCatalog = isValidNumber ? parsedVal - activePriceEditorItem.catalogPrice : 0;
+          const previewLineTotal = isValidNumber ? parsedVal * activePriceEditorItem.quantity : 0;
+
+          return (
+            <motion.div
+              key="pos-price-editor-modal"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setActivePriceEditorItem(null);
+              }}
+              className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[105] flex items-center justify-center p-4"
+            >
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 12, scale: 0.96 }}
+                transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+                onClick={(e) => e.stopPropagation()}
+                className={`w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border flex flex-col ${
+                  isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+                }`}
+              >
+                {/* Header */}
+                <div className={`p-4 border-b flex items-center justify-between gap-3 ${
+                  isDark ? 'border-slate-800 bg-slate-950' : 'border-slate-100 bg-slate-50'
+                }`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    {activePriceEditorItem.productImage ? (
+                      <img
+                        src={activePriceEditorItem.productImage}
+                        alt={activePriceEditorItem.productName}
+                        className="w-10 h-10 rounded-xl object-contain p-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-xl bg-blue-600/15 text-blue-500 flex items-center justify-center shrink-0">
+                        <Edit className="w-5 h-5" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <h3 className="font-extrabold text-sm truncate">Edit Unit Price</h3>
+                      <p className="text-[11px] text-slate-400 truncate">
+                        {activePriceEditorItem.productName} · Qty {activePriceEditorItem.quantity}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActivePriceEditorItem(null)}
+                    className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                    title="Close"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Form Body */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!isPriceEdited) return;
+                    handleConfirmPosPriceEditor(parsedVal, false);
+                  }}
+                  className="p-5 space-y-4"
+                >
+                  <div className={`grid grid-cols-2 gap-2.5 p-3 rounded-2xl border text-xs ${
+                    isDark ? 'bg-slate-800/40 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}>
+                    <div>
+                      <span className="text-[10px] font-bold uppercase text-slate-400 block">Original Price</span>
+                      <span className="font-extrabold text-sm">{formatTZS(activePriceEditorItem.catalogPrice)}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] font-bold uppercase text-slate-400 block">Current Cart Price</span>
+                      <span className="font-extrabold text-sm text-blue-500">{formatTZS(activePriceEditorItem.currentPrice)}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label htmlFor="pos-custom-unit-price-input" className="text-xs font-bold">
+                        Negotiated Unit Price (TZS)
+                      </label>
+                      {activePriceEditorItem.catalogPrice !== parsedVal && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActivePriceEditorItem((prev) =>
+                              prev ? { ...prev, value: String(prev.catalogPrice) } : null
+                            )
+                          }
+                          className="text-[11px] font-bold text-blue-500 hover:underline cursor-pointer"
+                        >
+                          Reset to Original
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">
+                        TZS
+                      </span>
+                      <input
+                        id="pos-custom-unit-price-input"
+                        type="number"
+                        autoFocus
+                        min="0"
+                        value={activePriceEditorItem.value}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) =>
+                          setActivePriceEditorItem((prev) => (prev ? { ...prev, value: e.target.value } : null))
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            e.stopPropagation();
+                            setActivePriceEditorItem(null);
+                          }
+                        }}
+                        placeholder="Enter negotiated unit price"
+                        className={`w-full pl-12 pr-4 py-3 rounded-2xl border text-base font-black outline-none focus:ring-2 focus:ring-blue-500 ${inputBg}`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Live Preview Summary */}
+                  <div className={`p-3 rounded-2xl border space-y-1.5 text-xs ${
+                    isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-blue-50/50 border-blue-100'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 font-medium">
+                        Line Total ({activePriceEditorItem.quantity}x)
+                      </span>
+                      <span className="font-black text-sm">
+                        {isValidNumber ? formatTZS(previewLineTotal) : '—'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 font-medium">Difference vs Original</span>
+                      <span className={`font-bold ${
+                        priceDeltaFromCatalog < 0
+                          ? 'text-amber-500'
+                          : priceDeltaFromCatalog > 0
+                          ? 'text-emerald-500'
+                          : 'text-slate-400'
+                      }`}>
+                        {!isValidNumber
+                          ? '—'
+                          : priceDeltaFromCatalog === 0
+                          ? 'Standard Price'
+                          : priceDeltaFromCatalog < 0
+                          ? `${formatTZS(priceDeltaFromCatalog)} / unit`
+                          : `+${formatTZS(priceDeltaFromCatalog)} / unit`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setActivePriceEditorItem(null)}
+                      className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-colors ${
+                        isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!isPriceEdited}
+                      className="px-5 py-2.5 rounded-xl text-xs font-black bg-blue-600 hover:bg-blue-500 disabled:opacity-45 disabled:cursor-not-allowed text-white shadow-lg shadow-blue-600/25 transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>{isPriceEdited ? 'Confirm Price' : 'Edit Price to Confirm'}</span>
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* POS Safe Price / Margin Limit Confirmation Prompt Modal */}
+      <AnimatePresence>
+        {pendingSafePricePrompt && (
+          <motion.div
+            key="pos-safe-price-prompt-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                if (pendingSafePricePrompt.kind === 'discount') {
+                  setPosDiscount(pendingSafePricePrompt.previousDiscount);
+                  setPosDiscountDraft(null);
+                }
+                setPendingSafePricePrompt(null);
+              }
+            }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.94 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.96 }}
+              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border flex flex-col ${
+                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              {/* Header */}
+              <div className={`p-4 border-b flex items-center justify-between gap-3 ${
+                isDark ? 'border-slate-800 bg-amber-950/30' : 'border-amber-100 bg-amber-50/80'
+              }`}>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
+                    <ShieldAlert className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm">
+                      {pendingSafePricePrompt.kind === 'item_price'
+                        ? 'Price Below Approved Limit'
+                        : 'Discount Exceeds Approved Limit'}
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      Safe selling price confirmation required
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (pendingSafePricePrompt.kind === 'discount') {
+                      setPosDiscount(pendingSafePricePrompt.previousDiscount);
+                      setPosDiscountDraft(null);
+                    }
+                    setPendingSafePricePrompt(null);
+                  }}
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-4">
+                {pendingSafePricePrompt.kind === 'item_price' ? (
+                  <>
+                    <div className={`p-3 rounded-2xl border text-xs leading-relaxed ${
+                      isDark ? 'bg-slate-800/40 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}>
+                      <p>
+                        The negotiated price for <strong className={textTitle}>{pendingSafePricePrompt.productName}</strong> is below the approved selling limit.
+                        Confirm below to automatically fill the safe price of{' '}
+                        <strong className="text-emerald-500">{formatTZS(pendingSafePricePrompt.safePrice)}</strong>
+                        {pendingSafePricePrompt.continueToCheckout
+                          ? ' and continue to checkout, or cancel to keep the previous price.'
+                          : ' before proceeding to checkout, or cancel to keep the previous price.'}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5 text-xs">
+                      <div className={`p-3 rounded-2xl border ${
+                        isDark ? 'bg-rose-950/20 border-rose-900/40' : 'bg-rose-50 border-rose-200'
+                      }`}>
+                        <span className="text-[10px] font-bold uppercase text-rose-500 block mb-0.5">Entered Price</span>
+                        <span className="font-black text-sm line-through text-rose-500">
+                          {formatTZS(pendingSafePricePrompt.requestedPrice)}
+                        </span>
+                      </div>
+                      <div className={`p-3 rounded-2xl border ${
+                        isDark ? 'bg-emerald-950/25 border-emerald-800/50' : 'bg-emerald-50 border-emerald-200'
+                      }`}>
+                        <span className="text-[10px] font-bold uppercase text-emerald-500 block mb-0.5">Safe Selling Price</span>
+                        <span className="font-black text-sm text-emerald-500">
+                          {formatTZS(pendingSafePricePrompt.safePrice)}
+                        </span>
+                        <span className="text-[10px] text-slate-400 block mt-0.5">
+                          Line ({pendingSafePricePrompt.quantity}x): {formatTZS(pendingSafePricePrompt.safePrice * pendingSafePricePrompt.quantity)}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className={`p-3 rounded-2xl border text-xs leading-relaxed ${
+                      isDark ? 'bg-slate-800/40 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}>
+                      <p>
+                        The entered cart discount exceeds the approved selling limit.
+                        Confirm below to automatically fill the safe discount of{' '}
+                        <strong className="text-emerald-500">{formatTZS(pendingSafePricePrompt.safeDiscount)}</strong>
+                        {pendingSafePricePrompt.continueToCheckout
+                          ? ' and continue to checkout, or cancel to keep the previous discount.'
+                          : ' before proceeding to checkout, or cancel to keep the previous discount.'}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5 text-xs">
+                      <div className={`p-3 rounded-2xl border ${
+                        isDark ? 'bg-rose-950/20 border-rose-900/40' : 'bg-rose-50 border-rose-200'
+                      }`}>
+                        <span className="text-[10px] font-bold uppercase text-rose-500 block mb-0.5">Entered Discount</span>
+                        <span className="font-black text-sm line-through text-rose-500">
+                          {formatTZS(pendingSafePricePrompt.requestedDiscount)}
+                        </span>
+                      </div>
+                      <div className={`p-3 rounded-2xl border ${
+                        isDark ? 'bg-emerald-950/25 border-emerald-800/50' : 'bg-emerald-50 border-emerald-200'
+                      }`}>
+                        <span className="text-[10px] font-bold uppercase text-emerald-500 block mb-0.5">Safe Discount</span>
+                        <span className="font-black text-sm text-emerald-500">
+                          {formatTZS(pendingSafePricePrompt.safeDiscount)}
+                        </span>
+                        <span className="text-[10px] text-slate-400 block mt-0.5">
+                          Payable: {formatTZS(pendingSafePricePrompt.safeTotal)}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Footer Actions */}
+              <div className={`p-4 border-t flex flex-wrap items-center justify-between gap-2 ${
+                isDark ? 'border-slate-800 bg-slate-950' : 'border-slate-100 bg-slate-50'
+              }`}>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (pendingSafePricePrompt.kind === 'discount') {
+                        setPosDiscount(pendingSafePricePrompt.previousDiscount);
+                        setPosDiscountDraft(null);
+                      }
+                      setPendingSafePricePrompt(null);
+                      triggerHaptic('light');
+                    }}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer transition-colors ${
+                      isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                    }`}
+                  >
+                    Cancel
+                  </button>
+
+                  {pendingSafePricePrompt.kind === 'item_price' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = pendingSafePricePrompt;
+                        const currentCartItem = posCart.find((i) => i.product.id === target.productId);
+                        setPendingSafePricePrompt(null);
+                        setActivePriceEditorItem({
+                          productId: target.productId,
+                          productName: target.productName,
+                          productImage: target.productImage,
+                          quantity: target.quantity,
+                          catalogPrice: target.catalogPrice,
+                          currentPrice: currentCartItem ? getPosItemUnitPrice(currentCartItem) : target.catalogPrice,
+                          value: String(target.safePrice),
+                        });
+                      }}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border cursor-pointer transition-colors ${
+                        isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      Re-edit
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 ml-auto flex-wrap justify-end">
+                  {!pendingSafePricePrompt.continueToCheckout && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (pendingSafePricePrompt.kind === 'item_price') {
+                          applyPosItemUnitPriceDirectly(pendingSafePricePrompt.productId, pendingSafePricePrompt.safePrice);
+                        } else {
+                          setPosDiscount(pendingSafePricePrompt.safeDiscount);
+                          setPosDiscountDraft(null);
+                        }
+                        setPendingSafePricePrompt(null);
+                        triggerHaptic('success');
+                      }}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold border cursor-pointer transition-colors ${
+                        isDark ? 'border-emerald-700/60 bg-emerald-950/30 text-emerald-400 hover:bg-emerald-900/40' : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      }`}
+                    >
+                      {pendingSafePricePrompt.kind === 'item_price'
+                        ? `Apply Safe Price (${formatTZS(pendingSafePricePrompt.safePrice)})`
+                        : `Apply Safe Discount (${formatTZS(pendingSafePricePrompt.safeDiscount)})`}
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (pendingSafePricePrompt.kind === 'item_price') {
+                        applyPosItemUnitPriceDirectly(pendingSafePricePrompt.productId, pendingSafePricePrompt.safePrice);
+                      } else {
+                        setPosDiscount(pendingSafePricePrompt.safeDiscount);
+                        setPosDiscountDraft(null);
+                      }
+                      setPendingSafePricePrompt(null);
+                      triggerHaptic('success');
+                      setShowPOSSalePreview(true);
+                    }}
+                    className="px-4 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/25 transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>
+                      {pendingSafePricePrompt.kind === 'item_price'
+                        ? `Confirm Safe (${formatTZS(pendingSafePricePrompt.safePrice)}) & Checkout`
+                        : `Confirm Safe (${formatTZS(pendingSafePricePrompt.safeDiscount)}) & Checkout`}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
 

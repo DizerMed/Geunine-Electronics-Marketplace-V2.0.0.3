@@ -21,6 +21,7 @@ import { ImageWithSkeleton } from './ImageWithSkeleton';
 import { DiscountCountdown } from './DiscountCountdown';
 import { SpecificationSidebar, ActiveFilterBar, FilterState, INITIAL_FILTER_STATE } from './SpecificationSidebar';
 import { customAlert, customConfirm } from '../utils/dialog';
+import { getCartRecommendations } from '../utils/productRecommendations';
 import { 
   trackPageView, 
   trackProductView, 
@@ -1127,6 +1128,23 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
     return Number(item.product?.price || 0);
   };
 
+  const cartRecommendations = useMemo(
+    () => getCartRecommendations(cart, products, orders, 3),
+    [cart, products, orders]
+  );
+
+  const handleDetailAddToCart = useCallback((product: Product, quantity = 1) => {
+    if (Number(product.stock || 0) <= 0) {
+      triggerHaptic('error');
+      addToast(`Out of Stock: "${product.name}" is currently empty (0 available).`, 'error');
+      return;
+    }
+    triggerHaptic('success');
+    addToCart(product, quantity);
+    trackAddToCart(product, quantity);
+    addToast(`${product.name}${quantity > 1 ? ` (×${quantity})` : ''} ${t('shop.addedToCart') || 'added to cart'}`);
+  }, [addToCart, t]);
+
   const cartSubtotal = cart.reduce((sum, item) => sum + calculateDiscountedPrice(item) * item.quantity, 0);
   const isDarEsSalaam = (shippingCity || '').trim().toLowerCase() === 'dar es salaam';
   const shippingFee = isDarEsSalaam ? 0 : Math.round(cartSubtotal * 0.05);
@@ -1191,6 +1209,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
 <ProductDetailPage
           product={selectedProduct}
           allProducts={products}
+          orders={orders}
           user={user}
           onLoginClick={onLoginClick}
           onBack={() => {
@@ -1199,7 +1218,7 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
               window.history.pushState(null, '', '/');
             }
           }}
-          addToCart={addToCart}
+          addToCart={handleDetailAddToCart}
           toggleWishlist={toggleWishlist}
           isWishlisted={wishlist.includes(selectedProduct.id)}
           onSelectProduct={(p) => setSelectedProduct(p)}
@@ -2579,6 +2598,69 @@ export const ClientShop: React.FC<ClientShopProps> = ({ storeSettings,
                       </div>
                     );
                   })
+                )}
+
+                {cart.length > 0 && cartRecommendations.length > 0 && (
+                  <div className="pt-4 mt-2 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                    <div>
+                      <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">
+                        {language === 'sw' ? 'Kamilisha Manunuzi Yako' : 'Frequently Bought With Your Cart'}
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {language === 'sw'
+                          ? 'Vifaa vinavyoendana na bidhaa za kikapu chako'
+                          : 'Compatible add-ons matched to items in your cart'}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      {cartRecommendations.map((rec) => (
+                        <div
+                          key={rec.product.id}
+                          className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCartOpen(false);
+                              setSelectedProduct(rec.product);
+                            }}
+                            className="w-12 h-12 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-1 shrink-0 cursor-pointer"
+                          >
+                            <ImageWithSkeleton
+                              src={rec.product.image}
+                              alt={rec.product.name}
+                              className="w-full h-full object-contain"
+                            />
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 truncate">
+                              {language === 'sw' ? rec.reasonSw : rec.reasonEn}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsCartOpen(false);
+                                setSelectedProduct(rec.product);
+                              }}
+                              className="text-left text-xs font-bold text-slate-900 dark:text-white hover:text-blue-600 line-clamp-1 cursor-pointer"
+                            >
+                              {rec.product.name}
+                            </button>
+                            <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200 tabular-nums block">
+                              {formatTZS(rec.product.price)}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => handleAddToCart(rec.product, e)}
+                            className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shrink-0 transition-colors cursor-pointer"
+                          >
+                            {language === 'sw' ? '+ Weka' : '+ Add'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   X, ShieldCheck, Star, ShoppingBag, ShoppingCart, Heart, Share2, Check, 
   Truck, RefreshCw, ChevronRight, 
@@ -7,13 +7,15 @@ import {
 import { Breadcrumb, BreadcrumbItem } from './Breadcrumb';
 import { createSEOSlug } from '../lib/seoManager';
 import { useLanguage } from "../i18n/LanguageContext";
-import { Product, formatTZS, CategoryItem } from '../types';
+import { Product, Order, formatTZS, CategoryItem } from '../types';
 import { ProductDescriptionView } from './ProductDescriptionView';
 import { DiscountCountdown } from './DiscountCountdown';
+import { getFrequentlyBoughtTogether, getSimilarRecommendations } from '../utils/productRecommendations';
 
 interface ProductDetailModalProps {
   product: Product;
   allProducts: Product[];
+  orders?: Order[];
   onClose: () => void;
   addToCart: (product: Product, quantity?: number) => void;
   toggleWishlist: (productId: string) => void;
@@ -27,6 +29,7 @@ interface ProductDetailModalProps {
 export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   product,
   allProducts,
+  orders = [],
   onClose,
   addToCart,
   toggleWishlist,
@@ -39,11 +42,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const catMeta = categoriesList?.find(c => (c.name || '').toLowerCase() === (product?.category || '').toLowerCase());
   const categorySwahiliName = catMeta?.swahiliName || product.category;
 
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const isSw = language === 'sw';
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [activeTab, setActiveTab] = useState<'specs' | 'warranty' | 'reviews'>('specs');
   const [copiedLink, setCopiedLink] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [bundleAddedFeedback, setBundleAddedFeedback] = useState(false);
 
   // Gallery images using actual product data (primary image + all gallery images deduplicated)
   const rawGallery = Array.isArray(product.images)
@@ -53,22 +58,35 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     ? [product.image, ...rawGallery.filter(img => img !== product.image)]
     : (rawGallery.length > 0 ? rawGallery : ['https://images.unsplash.com/photo-1550009158-9ebf69173e03?auto=format&fit=crop&q=80&w=800']);
 
-  // Smart Suggestions: Find 1 bundle item + 3 similar products
-  const complementaryBundleItem = allProducts.find(
-    (p) => p.id !== product.id && (p.category !== product.category || p.price < product.price)
-  ) || allProducts[1];
+  // Smart Co-Purchase, Feature & Category Recommendations
+  const bundleSuggestions = useMemo(
+    () => getFrequentlyBoughtTogether(product, allProducts, orders, 2),
+    [product, allProducts, orders]
+  );
 
-  const similarProducts = allProducts
-    .filter((p) => p.id !== product.id && (p.category === product.category || p.brand === product.brand))
-    .slice(0, 4);
+  const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
 
-  // Fallback similar if not enough category matches
-  const fallbackSimilar = similarProducts.length < 3
-    ? allProducts.filter((p) => p.id !== product.id).slice(0, 4)
-    : similarProducts;
+  useEffect(() => {
+    setSelectedAddonIds(bundleSuggestions.map((s) => s.product.id));
+    setBundleAddedFeedback(false);
+    setActiveImageIndex(0);
+    setSelectedQuantity(1);
+  }, [product.id, bundleSuggestions]);
 
-  const bundleSubtotal = product.price + (complementaryBundleItem?.price || 0);
-  const bundleDiscountedTotal = Math.round(bundleSubtotal * 0.95); // 5% bundle savings
+  const selectedAddons = useMemo(
+    () => bundleSuggestions.filter((s) => selectedAddonIds.includes(s.product.id)),
+    [bundleSuggestions, selectedAddonIds]
+  );
+
+  const bundleItemCount = 1 + selectedAddons.length;
+  const bundleTotal =
+    Number(product.price || 0) +
+    selectedAddons.reduce((sum, s) => sum + Number(s.product.price || 0), 0);
+
+  const similarRecommendations = useMemo(
+    () => getSimilarRecommendations(product, allProducts, orders, 4),
+    [product, allProducts, orders]
+  );
 
   const handleCopyShare = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -499,58 +517,117 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           </div>
 
           {/* SECTION 3: SMART BUNDLE & FREQUENTLY BOUGHT TOGETHER */}
-          {complementaryBundleItem && (
-            <div className="bg-blue-50/70 dark:bg-slate-900/90 border border-blue-200/80 dark:border-slate-800 p-6 rounded-3xl space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-amber-500 fill-amber-500" />
-                  Smart Suggestions: Frequently Bought Together
-                </h3>
-                <span className="text-xs bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 font-bold px-3 py-1 rounded-full">
-                  Save 5% on Bundle
+          {bundleSuggestions.length > 0 && (
+            <div className="bg-slate-100/80 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 p-6 rounded-3xl space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    {isSw ? 'Zinazonunuliwa Pamoja Mara kwa Mara' : 'Frequently Bought Together'}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {isSw
+                      ? 'Zimechaguliwa kwa oda za wateja, sifa na makundi yanayoendana'
+                      : 'Matched from customer orders, hardware specs, and compatible categories'}
+                  </p>
+                </div>
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 tabular-nums">
+                  {isSw ? `Vifaa ${bundleItemCount}` : `${bundleItemCount} selected`}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-stretch">
                 {/* Main Product Mini Card */}
-                <div className="md:col-span-5 bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 flex items-center gap-3">
-                  <img src={product.image} alt={product.name} className="w-16 h-16 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 shrink-0" />
+                <div className="md:col-span-4 bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200/70 dark:border-slate-700 flex items-center gap-3">
+                  <div className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center shrink-0">
+                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                  </div>
+                  <img src={product.image} alt={product.name} className="w-14 h-14 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Selected Hardware</span>
-                    <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate">{product.name}</h5>
-                    <p className="text-xs font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">{formatTZS(product.price)}</p>
+                    <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block truncate">
+                      {isSw ? 'Bidhaa hii' : 'This item'}
+                    </span>
+                    <h5 className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2">{product.name}</h5>
+                    <p className="text-xs font-extrabold text-blue-600 dark:text-blue-400 mt-0.5 tabular-nums">{formatTZS(product.price)}</p>
                   </div>
                 </div>
 
-                <div className="md:col-span-1 text-center font-extrabold text-slate-400 text-xl">+</div>
-
-                {/* Bundle Item Card */}
-                <div className="md:col-span-5 bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-700 flex items-center gap-3">
-                  <img src={complementaryBundleItem.image} alt={complementaryBundleItem.name} className="w-16 h-16 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">Recommended Add-on</span>
-                    <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate">{complementaryBundleItem.name}</h5>
-                    <p className="text-xs font-extrabold text-slate-900 dark:text-white mt-0.5">{formatTZS(complementaryBundleItem.price)}</p>
-                  </div>
-                </div>
+                {/* Bundle Items */}
+                {bundleSuggestions.map((suggestion) => {
+                  const item = suggestion.product;
+                  const isChecked = selectedAddonIds.includes(item.id);
+                  return (
+                    <div
+                      key={item.id}
+                      className={`md:col-span-4 p-3.5 rounded-2xl border flex items-center gap-3 transition-all ${
+                        isChecked
+                          ? 'bg-white dark:bg-slate-800 border-blue-500/60 shadow-sm'
+                          : 'bg-white/60 dark:bg-slate-800/50 border-slate-200/70 dark:border-slate-700 opacity-75'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedAddonIds((prev) =>
+                            prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id]
+                          )
+                        }
+                        className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 cursor-pointer transition-colors ${
+                          isChecked
+                            ? 'bg-emerald-600 border-emerald-600 text-white'
+                            : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-transparent'
+                        }`}
+                      >
+                        <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                      </button>
+                      <img
+                        src={item.image}
+                        alt={item.name}
+                        onClick={() => onSelectProduct(item)}
+                        className="w-14 h-14 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 shrink-0 cursor-pointer"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 block truncate">
+                          {isSw ? suggestion.reasonSw : suggestion.reasonEn}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onSelectProduct(item)}
+                          className="text-left text-xs font-bold text-slate-900 dark:text-white hover:text-blue-600 line-clamp-2 cursor-pointer"
+                        >
+                          {item.name}
+                        </button>
+                        <p className="text-xs font-extrabold text-slate-900 dark:text-white mt-0.5 tabular-nums">{formatTZS(item.price)}</p>
+                      </div>
+                    </div>
+                  );
+                })}
 
                 {/* Bundle Checkout Button */}
-                <div className="md:col-span-12 flex flex-wrap items-center justify-between pt-3 border-t border-blue-200/60 dark:border-slate-800 gap-4">
+                <div className="md:col-span-12 flex flex-wrap items-center justify-between pt-3 border-t border-slate-200/70 dark:border-slate-800 gap-4">
                   <div>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">Bundle Price (2 items): </span>
-                    <span className="text-base font-extrabold text-slate-900 dark:text-white ml-1">{formatTZS(bundleDiscountedTotal)}</span>
-                    <span className="text-xs text-slate-400 line-through ml-2">{formatTZS(bundleSubtotal)}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      {isSw ? `Jumla (${bundleItemCount} bidhaa): ` : `Total (${bundleItemCount} items): `}
+                    </span>
+                    <span className="text-base font-extrabold text-slate-900 dark:text-white ml-1 tabular-nums">{formatTZS(bundleTotal)}</span>
                   </div>
 
                   <button
+                    type="button"
+                    disabled={Number(product.stock || 0) <= 0}
                     onClick={() => {
                       addToCart(product, 1);
-                      addToCart(complementaryBundleItem, 1);
+                      selectedAddons.forEach((s) => addToCart(s.product, 1));
+                      setBundleAddedFeedback(true);
+                      setTimeout(() => setBundleAddedFeedback(false), 2000);
                     }}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-3 rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center gap-2 transition-all active:scale-95"
+                    className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold px-6 py-3 rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
                   >
-                    <ShoppingCart className="w-4 h-4" />
-                    <span>Add 2-Item Bundle to Cart</span>
+                    {bundleAddedFeedback ? <Check className="w-4 h-4" /> : <ShoppingCart className="w-4 h-4" />}
+                    <span>
+                      {bundleAddedFeedback
+                        ? isSw ? 'Vimeongezwa' : 'Added to Cart'
+                        : isSw ? `Weka Bidhaa ${bundleItemCount} Kikapuni` : `Add ${bundleItemCount} Items to Cart`}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -561,45 +638,51 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           <div className="space-y-4">
             <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
               <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-              Similar & Recommended Genuine Products
+              {isSw ? 'Bidhaa Zinazofanana na Mapendekezo' : 'Similar & Recommended Genuine Products'}
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {fallbackSimilar.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => onSelectProduct(item)}
-                  className="bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700 hover:border-blue-400 rounded-2xl p-4 transition-all hover:shadow-lg cursor-pointer group flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-xl overflow-hidden mb-3 relative flex items-center justify-center">
-                      <img
-                        src={item.image}
-                        alt={item.name}
-                        className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-300"
-                      />
+              {similarRecommendations.map((rec) => {
+                const item = rec.product;
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => onSelectProduct(item)}
+                    className="bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700 hover:border-blue-400 rounded-2xl p-4 transition-all hover:shadow-lg cursor-pointer group flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-xl overflow-hidden mb-3 relative flex items-center justify-center">
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-300"
+                        />
+                      </div>
+                      <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block truncate">
+                        {item.brand} · {isSw ? rec.reasonSw : rec.reasonEn}
+                      </span>
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2 mt-0.5 mb-2 group-hover:text-blue-600 transition-colors">
+                        {item.name}
+                      </h4>
                     </div>
-                    <span className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wider">{item.brand}</span>
-                    <h4 className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2 mt-0.5 mb-2 group-hover:text-blue-600 transition-colors">
-                      {item.name}
-                    </h4>
-                  </div>
 
-                  <div className="pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between gap-2">
-                    <span className="text-xs font-extrabold text-slate-900 dark:text-white break-words">{formatTZS(item.price)}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        addToCart(item, 1);
-                      }}
-                      className="bg-slate-100 dark:bg-slate-700 hover:bg-blue-600 dark:hover:bg-blue-600 hover:text-white text-slate-700 dark:text-slate-200 p-2 rounded-xl transition-all"
-                      title="Add to Cart"
-                    >
-                      <ShoppingCart className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between gap-2">
+                      <span className="text-xs font-extrabold text-slate-900 dark:text-white break-words tabular-nums">{formatTZS(item.price)}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          addToCart(item, 1);
+                        }}
+                        className="bg-slate-100 dark:bg-slate-700 hover:bg-blue-600 dark:hover:bg-blue-600 hover:text-white text-slate-700 dark:text-slate-200 p-2 rounded-xl transition-all cursor-pointer"
+                        title={isSw ? 'Weka Kikapuni' : 'Add to Cart'}
+                      >
+                        <ShoppingCart className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

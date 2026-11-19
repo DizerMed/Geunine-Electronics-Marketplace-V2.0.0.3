@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, ShieldCheck, Star, ShoppingBag, ShoppingCart, Heart, Share2, Check, 
   Truck, RefreshCw, ChevronRight, Package, Zap, QrCode, Layers, 
@@ -6,14 +6,16 @@ import {
 } from 'lucide-react';
 import { Breadcrumb, BreadcrumbItem } from './Breadcrumb';
 import { useLanguage } from "../i18n/LanguageContext";
-import { Product, formatTZS, Category, CategoryItem } from '../types';
+import { Product, Order, formatTZS, Category, CategoryItem } from '../types';
 import { triggerHaptic } from '../utils/haptics';
 import { ProductDescriptionView } from './ProductDescriptionView';
 import { DiscountCountdown } from './DiscountCountdown';
+import { getFrequentlyBoughtTogether, getSimilarRecommendations } from '../utils/productRecommendations';
 
 interface ProductDetailPageProps {
   product: Product;
   allProducts: Product[];
+  orders?: Order[];
   onBack: () => void;
   addToCart: (product: Product, quantity?: number) => void;
   toggleWishlist: (productId: string) => void;
@@ -32,6 +34,7 @@ interface ProductDetailPageProps {
 export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   product,
   allProducts,
+  orders = [],
   onBack,
   addToCart,
   toggleWishlist,
@@ -55,13 +58,16 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   });
   const categorySwahiliName = catMeta?.swahiliName || product?.category || '';
 
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const isSw = language === 'sw';
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [activeTab, setActiveTab] = useState<'specs' | 'warranty' | 'reviews'>('specs');
   const [copiedLink, setCopiedLink] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [showStickyBar, setShowStickyBar] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [bundleAddedFeedback, setBundleAddedFeedback] = useState(false);
+  const [similarFilter, setSimilarFilter] = useState<'all' | 'category' | 'brand' | 'features'>('all');
 
   // Generate clean SEO URL Slug
   const productSlug = encodeURIComponent(
@@ -84,21 +90,65 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     ? [product.image, ...rawGallery.filter(img => img !== product.image)]
     : (rawGallery.length > 0 ? rawGallery : ['https://images.unsplash.com/photo-1550009158-9ebf69173e03?auto=format&fit=crop&q=80&w=800']);
 
-  // Smart Bundle Item & Similar Recommendations
-  const complementaryBundleItem = allProducts.find(
-    (p) => p.id !== product.id && (p.category !== product.category || p.price < product.price)
-  ) || allProducts[1];
+  // Smart Co-Purchase, Feature & Category Recommendations
+  const bundleSuggestions = useMemo(
+    () => getFrequentlyBoughtTogether(product, allProducts, orders, 2),
+    [product, allProducts, orders]
+  );
 
-  const similarProducts = allProducts
-    .filter((p) => p.id !== product.id && (p.category === product.category || p.brand === product.brand))
-    .slice(0, 4);
+  const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
 
-  const fallbackSimilar = similarProducts.length < 3
-    ? allProducts.filter((p) => p.id !== product.id).slice(0, 4)
-    : similarProducts;
+  useEffect(() => {
+    setSelectedAddonIds(bundleSuggestions.map((s) => s.product.id));
+    setBundleAddedFeedback(false);
+    setSimilarFilter('all');
+    setActiveImageIndex(0);
+    setSelectedQuantity(1);
+  }, [product.id, bundleSuggestions]);
 
-  const bundleSubtotal = product.price + (complementaryBundleItem?.price || 0);
-  const bundleDiscountedTotal = Math.round(bundleSubtotal * 0.95);
+  const selectedAddons = useMemo(
+    () => bundleSuggestions.filter((s) => selectedAddonIds.includes(s.product.id)),
+    [bundleSuggestions, selectedAddonIds]
+  );
+
+  const toggleBundleAddon = (id: string) => {
+    triggerHaptic('light');
+    setSelectedAddonIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const bundleItemCount = 1 + selectedAddons.length;
+  const bundleTotal =
+    Number(product.price || 0) +
+    selectedAddons.reduce((sum, s) => sum + Number(s.product.price || 0), 0);
+  const bundleOriginalTotal =
+    (product.originalPrice && product.originalPrice > product.price ? product.originalPrice : Number(product.price || 0)) +
+    selectedAddons.reduce(
+      (sum, s) =>
+        sum +
+        (s.product.originalPrice && s.product.originalPrice > s.product.price
+          ? s.product.originalPrice
+          : Number(s.product.price || 0)),
+      0
+    );
+  const bundleOfferSavings = Math.max(0, bundleOriginalTotal - bundleTotal);
+
+  const allSimilarRecs = useMemo(
+    () => getSimilarRecommendations(product, allProducts, orders, 12),
+    [product, allProducts, orders]
+  );
+
+  const hasSameCategoryRecs = useMemo(() => allSimilarRecs.some((r) => r.sameCategory), [allSimilarRecs]);
+  const hasSameBrandRecs = useMemo(() => allSimilarRecs.some((r) => r.sameBrand), [allSimilarRecs]);
+  const hasFeatureMatchRecs = useMemo(() => allSimilarRecs.some((r) => r.matchedFeatures.length > 0), [allSimilarRecs]);
+
+  const displayedSimilarRecs = useMemo(() => {
+    if (similarFilter === 'category') return allSimilarRecs.filter((r) => r.sameCategory).slice(0, 4);
+    if (similarFilter === 'brand') return allSimilarRecs.filter((r) => r.sameBrand).slice(0, 4);
+    if (similarFilter === 'features') return allSimilarRecs.filter((r) => r.matchedFeatures.length > 0).slice(0, 4);
+    return allSimilarRecs.slice(0, 4);
+  }, [allSimilarRecs, similarFilter]);
 
   // Background Google SEO Head Tag Injection & URL Address Bar Sync
   useEffect(() => {
@@ -707,118 +757,314 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         </div>
 
         {/* SMART BUNDLE & FREQUENTLY BOUGHT TOGETHER */}
-        {complementaryBundleItem && (
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800/80 dark:to-indigo-950/30 border-none p-6 sm:p-8 rounded-3xl space-y-6 shadow-sm">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <Zap className="w-5 h-5 text-amber-500 fill-amber-500" />
-                Frequently Bought Together
-              </h3>
-              <span className="text-xs bg-amber-400/20 text-amber-800 dark:text-amber-300 border-none font-extrabold px-3 py-1 rounded-full">
-                Save 5% on 2-Item Bundle
+        {bundleSuggestions.length > 0 && (
+          <section className="bg-slate-100/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70 p-6 sm:p-8 rounded-3xl space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-200/80 dark:border-slate-700/70">
+              <div>
+                <h3 className="text-lg font-extrabold text-slate-900 dark:text-white tracking-tight">
+                  {isSw ? 'Zinazonunuliwa Pamoja Mara kwa Mara' : 'Frequently Bought Together'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {isSw
+                    ? 'Zimechaguliwa kulingana na oda za wateja, sifa za kifaa na makundi yanayoendana'
+                    : 'Matched from customer orders, hardware specs, and compatible categories'}
+                </p>
+              </div>
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 tabular-nums">
+                {isSw
+                  ? `Vifaa ${bundleItemCount} vimechaguliwa`
+                  : `${bundleItemCount} ${bundleItemCount === 1 ? 'item' : 'items'} selected`}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-              {/* Main Product */}
-              <div className="md:col-span-5 bg-white dark:bg-slate-800 p-4 rounded-2xl border-none flex items-center gap-4">
-                <img src={product.image} alt={product.name} className="w-16 h-16 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 shrink-0" />
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+              {/* Main Selected Product */}
+              <div className="lg:col-span-4 bg-white dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 flex items-center gap-3.5">
+                <div className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center shrink-0">
+                  <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                </div>
+                <img
+                  src={product.image}
+                  alt={product.name}
+                  className="w-16 h-16 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shrink-0"
+                />
                 <div className="min-w-0 flex-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">This Item</span>
-                  <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate">{product.name}</h5>
-                  <p className="text-xs font-extrabold text-blue-600 mt-0.5">{formatTZS(product.price)}</p>
+                  <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    {isSw ? 'Bidhaa hii' : 'This item'} · {product.brand}
+                  </p>
+                  <h5 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white line-clamp-2 mt-0.5">
+                    {product.name}
+                  </h5>
+                  <p className="text-xs font-extrabold text-blue-600 dark:text-blue-400 mt-1 tabular-nums">
+                    {formatTZS(product.price)}
+                  </p>
                 </div>
               </div>
 
-              <div className="md:col-span-1 text-center font-extrabold text-slate-400 text-2xl">+</div>
+              {/* Complementary Add-ons */}
+              {bundleSuggestions.map((suggestion) => {
+                const isChecked = selectedAddonIds.includes(suggestion.product.id);
+                const item = suggestion.product;
+                return (
+                  <div
+                    key={item.id}
+                    className={`lg:col-span-4 p-4 rounded-2xl border transition-all flex items-center gap-3.5 ${
+                      isChecked
+                        ? 'bg-white dark:bg-slate-900/80 border-blue-500/60 dark:border-blue-500/50 shadow-sm'
+                        : 'bg-white/60 dark:bg-slate-900/40 border-slate-200/70 dark:border-slate-700/50 opacity-75'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleBundleAddon(item.id)}
+                      aria-label={isChecked ? `Exclude ${item.name}` : `Include ${item.name}`}
+                      className={`w-6 h-6 rounded-md border flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                        isChecked
+                          ? 'bg-emerald-600 border-emerald-600 text-white'
+                          : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-transparent hover:border-blue-500'
+                      }`}
+                    >
+                      <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                    </button>
 
-              {/* Complementary Product */}
-              <div className="md:col-span-5 bg-white dark:bg-slate-800 p-4 rounded-2xl border-none flex items-center gap-4">
-                <img src={complementaryBundleItem.image} alt={complementaryBundleItem.name} className="w-16 h-16 object-contain p-1 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <span className="text-[10px] font-bold text-emerald-600 uppercase">Recommended Add-on</span>
-                  <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate">{complementaryBundleItem.name}</h5>
-                  <p className="text-xs font-extrabold text-slate-900 dark:text-white mt-0.5">{formatTZS(complementaryBundleItem.price)}</p>
-                </div>
-              </div>
+                    <button
+                      type="button"
+                      onClick={() => onSelectProduct(item)}
+                      className="w-16 h-16 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shrink-0 p-1 overflow-hidden cursor-pointer"
+                    >
+                      <img
+                        src={item.image}
+                        alt={item.name}
+                        className="w-full h-full object-contain hover:scale-105 transition-transform"
+                      />
+                    </button>
 
-              {/* Checkout Bundle Button */}
-              <div className="md:col-span-12 flex flex-wrap items-center justify-between pt-4 border-t border-blue-200 gap-4">
-                <div>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Bundle Price (2 items): </span>
-                  <span className="text-xl font-extrabold text-slate-900 dark:text-white ml-1">{formatTZS(bundleDiscountedTotal)}</span>
-                  <span className="text-xs text-slate-400 line-through ml-2">{formatTZS(bundleSubtotal)}</span>
-                </div>
-
-                <button
-                  onClick={() => {
-                    addToCart(product, 1);
-                    addToCart(complementaryBundleItem, 1);
-                  }}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-6 py-3.5 rounded-xl shadow-lg shadow-emerald-600/20 text-xs flex items-center gap-2 transition-all active:scale-95"
-                >
-                  <ShoppingCart className="w-4 h-4" />
-                  <span>Add Bundle to Cart</span>
-                </button>
-              </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 truncate">
+                        {isSw ? suggestion.reasonSw : suggestion.reasonEn}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => onSelectProduct(item)}
+                        className="text-left text-xs sm:text-sm font-bold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 line-clamp-2 mt-0.5 transition-colors cursor-pointer"
+                      >
+                        {item.name}
+                      </button>
+                      <div className="flex items-baseline gap-2 mt-1">
+                        <span className="text-xs font-extrabold text-slate-900 dark:text-white tabular-nums">
+                          {formatTZS(item.price)}
+                        </span>
+                        {item.originalPrice && item.originalPrice > item.price && (
+                          <span className="text-[11px] text-slate-400 line-through tabular-nums">
+                            {formatTZS(item.originalPrice)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          </div>
+
+            {/* Bundle Summary & Action Footer */}
+            <div className="flex flex-wrap items-center justify-between pt-4 border-t border-slate-200/80 dark:border-slate-700/70 gap-4">
+              <div className="space-y-0.5">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                    {isSw
+                      ? `Jumla ya vifaa ${bundleItemCount}:`
+                      : `Total for ${bundleItemCount} ${bundleItemCount === 1 ? 'item' : 'items'}:`}
+                  </span>
+                  <span className="text-xl font-extrabold text-slate-900 dark:text-white tabular-nums">
+                    {formatTZS(bundleTotal)}
+                  </span>
+                  {bundleOfferSavings > 0 && (
+                    <span className="text-xs text-slate-400 line-through tabular-nums">
+                      {formatTZS(bundleOriginalTotal)}
+                    </span>
+                  )}
+                </div>
+                {bundleOfferSavings > 0 && (
+                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                    {isSw
+                      ? `Ofa zinakuokoa ${formatTZS(bundleOfferSavings)}`
+                      : `Includes ${formatTZS(bundleOfferSavings)} in active offer savings`}
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                disabled={Number(product.stock || 0) <= 0}
+                onClick={() => {
+                  triggerHaptic('success');
+                  addToCart(product, 1);
+                  selectedAddons.forEach((s) => addToCart(s.product, 1));
+                  setBundleAddedFeedback(true);
+                  setTimeout(() => setBundleAddedFeedback(false), 2200);
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-6 py-3 rounded-xl shadow-md shadow-emerald-600/20 text-xs sm:text-sm flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+              >
+                {bundleAddedFeedback ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>{isSw ? 'Vimeongezwa Kikapuni' : 'Added to Cart'}</span>
+                  </>
+                ) : (
+                  <>
+                    <ShoppingCart className="w-4 h-4" />
+                    <span>
+                      {selectedAddons.length > 0
+                        ? isSw
+                          ? `Weka Vifaa ${bundleItemCount} Kikapuni`
+                          : `Add ${bundleItemCount} Items to Cart`
+                        : isSw
+                        ? 'Weka Bidhaa Hii Kikapuni'
+                        : 'Add Selected Item to Cart'}
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+          </section>
         )}
 
         {/* RECOMMENDED SIMILAR PRODUCTS CATALOG GRID */}
-        <div className="space-y-6 pt-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-              <Layers className="w-5 h-5 text-blue-600" />
-              Similar Products & Recommendations
-            </h3>
-            <button
-              onClick={onBack}
-              className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"
-            >
-              <span>Explore All Products</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
+        <section className="space-y-6 pt-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2 tracking-tight">
+                <Layers className="w-5 h-5 text-blue-600" />
+                {isSw ? 'Bidhaa Zinazofanana na Mapendekezo' : 'Similar Products & Recommendations'}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                {isSw
+                  ? 'Zimepangwa kwa kundi, chapa, sifa za kiufundi na uwiano wa bei'
+                  : 'Ranked by category, brand, technical specs, and price tier'}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setSimilarFilter('all')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    similarFilter === 'all'
+                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {isSw ? 'Zote' : 'All Matches'}
+                </button>
+                {hasSameCategoryRecs && (
+                  <button
+                    type="button"
+                    onClick={() => setSimilarFilter('category')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                      similarFilter === 'category'
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {isSw ? 'Kundi Moja' : 'Same Category'}
+                  </button>
+                )}
+                {hasSameBrandRecs && (
+                  <button
+                    type="button"
+                    onClick={() => setSimilarFilter('brand')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                      similarFilter === 'brand'
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {isSw ? 'Chapa Moja' : 'Same Brand'}
+                  </button>
+                )}
+                {hasFeatureMatchRecs && (
+                  <button
+                    type="button"
+                    onClick={() => setSimilarFilter('features')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                      similarFilter === 'features'
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {isSw ? 'Sifa Zinazofanana' : 'By Features'}
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={onBack}
+                className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 flex items-center gap-1 px-2 py-1.5 cursor-pointer"
+              >
+                <span>{isSw ? 'Bidhaa Zote' : 'Explore All'}</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {fallbackSimilar.map((item) => (
-              <div
-                key={item.id}
-                onClick={() => onSelectProduct(item)}
-                className="bg-white dark:bg-slate-800 border-none rounded-2xl p-4 transition-all hover:shadow-xl cursor-pointer group flex flex-col justify-between"
-              >
-                <div>
-                  <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-xl overflow-hidden mb-3 relative flex items-center justify-center">
-                    <img
-                      src={item.image}
-                      alt={item.name}
-                      className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-300"
-                    />
+            {displayedSimilarRecs.map((rec) => {
+              const item = rec.product;
+              const isOutOfStock = Number(item.stock ?? 0) <= 0 || item.inStock === false;
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => onSelectProduct(item)}
+                  className="bg-white dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700/70 rounded-2xl p-4 transition-all hover:shadow-xl cursor-pointer group flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="aspect-square bg-slate-50 dark:bg-slate-900 rounded-xl overflow-hidden mb-3 relative flex items-center justify-center">
+                      <img
+                        src={item.image}
+                        alt={item.name}
+                        className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-300"
+                      />
+                    </div>
+                    <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate">
+                      {item.brand} · {isSw ? rec.reasonSw : rec.reasonEn}
+                    </p>
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-2 mt-1 mb-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                      {item.name}
+                    </h4>
                   </div>
-                  <span className="text-[10px] font-extrabold text-blue-600 uppercase tracking-wider">{item.brand}</span>
-                  <h4 className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2 mt-0.5 mb-2 group-hover:text-blue-600 transition-colors">
-                    {item.name}
-                  </h4>
-                </div>
 
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                  <span className="text-xs font-extrabold text-slate-900 dark:text-white">{formatTZS(item.price)}</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      addToCart(item, 1);
-                    }}
-                    className="bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 dark:text-slate-200 p-2 rounded-xl transition-all"
-                    title="Add to Cart"
-                  >
-                    <ShoppingCart className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-700/70 flex items-center justify-between gap-2">
+                    <div>
+                      <span className="text-sm font-extrabold text-slate-900 dark:text-white tabular-nums block">
+                        {formatTZS(item.price)}
+                      </span>
+                      {isOutOfStock && (
+                        <span className="text-[10px] font-semibold text-rose-500">
+                          {isSw ? 'Imeisha Stoo' : 'Out of Stock'}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isOutOfStock}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        triggerHaptic('success');
+                        addToCart(item, 1);
+                      }}
+                      className="bg-slate-100 dark:bg-slate-700 hover:bg-blue-600 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 dark:text-slate-200 p-2.5 rounded-xl transition-all cursor-pointer"
+                      title={isSw ? 'Weka Kikapuni' : 'Add to Cart'}
+                    >
+                      <ShoppingCart className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-        </div>
+        </section>
 
         {/* EXPLORE ALL CATEGORIES BOTTOM SECTION */}
         <div className="bg-white dark:bg-slate-800 border-none rounded-3xl p-6 sm:p-8 space-y-4 shadow-2xs mt-10">

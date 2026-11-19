@@ -16,6 +16,7 @@ interface POSSalePreviewModalProps {
   total: number;
   subtotal: number;
   discount: number;
+  maxAllowedDiscount?: number;
   tax: number;
   paymentMethod: string;
   paymentReference?: string;
@@ -51,6 +52,7 @@ export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
   total,
   subtotal,
   discount,
+  maxAllowedDiscount,
   tax,
   paymentMethod,
   paymentReference,
@@ -186,25 +188,41 @@ export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
 
                   {/* Resolution Buttons */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        triggerHaptic('success');
-                        onApplyDiscount?.(shortageAmount);
-                      }}
-                      className="p-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-800 dark:text-amber-200 text-left transition-all group flex items-start gap-2.5"
-                    >
-                      <Tag className="w-4 h-4 text-amber-500 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
-                      <div>
-                        <div className="text-xs font-black flex items-center gap-1">
-                          <span>Apply Shortage as Discount</span>
-                          <span className="text-[10px] text-amber-500">(-{formatTZS(shortageAmount)})</span>
-                        </div>
-                        <p className="text-[11px] opacity-80 mt-0.5">
-                          Adjust total payable to {formatTZS(effectiveAllocated)} so the sale is 100% paid.
-                        </p>
-                      </div>
-                    </button>
+                    {(() => {
+                      const exceedsMarginLimit =
+                        maxAllowedDiscount !== undefined && (discount + shortageAmount) > maxAllowedDiscount;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerHaptic(exceedsMarginLimit ? 'warning' : 'success');
+                            onApplyDiscount?.(shortageAmount);
+                          }}
+                          className={`p-3 rounded-xl border text-left transition-all group flex items-start gap-2.5 ${
+                            exceedsMarginLimit
+                              ? 'bg-rose-500/10 hover:bg-rose-500/20 border-rose-500/40 text-rose-700 dark:text-rose-200'
+                              : 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/40 text-amber-800 dark:text-amber-200'
+                          }`}
+                        >
+                          <Tag className={`w-4 h-4 shrink-0 mt-0.5 group-hover:scale-110 transition-transform ${
+                            exceedsMarginLimit ? 'text-rose-500' : 'text-amber-500'
+                          }`} />
+                          <div>
+                            <div className="text-xs font-black flex items-center gap-1 flex-wrap">
+                              <span>{exceedsMarginLimit ? 'Discount Not Approved' : 'Apply Shortage as Discount'}</span>
+                              <span className={`text-[10px] ${exceedsMarginLimit ? 'text-rose-500' : 'text-amber-500'}`}>
+                                (-{formatTZS(shortageAmount)})
+                              </span>
+                            </div>
+                            <p className="text-[11px] opacity-80 mt-0.5">
+                              {exceedsMarginLimit
+                                ? 'Exceeds approved minimum selling limit. Collect balance or convert to Loan.'
+                                : `Adjust total payable to ${formatTZS(effectiveAllocated)} so the sale is 100% paid.`}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })()}
 
                     <button
                       type="button"

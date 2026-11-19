@@ -3087,8 +3087,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   ]);
   const [activeSerialInputItem, setActiveSerialInputItem] = useState<{ productId: string; productName: string; quantity: number; currentSerials: string[] } | null>(null);
   const [posDiscount, setPosDiscount] = useState(0);
+  const [editingPosItemPrice, setEditingPosItemPrice] = useState<{ productId: string; value: string } | null>(null);
+  const [posMarginNotice, setPosMarginNotice] = useState<string | null>(null);
   const [posExtraCosts, setPosExtraCosts] = useState<ExtraCost[]>([]);
-  const [posIncludeVat, setPosIncludeVat] = useState<boolean>(true);
+  const [posIncludeVat, setPosIncludeVat] = useState<boolean>(false);
   const [posSendReceiptEmail, setPosSendReceiptEmail] = useState<boolean>(true);
   const [posPaymentMethod, setPosPaymentMethod] = useState<string>('Cash');
   const [posPaymentReference, setPosPaymentReference] = useState<string>('');
@@ -4255,6 +4257,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const handleClearCartPOS = () => {
     setPosCart([]);
     setPosDiscount(0);
+    setEditingPosItemPrice(null);
+    setPosMarginNotice(null);
+    setPosIncludeVat(false);
     setPosExtraCosts([]);
     setPosTenderedAmount(0);
     setPosPaymentReference('');
@@ -4382,7 +4387,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setPosCustomerPhone(order.customerPhone || order.customer_phone || order.phone || '');
     if (order.customerTin) setPosCustomerTin(order.customerTin);
     if (order.discount) setPosDiscount(Number(order.discount));
-    if (order.includeVat !== undefined) setPosIncludeVat(Boolean(order.includeVat));
+    setPosIncludeVat(order.includeVat === true);
     setPosActivePage('register');
     showAlert('Order Loaded', `Order ${order.id} loaded into POS Register cart for editing.`, 'alert');
   };
@@ -4416,8 +4421,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       cashierName: activeCashier,
       customerName: order.customerName || order.customer_name || 'Walk-in Customer',
       customerPhone: order.customerPhone || order.customer_phone || order.phone || '',
-      includeVat: order.includeVat ?? true,
-      vatPercentage: order.vatPercentage ?? (order.includeVat ? 18 : 0),
+      includeVat: order.includeVat === true,
+      vatPercentage: order.includeVat === true ? (order.vatPercentage ?? 18) : 0,
       tenderedAmount: tenderDetails.tenderedAmount,
       changeAmount: tenderDetails.changeAmount,
       orderReference: cleanOrderRef,
@@ -4571,14 +4576,33 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     } catch {}
   };
 
-  const getPosItemUnitPrice = (item: { product: Product; priceTier?: 'retail' | 'wholesale'; price?: number }) => {
+  const showPosMarginNotice = (msg: string) => {
+    setPosMarginNotice(msg);
+    setTimeout(() => {
+      setPosMarginNotice((curr) => (curr === msg ? null : curr));
+    }, 4500);
+  };
+
+  const getPosItemCostPrice = (product: Product): number => {
+    return Math.max(0, Number(product?.costPrice ?? (product as any)?.cost_price ?? 0) || 0);
+  };
+
+  // Minimum allowed selling unit price: Cost Price + 5% margin floor
+  const getPosItemMinAllowedPrice = (product: Product): number => {
+    const costPrice = getPosItemCostPrice(product);
+    return costPrice > 0 ? Math.round(costPrice * 1.05) : 0;
+  };
+
+  const getPosItemCatalogPrice = (item: { product: Product; priceTier?: 'retail' | 'wholesale' }) => {
     const tier = item.priceTier || posPriceTier;
+    const retailPrice = Number(item.product.price || 0);
+    const costPrice = getPosItemCostPrice(item.product);
+    const minMarginPrice = costPrice > 0 ? Math.round(costPrice * 1.05) : 0;
+
     if (tier === 'wholesale') {
-      if (item.price !== undefined && item.price > 0) return item.price;
-      if (item.product.wholesalePrice && item.product.wholesalePrice > 0) return item.product.wholesalePrice;
-      
-      const retailPrice = Number(item.product.price || 0);
-      const costPrice = Number(item.product.costPrice || 0);
+      if (item.product.wholesalePrice && item.product.wholesalePrice > 0) {
+        return Number(item.product.wholesalePrice);
+      }
 
       // If user customized posWholesaleDiscountPct away from default (8%), respect the manual selector
       // Otherwise, use dynamic value-based discount tier (< 10%) based on product value
@@ -4594,25 +4618,71 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           discountPct = 6; // 6% off standard everyday items (< 10%)
         }
       }
-      
+
       let calculatedWholesale = Math.round(retailPrice * (1 - discountPct / 100));
-      
-      // Strict Profit Margin Protection: Never sell below cost price + minimal profit buffer
+
+      // Strict Profit Margin Protection: Never drop wholesale price below Cost Price + 5%
       if (costPrice > 0) {
-        if (calculatedWholesale < costPrice) {
-          calculatedWholesale = costPrice;
+        const floor = retailPrice > 0 ? Math.min(retailPrice, minMarginPrice) : minMarginPrice;
+        if (calculatedWholesale < floor) {
+          calculatedWholesale = floor;
         }
       }
-      
+
       return calculatedWholesale;
     }
-    return Number(item.product.price || 0);
+    return retailPrice;
+  };
+
+  const getPosItemUnitPrice = (item: { product: Product; priceTier?: 'retail' | 'wholesale'; price?: number }) => {
+    if (item.price !== undefined && item.price !== null && Number(item.price) >= 0) {
+      return Number(item.price);
+    }
+    return getPosItemCatalogPrice(item);
+  };
+
+  const handleUpdatePosItemPrice = (productId: string, rawPrice: number) => {
+    const targetItem = posCart.find((item) => item.product.id === productId);
+    if (!targetItem) return;
+
+    const catalogPrice = getPosItemCatalogPrice(targetItem);
+    const minMarginPrice = getPosItemMinAllowedPrice(targetItem.product);
+    const effectiveMinPrice =
+      minMarginPrice > 0
+        ? (catalogPrice > 0 && catalogPrice < minMarginPrice ? catalogPrice : minMarginPrice)
+        : 0;
+
+    let finalPrice = Math.max(0, Math.round(Number(rawPrice) || 0));
+    if (effectiveMinPrice > 0 && finalPrice < effectiveMinPrice) {
+      finalPrice = effectiveMinPrice;
+      triggerHaptic('warning');
+      showPosMarginNotice(
+        `Price for "${targetItem.product.name}" was below the approved selling limit and has been adjusted.`
+      );
+    } else {
+      triggerHaptic('light');
+    }
+
+    setPosCart((prev) =>
+      prev.map((item) =>
+        item.product.id === productId
+          ? { ...item, price: finalPrice === catalogPrice ? undefined : finalPrice }
+          : item
+      )
+    );
   };
 
   const posVatPct = Math.min(100, Math.max(0, Number(storeSettings?.vatPercentage ?? 18)));
   const posCartGross = posCart.reduce((sum, item) => sum + getPosItemUnitPrice(item) * item.quantity, 0);
+  const posCartMinMarginTotal = posCart.reduce((sum, item) => {
+    const unitPrice = getPosItemUnitPrice(item);
+    const minUnitPrice = getPosItemMinAllowedPrice(item.product);
+    const effectiveUnitFloor = minUnitPrice > 0 ? Math.min(unitPrice, minUnitPrice) : 0;
+    return sum + effectiveUnitFloor * item.quantity;
+  }, 0);
+  const posMaxAllowedDiscount = Math.max(0, posCartGross - posCartMinMarginTotal);
   const posExtraCostsTotal = posExtraCosts.reduce((sum, cost) => sum + (Number(cost.amount) || 0), 0);
-  const posDiscountClamped = Math.min(Math.max(0, Number(posDiscount) || 0), posCartGross);
+  const posDiscountClamped = Math.min(Math.max(0, Number(posDiscount) || 0), posMaxAllowedDiscount);
   const posDiscountedGross = Math.max(0, posCartGross - posDiscountClamped);
 
   const posVatInclusiveGross = posCart.reduce((sum, item) => {
@@ -4682,7 +4752,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const handleApplyPosShortageAsDiscount = (shortage: number) => {
     if (shortage <= 0) return;
-    setPosDiscount((prev) => (Number(prev) || 0) + shortage);
+    const requestedTotalDisc = posDiscountClamped + shortage;
+    if (requestedTotalDisc > posMaxAllowedDiscount) {
+      triggerHaptic('warning');
+      showAlert(
+        'Discount Limit Exceeded',
+        `Cannot apply the full ${formatTZS(shortage)} shortage as a discount because it exceeds the approved selling limit. Please collect the remaining balance or convert the sale to Loan.`,
+        'warning'
+      );
+      return;
+    }
+    setPosDiscount(requestedTotalDisc);
     triggerHaptic('success');
     showAlert(
       'Shortage Applied as Discount',
@@ -10235,19 +10315,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                     let tier = 'Standard';
                     let tierColor = 'bg-slate-500/10 text-slate-400 border-slate-500/20';
-                    let suggestedDiscountPct = 0;
                     if (totalSpend >= 5000000) {
-                      tier = 'Platinum VIP';
+                      tier = 'Platinum Client';
                       tierColor = 'bg-purple-500/10 text-purple-400 border-purple-500/30';
-                      suggestedDiscountPct = 10;
                     } else if (totalSpend >= 2000000) {
-                      tier = 'Gold VIP';
+                      tier = 'Gold Client';
                       tierColor = 'bg-amber-500/10 text-amber-400 border-amber-500/30';
-                      suggestedDiscountPct = 5;
                     } else if (totalSpend >= 500000) {
-                      tier = 'Silver Member';
+                      tier = 'Silver Client';
                       tierColor = 'bg-blue-500/10 text-blue-400 border-blue-500/30';
-                      suggestedDiscountPct = 3;
                     }
 
                     const isWalkIn = cleanName === 'walk-in customer' || cleanName === 'walk-in';
@@ -10472,21 +10548,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                   </span>
                                 )}
                               </div>
-
-                              {suggestedDiscountPct > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const disc = Math.round(posCartGross * (suggestedDiscountPct / 100));
-                                    setPosDiscount(disc);
-                                    triggerHaptic('success');
-                                  }}
-                                  className="text-[10px] font-bold text-amber-500 hover:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20 flex items-center gap-1"
-                                >
-                                  <Sparkles className="w-2.5 h-2.5" />
-                                  <span>Apply {suggestedDiscountPct}% VIP Discount</span>
-                                </button>
-                              )}
                             </div>
 
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1 border-t border-slate-200 dark:border-slate-800 text-[11px]">
@@ -10530,8 +10591,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     ) : (
                       posCart.map((item) => {
                         const stock = Number(item.product.stock || 0);
+                        const catalogPrice = getPosItemCatalogPrice(item);
                         const unitPrice = getPosItemUnitPrice(item);
                         const isWholesale = (item.priceTier || posPriceTier) === 'wholesale';
+                        const isNegotiatedPrice = item.price !== undefined && Number(item.price) !== catalogPrice;
+                        const isEditingThisPrice = editingPosItemPrice?.productId === item.product.id;
                         const serialCount = (item.serialNumbers || []).length;
                         return (
                           <div
@@ -10551,25 +10615,101 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <h4 className={`font-bold text-xs truncate ${textTitle}`}>{item.product.name}</h4>
                                   {isWholesale && (
-                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-purple-500/20 text-purple-400 border border-purple-500/30">
                                       Wholesale
                                     </span>
                                   )}
+                                  {isNegotiatedPrice && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                                      Negotiated
+                                    </span>
+                                  )}
                                   {item.product?.isVatInclusive !== false && posVatPct > 0 ? (
-                                    <span className="px-1.5 py-0.2 rounded text-[8.5px] font-extrabold bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                                      VAT Incl.
+                                    <span className={`px-1.5 py-0.5 rounded text-[8.5px] font-extrabold border ${
+                                      posIncludeVat
+                                        ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                                        : 'bg-slate-500/15 text-slate-500 dark:text-slate-400 border-slate-500/25'
+                                    }`}>
+                                      {posIncludeVat ? 'VAT Incl.' : 'VAT Off'}
                                     </span>
                                   ) : (
-                                    <span className="px-1.5 py-0.2 rounded text-[8.5px] font-extrabold bg-slate-500/20 text-slate-500 dark:text-slate-400 border border-slate-500/30">
+                                    <span className="px-1.5 py-0.5 rounded text-[8.5px] font-extrabold bg-slate-500/20 text-slate-500 dark:text-slate-400 border border-slate-500/30">
                                       Non-VAT
                                     </span>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <span className="text-[11px] font-extrabold text-blue-500">{formatTZS(unitPrice)}</span>
-                                  {isWholesale && item.product.price && Number(item.product.price) > unitPrice && (
-                                    <span className="text-[10px] text-slate-400 line-through">{formatTZS(item.product.price)}</span>
+
+                                {/* Negotiable Unit Price Control (Protected silently in background) */}
+                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                  {isEditingThisPrice ? (
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[10px] font-bold text-slate-400">TZS</span>
+                                      <input
+                                        type="number"
+                                        autoFocus
+                                        min="0"
+                                        value={editingPosItemPrice.value}
+                                        onChange={(e) =>
+                                          setEditingPosItemPrice({ productId: item.product.id, value: e.target.value })
+                                        }
+                                        onFocus={(e) => e.target.select()}
+                                        onBlur={() => {
+                                          handleUpdatePosItemPrice(item.product.id, Number(editingPosItemPrice.value));
+                                          setEditingPosItemPrice(null);
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            handleUpdatePosItemPrice(item.product.id, Number(editingPosItemPrice.value));
+                                            setEditingPosItemPrice(null);
+                                          } else if (e.key === 'Escape') {
+                                            setEditingPosItemPrice(null);
+                                          }
+                                        }}
+                                        className={`w-24 px-1.5 py-0.5 rounded-lg text-[11px] font-extrabold border border-blue-500 outline-none ${inputBg}`}
+                                      />
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setEditingPosItemPrice({ productId: item.product.id, value: String(unitPrice) })
+                                      }
+                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-[11px] font-extrabold transition-all cursor-pointer ${
+                                        isNegotiatedPrice
+                                          ? 'bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20'
+                                          : 'bg-blue-500/10 text-blue-500 border-blue-500/25 hover:bg-blue-500/20'
+                                      }`}
+                                      title="Click to edit unit price"
+                                    >
+                                      <span>{formatTZS(unitPrice)}</span>
+                                      <Edit className="w-2.5 h-2.5 opacity-75" />
+                                    </button>
                                   )}
+
+                                  {catalogPrice > unitPrice && (
+                                    <span className="text-[10px] text-slate-400 line-through">{formatTZS(catalogPrice)}</span>
+                                  )}
+
+                                  {isNegotiatedPrice && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPosCart((prev) =>
+                                          prev.map((ci) =>
+                                            ci.product.id === item.product.id ? { ...ci, price: undefined } : ci
+                                          )
+                                        );
+                                        setEditingPosItemPrice(null);
+                                        triggerHaptic('light');
+                                      }}
+                                      className="text-[9.5px] font-bold text-slate-400 hover:text-blue-500 underline cursor-pointer"
+                                      title="Reset to default price"
+                                    >
+                                      Reset
+                                    </button>
+                                  )}
+
                                   <span className="text-[10px] text-slate-400">· Max {stock}</span>
                                 </div>
                               </div>
@@ -10688,41 +10828,38 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       </span>
                     </label>
 
-                    {/* Quick Discount Input */}
-                    <div className="flex items-center gap-1 p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
-                      <Percent className="w-3.5 h-3.5 text-slate-400 ml-1 shrink-0" />
+                    {/* Optional Discount Input (Margin limit enforced silently in background) */}
+                    <div className="col-span-2 flex items-center gap-1.5 p-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                      <Percent className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 shrink-0">Discount (TZS):</span>
                       <input
                         type="number"
-                        placeholder="Discount TZS"
+                        placeholder="0 (Optional)"
                         min="0"
-                        value={posDiscount || ''}
-                        onChange={(e) => setPosDiscount(Number(e.target.value) || 0)}
-                        className={`w-full bg-transparent text-xs font-bold outline-none px-1 ${textTitle}`}
+                        value={posDiscountClamped || ''}
+                        onChange={(e) => {
+                          const raw = Math.max(0, Number(e.target.value) || 0);
+                          if (posCart.length > 0 && raw > posMaxAllowedDiscount) {
+                            setPosDiscount(posMaxAllowedDiscount);
+                            triggerHaptic('warning');
+                            showPosMarginNotice(
+                              'Entered discount exceeded the approved selling limit and was adjusted.'
+                            );
+                          } else {
+                            setPosDiscount(raw);
+                          }
+                        }}
+                        className={`w-full bg-transparent text-xs font-bold outline-none px-1 text-right ${textTitle}`}
                       />
                     </div>
                   </div>
 
-                  {/* Quick % Discount Buttons */}
-                  <div className="flex items-center gap-1 text-[10px]">
-                    <span className={`font-semibold shrink-0 ${textSub}`}>Quick %:</span>
-                    {[0, 5, 10, 15, 20].map((pct) => (
-                      <button
-                        key={pct}
-                        type="button"
-                        onClick={() => {
-                          const disc = Math.round(posCartGross * (pct / 100));
-                          setPosDiscount(disc);
-                        }}
-                        className={`px-2 py-0.5 rounded-md font-bold transition-all border ${
-                          posDiscount === Math.round(posCartGross * (pct / 100)) && posCartGross > 0
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 hover:text-white'
-                        }`}
-                      >
-                        {pct === 0 ? 'None' : `${pct}%`}
-                      </button>
-                    ))}
-                  </div>
+                  {posMarginNotice && (
+                    <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-500 text-[10.5px] font-bold flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{posMarginNotice}</span>
+                    </div>
+                  )}
 
                   {/* Extra Costs & Services (Transport, Delivery, Installation, Custom) */}
                   <div className={`p-2.5 rounded-2xl border ${isDark ? 'bg-slate-800/30 border-slate-700/70' : 'bg-slate-50 border-slate-200'}`}>
@@ -10846,7 +10983,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       </div>
                     )}
 
-                    {posDiscount > 0 && (
+                    {posDiscountClamped > 0 && (
                       <div className="flex justify-between text-rose-500 font-bold">
                         <span>Discount Applied</span>
                         <span>-{formatTZS(posDiscountClamped)}</span>
@@ -16768,6 +16905,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         total={posTotal}
         subtotal={posSubtotal}
         discount={posDiscountClamped}
+        maxAllowedDiscount={posMaxAllowedDiscount}
         tax={posTax}
         paymentMethod={posPaymentMethod}
         paymentReference={!isSplitPaymentMode ? posPaymentReference : undefined}

@@ -31,6 +31,27 @@
     display: none !important;
   }
 
+  /* Complete Print Isolation for Paginated A4 Invoices:
+     When an invoice print portal is mounted on body, hide #root and every non-invoice element */
+  body.ge-printing-invoice > *:not(.ge-invoice-print-portal),
+  body:has(.ge-invoice-print-portal) > *:not(.ge-invoice-print-portal) {
+    display: none !important;
+  }
+
+  .ge-invoice-print-portal {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    overflow: visible !important;
+  }
+
+  .ge-invoice-screen-preview {
+    display: none !important;
+  }
+
   /* Reset fixed modal overlay wrappers containing printable invoice or receipt */
   div:has(.printable-invoice-root),
   div:has(.printable-receipt-root),
@@ -62,7 +83,7 @@
     width: 100% !important;
     max-width: 210mm !important;
     margin: 0 auto !important;
-    padding: 16px 20px !important;
+    padding: 0 !important;
     background: #ffffff !important;
     color: #000000 !important;
     box-shadow: none !important;

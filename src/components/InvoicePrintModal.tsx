@@ -27,7 +27,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
 }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-2 sm:p-4 md:p-6 overflow-y-auto">
-      <div className="bg-slate-900 rounded-3xl shadow-2xl border border-slate-700/80 w-full max-w-4xl max-h-[95vh] h-[95vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 my-auto">
+      <div className="bg-slate-900 rounded-3xl shadow-2xl border border-slate-700/80 w-full max-w-5xl max-h-[95vh] h-[95vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 my-auto">
         <InvoiceGenerator
           order={order}
           onClose={onClose}

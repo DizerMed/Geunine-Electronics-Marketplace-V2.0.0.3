@@ -1922,9 +1922,25 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     paymentStatus: order.paymentStatus,
   });
 
+  const stampStatusTitle = docType === 'delivery'
+    ? 'DISPATCHED & VERIFIED'
+    : docType === 'proforma'
+    ? 'OFFICIAL QUOTATION'
+    : order.paymentStatus === 'Paid'
+    ? 'PAID & VERIFIED'
+    : (includeVat && activeVatPercentage > 0 && calculatedTax > 0 ? 'TAX INVOICE ISSUED' : 'COMMERCIAL INVOICE');
+
+  const stampBottomMeta = storeSettings?.tin
+    ? `TIN: ${storeSettings.tin} • DAR ES SALAAM, TZ`
+    : docType === 'proforma' && quotationValidUntil
+    ? `VALID UNTIL: ${quotationValidUntil.toUpperCase()}`
+    : docType === 'delivery'
+    ? `${totalUnits} UNITS • DAR ES SALAAM, TZ`
+    : 'DAR ES SALAAM • TANZANIA';
+
   const renderFooterSealSection = () => (
-    <div className="pt-3 flex justify-between items-center text-[10px] text-slate-600 border-t-2 border-slate-900 keep-together">
-      <div className="flex items-center gap-3">
+    <div className="pt-3 flex justify-between items-center gap-4 text-[10px] text-slate-600 border-t-2 border-slate-900 keep-together">
+      <div className="flex items-center gap-3 min-w-0 flex-1">
         <a
           href={verificationUrl}
           target="_blank"
@@ -1938,16 +1954,16 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
             level="M"
           />
         </a>
-        <div>
+        <div className="min-w-0">
           <p className="font-black text-slate-900 text-xs">Genuine Electronics Tanzania Ltd</p>
-          <p className="text-[10px] text-slate-600">
+          <p className="text-[10px] text-slate-600 leading-snug">
             {docType === 'delivery'
               ? 'Scan QR Code to verify consignment dispatch & authentic packing slip online.'
               : docType === 'proforma'
               ? 'Scan QR Code to verify official quotation & validity terms online.'
               : 'Scan QR Code to verify document authenticity & fiscal status online.'}
           </p>
-          <p className="text-[9px] text-slate-500">
+          <p className="text-[9px] text-slate-500 mt-0.5">
             {docType === 'tax'
               ? (includeVat && activeVatPercentage > 0 && calculatedTax > 0 ? 'Commercial Electronic Tax Invoice' : 'Commercial Electronic Sales Invoice')
               : docType === 'proforma'
@@ -1957,27 +1973,42 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         </div>
       </div>
 
-      <div className="text-right flex items-center gap-3">
+      <div className="text-right flex items-center gap-3.5 shrink-0">
         {showStamp && (
-          <div className="official-stamp border-2 border-dashed border-[#0033a0] rounded-full w-24 h-24 flex flex-col items-center justify-center p-1 text-center text-[#0033a0] select-none rotate-[-4deg] bg-blue-50/80 shadow-sm shrink-0">
-            <div className="border border-[#0033a0]/80 rounded-full w-full h-full flex flex-col items-center justify-center p-0.5">
-              <span className="text-[7.5px] font-black uppercase tracking-wider leading-none text-[#0033a0]">
-                ★ GENUINE ELEC. ★
+          <div
+            title={`Official Verified Stamp • ${currentDocRef} • ${orderDate}`}
+            className="official-stamp group border-2 border-[#0033a0] rounded-lg p-[2px] text-center text-[#0033a0] select-none rotate-[-2.5deg] hover:rotate-0 transition-transform duration-200 bg-[#eff4ff]/85 shadow-sm shrink-0 min-w-[186px] max-w-[224px]"
+          >
+            <div className="border border-dashed border-[#0033a0]/80 rounded-[5px] px-2.5 py-1.5 flex flex-col items-center justify-center">
+              <span className="text-[7.5px] font-black uppercase tracking-[0.12em] leading-tight text-[#0033a0]">
+                ★ {(storeSettings?.storeName || 'GENUINE ELECTRONICS').toUpperCase()} ★
               </span>
-              <span className="text-[7px] font-black border-y border-[#0033a0] py-0.5 my-0.5 uppercase tracking-widest text-[#002270] w-full">
-                {docType === 'tax' ? 'TAX INVOICE' : docType === 'proforma' ? 'QUOTATION' : 'DELIVERY NOTE'}
-              </span>
-              <span className="text-[6.5px] font-bold font-mono leading-none text-[#0033a0]">
-                {orderDate.split(' ')[0] || 'VERIFIED'}
-              </span>
-              <span className="text-[6px] font-black text-emerald-800 uppercase tracking-tighter mt-0.5">
-                {docType === 'delivery' ? 'GOODS DISPATCHED' : (order.paymentStatus === 'Paid' ? 'PAID & VERIFIED' : 'OFFICIAL SEAL')}
+
+              <div className="w-full border-y-[1.5px] border-[#0033a0] bg-[#0033a0]/[0.07] py-0.5 my-1 px-1.5">
+                <span className="text-[9.5px] font-black uppercase tracking-[0.1em] text-[#002270] block leading-tight">
+                  {stampStatusTitle}
+                </span>
+              </div>
+
+              <div className="w-full space-y-0.5 text-[7.5px] font-mono font-bold text-[#002880] leading-tight">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[#0033a0]/80 font-sans font-extrabold">DATE:</span>
+                  <span>{orderDate.toUpperCase()}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[#0033a0]/80 font-sans font-extrabold">REF:</span>
+                  <span>{currentDocRef}</span>
+                </div>
+              </div>
+
+              <span className="mt-1 pt-0.5 border-t border-[#0033a0]/25 w-full text-[6.5px] font-extrabold uppercase tracking-wider text-[#0033a0] leading-tight">
+                {stampBottomMeta}
               </span>
             </div>
           </div>
         )}
 
-        <div>
+        <div className="shrink-0">
           <div className="inline-block border-2 border-slate-900 px-3 py-1 rounded bg-slate-50 mb-1">
             <span className="text-[9px] font-black text-slate-900 uppercase tracking-widest block">
               APPROVED & AUTHORIZED

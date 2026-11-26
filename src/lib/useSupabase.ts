@@ -328,6 +328,13 @@ function normalizeClientItem<T>(tableName: string, item: any): T {
     if (clone.cashiername !== undefined && clone.cashierName === undefined) clone.cashierName = clone.cashiername;
     if (clone.vat_percentage !== undefined) clone.vatPercentage = clone.vat_percentage;
     if (clone.include_vat !== undefined) clone.includeVat = clone.include_vat;
+    if (clone.order_type !== undefined && clone.orderType === undefined) clone.orderType = clone.order_type;
+    if (clone.order_source !== undefined && clone.orderSource === undefined) clone.orderSource = clone.order_source;
+    if (clone.transferred_to_pos !== undefined && clone.transferredToPos === undefined) clone.transferredToPos = Boolean(clone.transferred_to_pos);
+    if (clone.transferred_to_pos_at !== undefined && clone.transferredToPosAt === undefined) clone.transferredToPosAt = clone.transferred_to_pos_at;
+    if (clone.transferred_by !== undefined && clone.transferredBy === undefined) clone.transferredBy = clone.transferred_by;
+    if (clone.orbi_payment_ref !== undefined && clone.orbiPaymentRef === undefined) clone.orbiPaymentRef = clone.orbi_payment_ref;
+    if (clone.auto_completed_via_orbi_pay !== undefined && clone.autoCompletedViaOrbiPay === undefined) clone.autoCompletedViaOrbiPay = Boolean(clone.auto_completed_via_orbi_pay);
     if (clone.created_at !== undefined) clone.createdAt = clone.created_at;
     if (clone.updated_at !== undefined) clone.updatedAt = clone.updated_at;
 

@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { POSTransaction, SaleReturn, StoreSettings, formatTZS, formatToGMT3 } from '../types';
 import { Printer, Download, X, Calendar, DollarSign, CreditCard, Smartphone, CheckCircle, FileText, ArrowDownRight } from 'lucide-react';
 import { triggerHaptic } from '../utils/haptics';
@@ -94,9 +95,31 @@ export const POSZReportModal: React.FC<POSZReportModalProps> = ({
   const expectedClosingCash = Math.max(0, openingCash + cashCollected - cashRefundsPaidOut);
   const cashDiscrepancy = actualClosingCash > 0 ? actualClosingCash - expectedClosingCash : 0;
 
+  useEffect(() => {
+    const handleBeforePrint = () => {
+      if (!document.body.classList.contains('ge-printing-invoice') && document.querySelector('.ge-doc-print-portal')) {
+        document.body.classList.add('ge-printing-doc');
+      }
+    };
+    const handleAfterPrint = () => {
+      document.body.classList.remove('ge-printing-doc');
+    };
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('afterprint', handleAfterPrint);
+      document.body.classList.remove('ge-printing-doc');
+    };
+  }, []);
+
   const handlePrint = () => {
     triggerHaptic('medium');
+    document.body.classList.add('ge-printing-doc');
     window.print();
+    setTimeout(() => {
+      document.body.classList.remove('ge-printing-doc');
+    }, 1500);
   };
 
   const activeVatPct = storeSettings?.vatPercentage ?? 18;
@@ -143,87 +166,8 @@ export const POSZReportModal: React.FC<POSZReportModalProps> = ({
     document.body.removeChild(link);
   };
 
-  return (
-    <div id="z-report-modal" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in overflow-y-auto">
-      <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-8">
-        {/* Header toolbar */}
-        <div className="flex items-center justify-between p-4 bg-slate-900 text-white border-b border-slate-800 no-print">
-          <div className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-amber-400" />
-            <h3 className="font-bold text-base tracking-wide">POS Z-Report (Daily Register Closure)</h3>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              id="z-report-export-csv-btn"
-              onClick={handleExportCSV}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition-colors border border-slate-700"
-              title="Download accounting CSV"
-            >
-              <Download className="w-3.5 h-3.5" />
-              CSV Export
-            </button>
-            <button
-              id="z-report-print-btn"
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg transition-colors shadow-sm"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              Print Z-Report
-            </button>
-            <button
-              id="z-report-close-btn"
-              onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Date Selector & Drawer Configuration */}
-        <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700/50 no-print flex flex-wrap items-center gap-4 text-xs">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-slate-500" />
-            <span className="font-semibold text-slate-700 dark:text-slate-300">Report Date:</span>
-            <input
-              id="z-report-date-picker"
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-700 dark:text-slate-300">Opening Float:</span>
-            <input
-              id="z-report-opening-float"
-              type="number"
-              value={openingCash}
-              onChange={(e) => setOpeningCash(Math.max(0, Number(e.target.value) || 0))}
-              placeholder="50,000"
-              className="w-24 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-right font-semibold text-slate-800 dark:text-slate-200"
-            />
-            <span className="text-slate-400">TZS</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-700 dark:text-slate-300">Physical Cash Count:</span>
-            <input
-              id="z-report-closing-cash-count"
-              type="number"
-              value={actualClosingCash || ''}
-              onChange={(e) => setActualClosingCash(Math.max(0, Number(e.target.value) || 0))}
-              placeholder="Count in drawer"
-              className="w-28 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-right font-semibold text-slate-800 dark:text-slate-200"
-            />
-            <span className="text-slate-400">TZS</span>
-          </div>
-        </div>
-
-        {/* Printable Report Content (Thermal Monospace Friendly) */}
-        <div className="p-6 overflow-y-auto max-h-[70vh] bg-white text-black font-mono">
-          <div ref={reportRef} className="max-w-[480px] mx-auto p-4 border-2 border-black space-y-3 text-xs leading-relaxed">
+  const renderZReportSheet = (withRef = false) => (
+    <div ref={withRef ? reportRef : undefined} className="max-w-[480px] mx-auto p-4 border-2 border-black space-y-3 text-xs leading-relaxed bg-white text-black font-mono">
             {/* Store Banner */}
             <div className="text-center pb-2 border-b-2 border-black space-y-0.5">
               <h2 className="font-black text-base uppercase tracking-wider">{storeSettings?.storeName || 'GENUINE ELECTRONICS'}</h2>
@@ -361,9 +305,104 @@ export const POSZReportModal: React.FC<POSZReportModalProps> = ({
                 *** END OF Z-REPORT • OFFICIAL RECORD ***
               </p>
             </div>
+    </div>
+  );
+
+  return (
+    <>
+      <div id="z-report-modal" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in overflow-y-auto">
+        <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-8">
+          {/* Header toolbar */}
+          <div className="flex items-center justify-between p-4 bg-slate-900 text-white border-b border-slate-800 no-print">
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-amber-400" />
+              <h3 className="font-bold text-base tracking-wide">POS Z-Report (Daily Register Closure)</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                id="z-report-export-csv-btn"
+                onClick={handleExportCSV}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition-colors border border-slate-700"
+                title="Download accounting CSV"
+              >
+                <Download className="w-3.5 h-3.5" />
+                CSV Export
+              </button>
+              <button
+                id="z-report-print-btn"
+                onClick={handlePrint}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg transition-colors shadow-sm"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                Print Z-Report
+              </button>
+              <button
+                id="z-report-close-btn"
+                onClick={onClose}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Date Selector & Drawer Configuration */}
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700/50 no-print flex flex-wrap items-center gap-4 text-xs">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-slate-500" />
+              <span className="font-semibold text-slate-700 dark:text-slate-300">Report Date:</span>
+              <input
+                id="z-report-date-picker"
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">Opening Float:</span>
+              <input
+                id="z-report-opening-float"
+                type="number"
+                value={openingCash}
+                onChange={(e) => setOpeningCash(Math.max(0, Number(e.target.value) || 0))}
+                placeholder="50,000"
+                className="w-24 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-right font-semibold text-slate-800 dark:text-slate-200"
+              />
+              <span className="text-slate-400">TZS</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">Physical Cash Count:</span>
+              <input
+                id="z-report-closing-cash-count"
+                type="number"
+                value={actualClosingCash || ''}
+                onChange={(e) => setActualClosingCash(Math.max(0, Number(e.target.value) || 0))}
+                placeholder="Count in drawer"
+                className="w-28 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-right font-semibold text-slate-800 dark:text-slate-200"
+              />
+              <span className="text-slate-400">TZS</span>
+            </div>
+          </div>
+
+          {/* Printable Report Content (Thermal Monospace Friendly) */}
+          <div className="p-6 overflow-y-auto max-h-[70vh] bg-white text-black font-mono">
+            {renderZReportSheet(true)}
           </div>
         </div>
       </div>
-    </div>
+
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <div className="ge-doc-print-portal hidden print:block bg-white text-black p-4" aria-hidden="true">
+            <div className="ge-doc-sheet">
+              {renderZReportSheet(false)}
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
   );
 };

@@ -133,7 +133,7 @@ export interface Order {
   items: OrderItem[];
   totalAmount: number;
   total_amount?: number;
-  status: 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Completed' | 'Cancelled';
+  status: 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Completed' | 'Cancelled' | 'transferred-to-pos';
   paymentMethod: string;
   payment_method?: string;
   paymentStatus?: 'Pending' | 'Partial' | 'Paid' | 'Failed';
@@ -146,10 +146,20 @@ export interface Order {
   trackingTimeline?: TrackingTimelineEvent[];
   notes?: string;
   deliveryNotes?: string;
-  orderType?: 'standard' | 'pos_pre_sale' | 'quotation' | 'proforma';
+  orderType?: 'standard' | 'pos_pre_sale' | 'quotation' | 'proforma' | 'online_to_pos';
   order_type?: string;
   orderSource?: 'web' | 'pos' | 'direct';
   order_source?: string;
+  transferredToPos?: boolean;
+  transferred_to_pos?: boolean;
+  transferredToPosAt?: string;
+  transferred_to_pos_at?: string;
+  transferredBy?: string;
+  transferred_by?: string;
+  orbiPaymentRef?: string;
+  orbi_payment_ref?: string;
+  autoCompletedViaOrbiPay?: boolean;
+  auto_completed_via_orbi_pay?: boolean;
   cashierName?: string;
   cashier_name?: string;
   cashierId?: string;
@@ -845,3 +855,22 @@ export interface VisitorFilterOptions {
   offset?: number;
 }
 
+export interface OrbiPaymentIntent {
+  paymentRef: string;
+  gatewayTransactionId?: string;
+  orderId?: string;
+  amount: number;
+  currency: string;
+  status: 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED';
+  mode: 'live' | 'sandbox';
+  merchantId: string;
+  qrPayload: string;
+  checkoutUrl?: string;
+  customerPhone?: string;
+  customerName?: string;
+  cashierName?: string;
+  items?: OrderItem[];
+  posTransactionId?: string;
+  createdAt: string;
+  completedAt?: string;
+}

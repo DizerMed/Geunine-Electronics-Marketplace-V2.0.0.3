@@ -8,6 +8,7 @@ import { toCanvas } from 'html-to-image';
 import { formatTZS, formatToGMT3, StoreSettings, BRAND_LOGO_URL, Order } from '../types';
 import { parseInvoiceQueryParams, fetchOnlineInvoiceVerification, buildInvoiceVerificationUrl } from '../services/receiptQrService';
 import { InvoiceGenerator } from './InvoiceGenerator';
+import { buildDocumentBaseName, withTemporaryPrintTitle } from '../utils/docFilename';
 
 export interface InvoiceVerificationModalProps {
   isOpen: boolean;
@@ -131,6 +132,11 @@ export const InvoiceVerificationModal: React.FC<InvoiceVerificationModalProps> =
     }
   };
 
+  const formattedDocName = buildDocumentBaseName({
+    customerName: orderData?.customerName || queryParams.customer,
+    docNo: activeInvoiceNo,
+  });
+
   const handleShareWhatsApp = () => {
     const docTitle = activeDocType === 'delivery' 
       ? 'OFFICIAL DELIVERY NOTE' 
@@ -139,6 +145,7 @@ export const InvoiceVerificationModal: React.FC<InvoiceVerificationModalProps> =
       : 'OFFICIAL TAX INVOICE';
 
     const text = `📄 *${docTitle} - Genuine Electronics Tanzania*\n` +
+      `• Document: ${formattedDocName}\n` +
       `• Reference: ${activeInvoiceNo}\n` +
       `• Customer: ${orderData?.customerName || 'Valued Customer'}\n` +
       (activeDocType !== 'delivery' && orderData?.totalAmount ? `• Total Amount: ${formatTZS(orderData.totalAmount)}\n` : '') +
@@ -148,7 +155,9 @@ export const InvoiceVerificationModal: React.FC<InvoiceVerificationModalProps> =
   };
 
   const handlePrint = () => {
-    window.print();
+    withTemporaryPrintTitle(formattedDocName, () => {
+      window.print();
+    });
   };
 
   return (

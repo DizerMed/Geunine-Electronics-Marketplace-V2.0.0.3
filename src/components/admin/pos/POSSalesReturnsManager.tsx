@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { SaleReturn, SaleReturnItem, POSTransaction, Order, Product, StoreSettings } from '../../../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { SaleReturn, SaleReturnItem, POSTransaction, Order, Product, StoreSettings, BRAND_LOGO_URL } from '../../../types';
 import {
   Undo2,
   Search,
@@ -330,8 +331,173 @@ export const POSSalesReturnsManager: React.FC<POSSalesReturnsManagerProps> = ({
     }
   };
 
+  useEffect(() => {
+    const onBeforePrint = () => {
+      if (!document.body.classList.contains('ge-printing-invoice') && document.querySelector('.ge-doc-print-portal')) {
+        document.body.classList.add('ge-printing-doc');
+      }
+    };
+    const onAfterPrint = () => document.body.classList.remove('ge-printing-doc');
+    window.addEventListener('beforeprint', onBeforePrint);
+    window.addEventListener('afterprint', onAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', onBeforePrint);
+      window.removeEventListener('afterprint', onAfterPrint);
+      document.body.classList.remove('ge-printing-doc');
+    };
+  }, []);
+
   const handlePrintCreditNote = () => {
+    document.body.classList.add('ge-printing-doc');
     window.print();
+    window.setTimeout(() => {
+      document.body.classList.remove('ge-printing-doc');
+    }, 1500);
+  };
+
+  const renderCreditNoteSheet = (ret: SaleReturn) => {
+    const rawDate = ret.createdAt || ret.created_at;
+    const formattedDate = rawDate ? formatToGMT3(rawDate) : '—';
+    const refNumber = ret.returnNumber || ret.return_number || ret.id;
+    const custName = ret.customerName || ret.customer_name || 'Walk-in Customer';
+    const custPhone = ret.customerPhone || ret.customer_phone;
+    const receiptRef = ret.receiptNumber || ret.receipt_number || 'Direct';
+    const cashier = ret.processedBy || ret.processed_by || 'Staff';
+    const method = ret.refundMethod || ret.refund_method || 'Cash';
+    const isRestocked = ret.restockItems ?? ret.restock_items ?? true;
+    const totalRefund = Number(ret.totalRefundAmount || ret.total_refund_amount) || 0;
+
+    return (
+      <div className="ge-doc-sheet bg-white text-slate-900 font-sans text-xs rounded-xl shadow-xl border border-slate-300 p-6 sm:p-8 space-y-5 max-w-[210mm] mx-auto">
+        <div className="flex items-start justify-between gap-4 pb-4 border-b-2 border-slate-900">
+          <div className="flex items-center gap-3 min-w-0">
+            <img
+              src={BRAND_LOGO_URL}
+              alt={storeSettings?.storeName || 'Genuine Electronics'}
+              className="h-11 w-auto max-w-[110px] object-contain shrink-0"
+              referrerPolicy="no-referrer"
+            />
+            <div>
+              <h2 className="text-lg font-black tracking-tight uppercase text-slate-900">
+                {storeSettings?.storeName || 'GENUINE ELECTRONICS'}
+              </h2>
+              {storeSettings?.tagline && (
+                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">{storeSettings.tagline}</p>
+              )}
+              <p className="text-[10px] text-slate-600 mt-0.5">
+                {storeSettings?.address || 'Dar es Salaam, Tanzania'} • Tel: {storeSettings?.phone || '+255 768 929 203'}
+              </p>
+              {(storeSettings?.tin || storeSettings?.vrn) && (
+                <p className="text-[10px] font-mono text-slate-600">
+                  {storeSettings?.tin ? `TIN: ${storeSettings.tin}` : ''}
+                  {storeSettings?.tin && storeSettings?.vrn ? ' | ' : ''}
+                  {storeSettings?.vrn ? `VRN: ${storeSettings.vrn}` : ''}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="text-right shrink-0">
+            <div className="inline-block px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-900 border-2 border-rose-700">
+              Official Customer Credit Note
+            </div>
+            <p className="font-mono font-black text-base text-slate-900 mt-1.5">{refNumber}</p>
+            <p className="text-[10px] text-slate-600 font-medium">Issued: {formattedDate}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 p-3.5 rounded-xl border border-slate-300 keep-together">
+          <div>
+            <span className="font-black text-slate-500 block text-[10px] uppercase tracking-wider">ISSUED TO CUSTOMER:</span>
+            <span className="font-black text-sm text-slate-900 block mt-0.5">{custName}</span>
+            {custPhone && <span className="block text-slate-700">Tel: {custPhone}</span>}
+            <span className="block text-slate-700 mt-1">
+              <strong className="text-slate-900">Reason:</strong> {ret.reason || 'Customer Return'}
+            </span>
+          </div>
+
+          <div className="text-right space-y-0.5">
+            <span className="font-black text-slate-500 block text-[10px] uppercase tracking-wider">RETURN REFERENCE:</span>
+            <span className="block text-slate-700">
+              Receipt Ref: <strong className="font-mono text-slate-900">{receiptRef}</strong>
+            </span>
+            <span className="block text-slate-700">
+              Cashier: <strong className="text-slate-900">{cashier}</strong>
+            </span>
+            <span className="block text-slate-700">
+              Refund Method: <strong className="text-slate-900">{method}</strong>
+            </span>
+          </div>
+        </div>
+
+        <div className="border-2 border-slate-900 rounded-xl overflow-hidden">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-100 text-slate-900 border-b-2 border-slate-900 font-black">
+                <th className="p-2.5 w-9 text-center">#</th>
+                <th className="p-2.5">Returned Item</th>
+                <th className="p-2.5 text-center">Condition</th>
+                <th className="p-2.5 text-center">Qty</th>
+                <th className="p-2.5 text-right">Unit Price</th>
+                <th className="p-2.5 text-right">Refund (TZS)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {(ret.items || []).map((it, idx) => (
+                <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'}>
+                  <td className="p-2.5 text-center font-bold text-slate-500">{idx + 1}</td>
+                  <td className="p-2.5 font-bold text-slate-900">{it.productName}</td>
+                  <td className="p-2.5 text-center text-[10px] font-bold text-slate-700">{it.condition || (isRestocked ? 'Restockable' : 'Damaged')}</td>
+                  <td className="p-2.5 text-center font-black text-rose-700">-{it.quantity}</td>
+                  <td className="p-2.5 text-right text-slate-800">{formatTZS(it.unitPrice)}</td>
+                  <td className="p-2.5 text-right font-black text-slate-900">{formatTZS(it.totalRefund)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-100 font-black border-t-2 border-slate-900">
+                <td colSpan={5} className="p-2.5 text-right text-slate-900 uppercase">Total Refund Granted:</td>
+                <td className="p-2.5 text-right text-rose-800 font-mono text-sm">
+                  {formatTZS(totalRefund)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div className="flex justify-between items-center text-xs p-3 rounded-xl bg-slate-50 border border-slate-300 keep-together">
+          <div>
+            <span className="font-bold text-slate-600">Refund Method: </span>
+            <span className="font-extrabold text-slate-900">{method}</span>
+          </div>
+          <div>
+            <span className="font-bold text-slate-600">Inventory Status: </span>
+            <span className={`font-black uppercase px-2 py-0.5 rounded border ${
+              isRestocked ? 'text-emerald-800 bg-emerald-100 border-emerald-300' : 'text-red-800 bg-red-100 border-red-300'
+            }`}>
+              {isRestocked ? 'Restocked to Active Shelf' : 'Item Scrapped / Damaged'}
+            </span>
+          </div>
+        </div>
+
+        {ret.notes && (
+          <div className="p-3 rounded-lg border border-slate-300 bg-slate-50 text-[11px] text-slate-700 italic keep-together">
+            <strong className="not-italic text-slate-900">Notes:</strong> {ret.notes}
+          </div>
+        )}
+
+        <div className="pt-8 grid grid-cols-2 gap-8 text-center text-xs keep-together">
+          <div className="border-t-2 border-slate-400 pt-2">
+            <p className="font-black text-slate-900">Authorized by {storeSettings?.storeName || 'Genuine Electronics'}</p>
+            <p className="text-[10px] text-slate-500">Cashier / Store Manager Signature</p>
+          </div>
+          <div className="border-t-2 border-slate-400 pt-2">
+            <p className="font-black text-slate-900">Customer Acknowledgment</p>
+            <p className="text-[10px] text-slate-500">Customer Signature & Refund Received</p>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -858,126 +1024,49 @@ export const POSSalesReturnsManager: React.FC<POSSalesReturnsManagerProps> = ({
 
       {/* MODAL: View & Print Credit Note */}
       {selectedReturnForView && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
-          <div className={`w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl border shadow-2xl ${modalBg} border-slate-200 dark:border-slate-800 overflow-hidden`}>
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 print:hidden shrink-0">
-              <div className="flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-rose-500" />
-                <h3 className={`text-sm font-black ${textTitle}`}>
-                  Customer Credit Note: {selectedReturnForView.returnNumber || selectedReturnForView.return_number}
-                </h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePrintCreditNote}
-                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print Credit Note</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedReturnForView(null)}
-                  className="p-1 rounded-xl text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+        <>
+          {typeof document !== 'undefined' &&
+            createPortal(
+              <div className="ge-doc-print-portal hidden print:block bg-white text-slate-900" aria-hidden="true">
+                {renderCreditNoteSheet(selectedReturnForView)}
+              </div>,
+              document.body
+            )}
 
-            <div className="p-6 overflow-y-auto space-y-5 text-xs text-slate-800 dark:text-slate-200 font-sans print:p-0 print:text-black">
-              <div className="text-center pb-4 border-b border-slate-200 dark:border-slate-700">
-                <h2 className="text-xl font-black tracking-tight">{storeSettings.storeName}</h2>
-                <p className="text-[11px] text-slate-500">{storeSettings.tagline}</p>
-                <p className="text-[11px] text-slate-500">{storeSettings.address} • Tel: {storeSettings.phone}</p>
-                <div className="mt-2 inline-block px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
-                  Official Customer Credit Note Voucher
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 backdrop-blur-xs animate-in fade-in">
+            <div className={`w-full max-w-3xl max-h-[92vh] flex flex-col rounded-2xl border shadow-2xl ${modalBg} border-slate-200 dark:border-slate-800 overflow-hidden`}>
+              <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 no-print shrink-0">
+                <div className="flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-rose-500" />
+                  <h3 className={`text-sm font-black ${textTitle}`}>
+                    Customer Credit Note: {selectedReturnForView.returnNumber || selectedReturnForView.return_number}
+                  </h3>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 text-xs">
-                <div>
-                  <span className="font-bold text-slate-400 block text-[10px]">ISSUED TO CUSTOMER:</span>
-                  <span className="font-bold text-sm block">{selectedReturnForView.customerName || selectedReturnForView.customer_name}</span>
-                  {(selectedReturnForView.customerPhone || selectedReturnForView.customer_phone) && (
-                    <span className="block text-slate-500">Tel: {selectedReturnForView.customerPhone || selectedReturnForView.customer_phone}</span>
-                  )}
-                  <span className="block text-slate-500 mt-1">Reason: {selectedReturnForView.reason}</span>
-                </div>
-
-                <div className="text-right">
-                  <span className="font-bold text-slate-400 block text-[10px]">CREDIT NOTE REF:</span>
-                  <span className="font-mono font-bold text-sm text-rose-600 dark:text-rose-400 block">
-                    {selectedReturnForView.returnNumber || selectedReturnForView.return_number}
-                  </span>
-                  <span className="block text-slate-500">Receipt Ref: {selectedReturnForView.receiptNumber || selectedReturnForView.receipt_number || 'Direct'}</span>
-                  <span className="block text-slate-500">Date: {selectedReturnForView.createdAt || selectedReturnForView.created_at}</span>
-                  <span className="block text-slate-500">Cashier: {selectedReturnForView.processedBy || selectedReturnForView.processed_by || 'Staff'}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePrintCreditNote}
+                    className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print Credit Note</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedReturnForView(null)}
+                    className="p-1.5 rounded-xl text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
               </div>
 
-              <table className="w-full text-left border-collapse border border-slate-200 dark:border-slate-700">
-                <thead>
-                  <tr className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                    <th className="p-2 border border-slate-200 dark:border-slate-700">Returned Item</th>
-                    <th className="p-2 text-center border border-slate-200 dark:border-slate-700">Qty</th>
-                    <th className="p-2 text-right border border-slate-200 dark:border-slate-700">Unit Price</th>
-                    <th className="p-2 text-right border border-slate-200 dark:border-slate-700">Refund TZS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(selectedReturnForView.items || []).map((it, idx) => (
-                    <tr key={idx} className="border-b border-slate-100 dark:border-slate-800">
-                      <td className="p-2 border border-slate-200 dark:border-slate-700 font-bold">{it.productName}</td>
-                      <td className="p-2 text-center border border-slate-200 dark:border-slate-700 font-black text-rose-600">-{it.quantity}</td>
-                      <td className="p-2 text-right border border-slate-200 dark:border-slate-700">{formatTZS(it.unitPrice)}</td>
-                      <td className="p-2 text-right border border-slate-200 dark:border-slate-700 font-black">{formatTZS(it.totalRefund)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-slate-50 dark:bg-slate-800/60 font-black">
-                    <td colSpan={3} className="p-2 text-right border border-slate-200 dark:border-slate-700">Total Refund Granted:</td>
-                    <td className="p-2 text-right border border-slate-200 dark:border-slate-700 text-rose-600 dark:text-rose-400 font-mono">
-                      {formatTZS(Number(selectedReturnForView.totalRefundAmount || selectedReturnForView.total_refund_amount) || 0)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-
-              <div className="flex justify-between items-center text-xs p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
-                <div>
-                  <span className="font-bold">Refund Method: </span>
-                  <span>{selectedReturnForView.refundMethod || selectedReturnForView.refund_method}</span>
-                </div>
-                <div>
-                  <span className="font-bold">Inventory Status: </span>
-                  <span className="font-black text-emerald-600 uppercase">
-                    {(selectedReturnForView.restockItems ?? selectedReturnForView.restock_items ?? true) ? 'Restocked to Active Shelf' : 'Item Scrapped / Damaged'}
-                  </span>
-                </div>
-              </div>
-
-              {selectedReturnForView.notes && (
-                <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] text-slate-500 italic">
-                  Note: {selectedReturnForView.notes}
-                </div>
-              )}
-
-              <div className="pt-8 grid grid-cols-2 gap-8 text-center text-xs">
-                <div className="border-t border-slate-300 dark:border-slate-700 pt-2">
-                  <p className="font-bold">Authorized by Genuine Electronics</p>
-                  <p className="text-[10px] text-slate-400">Cashier / Store Manager Signature</p>
-                </div>
-                <div className="border-t border-slate-300 dark:border-slate-700 pt-2">
-                  <p className="font-bold">Customer Acknowledgment</p>
-                  <p className="text-[10px] text-slate-400">Customer Signature & Refund Received</p>
-                </div>
+              <div className="p-4 sm:p-6 overflow-y-auto bg-slate-200/70 dark:bg-slate-950/70 custom-scrollbar">
+                {renderCreditNoteSheet(selectedReturnForView)}
               </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

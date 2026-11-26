@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { Purchase, PurchaseItem, Product, StoreSettings } from '../../../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Purchase, PurchaseItem, Product, StoreSettings, BRAND_LOGO_URL } from '../../../types';
 import {
   PackagePlus,
   Search,
@@ -313,8 +314,174 @@ export const POSPurchasesManager: React.FC<POSPurchasesManagerProps> = ({
     }
   };
 
+  useEffect(() => {
+    const onBeforePrint = () => {
+      if (!document.body.classList.contains('ge-printing-invoice') && document.querySelector('.ge-doc-print-portal')) {
+        document.body.classList.add('ge-printing-doc');
+      }
+    };
+    const onAfterPrint = () => document.body.classList.remove('ge-printing-doc');
+    window.addEventListener('beforeprint', onBeforePrint);
+    window.addEventListener('afterprint', onAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', onBeforePrint);
+      window.removeEventListener('afterprint', onAfterPrint);
+      document.body.classList.remove('ge-printing-doc');
+    };
+  }, []);
+
   const handlePrintVoucher = () => {
+    document.body.classList.add('ge-printing-doc');
     window.print();
+    window.setTimeout(() => {
+      document.body.classList.remove('ge-printing-doc');
+    }, 1500);
+  };
+
+  const renderPurchaseVoucherSheet = (purchase: Purchase) => {
+    const rawDate = purchase.createdAt || purchase.created_at;
+    const formattedDate = rawDate ? formatToGMT3(rawDate) : '—';
+    const refNumber = purchase.purchaseNumber || purchase.purchase_number || purchase.id;
+    const sName = purchase.supplierName || purchase.supplier_name || 'Vendor';
+    const sPhone = purchase.supplierPhone || purchase.supplier_phone;
+    const sEmail = purchase.supplierEmail || purchase.supplier_email;
+    const invRef = purchase.invoiceNumber || purchase.invoice_number || 'N/A';
+    const receiver = purchase.receivedBy || purchase.received_by || 'Staff';
+    const pMethod = purchase.paymentMethod || purchase.payment_method || 'Cash';
+    const pStatus = purchase.paymentStatus || purchase.payment_status || 'Paid';
+    const totalAmt = Number(purchase.totalAmount || purchase.total_amount) || 0;
+
+    return (
+      <div className="ge-doc-sheet bg-white text-slate-900 font-sans text-xs rounded-xl shadow-xl border border-slate-300 p-6 sm:p-8 space-y-5 max-w-[210mm] mx-auto">
+        <div className="flex items-start justify-between gap-4 pb-4 border-b-2 border-slate-900">
+          <div className="flex items-center gap-3 min-w-0">
+            <img
+              src={BRAND_LOGO_URL}
+              alt={storeSettings?.storeName || 'Genuine Electronics'}
+              className="h-11 w-auto max-w-[110px] object-contain shrink-0"
+              referrerPolicy="no-referrer"
+            />
+            <div>
+              <h2 className="text-lg font-black tracking-tight uppercase text-slate-900">
+                {storeSettings?.storeName || 'GENUINE ELECTRONICS'}
+              </h2>
+              {storeSettings?.tagline && (
+                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">{storeSettings.tagline}</p>
+              )}
+              <p className="text-[10px] text-slate-600 mt-0.5">
+                {storeSettings?.address || 'Dar es Salaam, Tanzania'} • Tel: {storeSettings?.phone || '+255 768 929 203'}
+              </p>
+              {(storeSettings?.tin || storeSettings?.vrn) && (
+                <p className="text-[10px] font-mono text-slate-600">
+                  {storeSettings?.tin ? `TIN: ${storeSettings.tin}` : ''}
+                  {storeSettings?.tin && storeSettings?.vrn ? ' | ' : ''}
+                  {storeSettings?.vrn ? `VRN: ${storeSettings.vrn}` : ''}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="text-right shrink-0">
+            <div className="inline-block px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-900 border-2 border-indigo-700">
+              Goods Received Note (GRN)
+            </div>
+            <p className="font-mono font-black text-base text-slate-900 mt-1.5">{refNumber}</p>
+            <p className="text-[10px] text-slate-600 font-medium">Received: {formattedDate}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 p-3.5 rounded-xl border border-slate-300 keep-together">
+          <div>
+            <span className="font-black text-slate-500 block text-[10px] uppercase tracking-wider">SUPPLIER / VENDOR:</span>
+            <span className="font-black text-sm text-slate-900 block mt-0.5">{sName}</span>
+            {sPhone && <span className="block text-slate-700">Tel: {sPhone}</span>}
+            {sEmail && <span className="block text-slate-700">{sEmail}</span>}
+          </div>
+
+          <div className="text-right space-y-0.5">
+            <span className="font-black text-slate-500 block text-[10px] uppercase tracking-wider">CONSIGNMENT DETAILS:</span>
+            <span className="block text-slate-700">
+              Supplier Inv: <strong className="font-mono text-slate-900">{invRef}</strong>
+            </span>
+            <span className="block text-slate-700">
+              Receiver: <strong className="text-slate-900">{receiver}</strong>
+            </span>
+            <span className="block text-slate-700">
+              Payment Status: <strong className="text-slate-900">{pStatus}</strong>
+            </span>
+          </div>
+        </div>
+
+        <div className="border-2 border-slate-900 rounded-xl overflow-hidden">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-100 text-slate-900 border-b-2 border-slate-900 font-black">
+                <th className="p-2.5 w-9 text-center">#</th>
+                <th className="p-2.5">Item Description</th>
+                <th className="p-2.5 text-center">Inward Qty</th>
+                <th className="p-2.5 text-right">Unit Cost</th>
+                <th className="p-2.5 text-right">Total (TZS)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {(purchase.items || []).map((it, idx) => (
+                <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'}>
+                  <td className="p-2.5 text-center font-bold text-slate-500">{idx + 1}</td>
+                  <td className="p-2.5 font-bold text-slate-900">{it.productName}</td>
+                  <td className="p-2.5 text-center font-black text-emerald-700">+{it.quantity}</td>
+                  <td className="p-2.5 text-right text-slate-800">{formatTZS(it.unitCost)}</td>
+                  <td className="p-2.5 text-right font-black text-slate-900">{formatTZS(it.totalCost)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-100 font-black border-t-2 border-slate-900">
+                <td colSpan={4} className="p-2.5 text-right text-slate-900 uppercase">Grand Total Consignment:</td>
+                <td className="p-2.5 text-right text-indigo-900 font-mono text-sm">
+                  {formatTZS(totalAmt)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div className="flex justify-between items-center text-xs p-3 rounded-xl bg-slate-50 border border-slate-300 keep-together">
+          <div>
+            <span className="font-bold text-slate-600">Payment Method: </span>
+            <span className="font-extrabold text-slate-900">{pMethod}</span>
+          </div>
+          <div>
+            <span className="font-bold text-slate-600">Settlement Status: </span>
+            <span className={`font-black uppercase px-2 py-0.5 rounded border ${
+              pStatus === 'Paid'
+                ? 'text-emerald-800 bg-emerald-100 border-emerald-300'
+                : pStatus === 'Partial'
+                ? 'text-amber-800 bg-amber-100 border-amber-300'
+                : 'text-red-800 bg-red-100 border-red-300'
+            }`}>
+              {pStatus}
+            </span>
+          </div>
+        </div>
+
+        {purchase.notes && (
+          <div className="p-3 rounded-lg border border-slate-300 bg-slate-50 text-[11px] text-slate-700 italic keep-together">
+            <strong className="not-italic text-slate-900">Notes:</strong> {purchase.notes}
+          </div>
+        )}
+
+        <div className="pt-8 grid grid-cols-2 gap-8 text-center text-xs keep-together">
+          <div className="border-t-2 border-slate-400 pt-2">
+            <p className="font-black text-slate-900">Delivered by Vendor Driver / Agent</p>
+            <p className="text-[10px] text-slate-500">Signature & Date</p>
+          </div>
+          <div className="border-t-2 border-slate-400 pt-2">
+            <p className="font-black text-slate-900">Verified & Received by {storeSettings?.storeName || 'Genuine Electronics'}</p>
+            <p className="text-[10px] text-slate-500">Warehouse In-charge Signature</p>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -842,134 +1009,49 @@ export const POSPurchasesManager: React.FC<POSPurchasesManagerProps> = ({
 
       {/* MODAL: View & Print Goods Received Note / Purchase Voucher */}
       {selectedPurchaseForView && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
-          <div className={`w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl border shadow-2xl ${modalBg} border-slate-200 dark:border-slate-800 overflow-hidden`}>
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 print:hidden shrink-0">
-              <div className="flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-indigo-500" />
-                <h3 className={`text-sm font-black ${textTitle}`}>
-                  Goods Received Note: {selectedPurchaseForView.purchaseNumber || selectedPurchaseForView.purchase_number}
-                </h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePrintVoucher}
-                  className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print Note</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedPurchaseForView(null)}
-                  className="p-1 rounded-xl text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+        <>
+          {typeof document !== 'undefined' &&
+            createPortal(
+              <div className="ge-doc-print-portal hidden print:block bg-white text-slate-900" aria-hidden="true">
+                {renderPurchaseVoucherSheet(selectedPurchaseForView)}
+              </div>,
+              document.body
+            )}
 
-            {/* Printable Voucher Body */}
-            <div className="p-6 overflow-y-auto space-y-5 text-xs text-slate-800 dark:text-slate-200 font-sans print:p-0 print:text-black">
-              {/* Header */}
-              <div className="text-center pb-4 border-b border-slate-200 dark:border-slate-700">
-                <h2 className="text-xl font-black tracking-tight">{storeSettings.storeName}</h2>
-                <p className="text-[11px] text-slate-500">{storeSettings.tagline}</p>
-                <p className="text-[11px] text-slate-500">{storeSettings.address} • Tel: {storeSettings.phone}</p>
-                <div className="mt-2 inline-block px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
-                  Goods Received & Stock Inward Voucher
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 backdrop-blur-xs animate-in fade-in">
+            <div className={`w-full max-w-3xl max-h-[92vh] flex flex-col rounded-2xl border shadow-2xl ${modalBg} border-slate-200 dark:border-slate-800 overflow-hidden`}>
+              <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 no-print shrink-0">
+                <div className="flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-indigo-500" />
+                  <h3 className={`text-sm font-black ${textTitle}`}>
+                    Goods Received Note: {selectedPurchaseForView.purchaseNumber || selectedPurchaseForView.purchase_number}
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePrintVoucher}
+                    className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print Note</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPurchaseForView(null)}
+                    className="p-1.5 rounded-xl text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
               </div>
 
-              {/* Metadata */}
-              <div className="grid grid-cols-2 gap-4 text-xs">
-                <div>
-                  <span className="font-bold text-slate-400 block text-[10px]">SUPPLIER / VENDOR:</span>
-                  <span className="font-bold text-sm block">{selectedPurchaseForView.supplierName || selectedPurchaseForView.supplier_name}</span>
-                  {(selectedPurchaseForView.supplierPhone || selectedPurchaseForView.supplier_phone) && (
-                    <span className="block text-slate-500">Tel: {selectedPurchaseForView.supplierPhone || selectedPurchaseForView.supplier_phone}</span>
-                  )}
-                  {(selectedPurchaseForView.supplierEmail || selectedPurchaseForView.supplier_email) && (
-                    <span className="block text-slate-500">{selectedPurchaseForView.supplierEmail || selectedPurchaseForView.supplier_email}</span>
-                  )}
-                </div>
-
-                <div className="text-right">
-                  <span className="font-bold text-slate-400 block text-[10px]">PURCHASE REF:</span>
-                  <span className="font-mono font-bold text-sm text-indigo-600 dark:text-indigo-400 block">
-                    {selectedPurchaseForView.purchaseNumber || selectedPurchaseForView.purchase_number}
-                  </span>
-                  <span className="block text-slate-500">Supplier Inv: {selectedPurchaseForView.invoiceNumber || selectedPurchaseForView.invoice_number || 'N/A'}</span>
-                  <span className="block text-slate-500">Date: {selectedPurchaseForView.createdAt || selectedPurchaseForView.created_at}</span>
-                  <span className="block text-slate-500">Receiver: {selectedPurchaseForView.receivedBy || selectedPurchaseForView.received_by || 'Staff'}</span>
-                </div>
-              </div>
-
-              {/* Items Breakdown */}
-              <table className="w-full text-left border-collapse border border-slate-200 dark:border-slate-700">
-                <thead>
-                  <tr className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                    <th className="p-2 border border-slate-200 dark:border-slate-700">Item Description</th>
-                    <th className="p-2 text-center border border-slate-200 dark:border-slate-700">Inward Qty</th>
-                    <th className="p-2 text-right border border-slate-200 dark:border-slate-700">Unit Cost</th>
-                    <th className="p-2 text-right border border-slate-200 dark:border-slate-700">Total TZS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(selectedPurchaseForView.items || []).map((it, idx) => (
-                    <tr key={idx} className="border-b border-slate-100 dark:border-slate-800">
-                      <td className="p-2 border border-slate-200 dark:border-slate-700 font-bold">{it.productName}</td>
-                      <td className="p-2 text-center border border-slate-200 dark:border-slate-700 font-black">+{it.quantity}</td>
-                      <td className="p-2 text-right border border-slate-200 dark:border-slate-700">{formatTZS(it.unitCost)}</td>
-                      <td className="p-2 text-right border border-slate-200 dark:border-slate-700 font-black">{formatTZS(it.totalCost)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-slate-50 dark:bg-slate-800/60 font-black">
-                    <td colSpan={3} className="p-2 text-right border border-slate-200 dark:border-slate-700">Grand Total Consignment:</td>
-                    <td className="p-2 text-right border border-slate-200 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 font-mono">
-                      {formatTZS(Number(selectedPurchaseForView.totalAmount || selectedPurchaseForView.total_amount) || 0)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-
-              {/* Settlement summary */}
-              <div className="flex justify-between items-center text-xs p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
-                <div>
-                  <span className="font-bold">Payment Method: </span>
-                  <span>{selectedPurchaseForView.paymentMethod || selectedPurchaseForView.payment_method}</span>
-                </div>
-                <div>
-                  <span className="font-bold">Settlement Status: </span>
-                  <span className="font-black text-emerald-600 uppercase">
-                    {selectedPurchaseForView.paymentStatus || selectedPurchaseForView.payment_status}
-                  </span>
-                </div>
-              </div>
-
-              {selectedPurchaseForView.notes && (
-                <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] text-slate-500 italic">
-                  Note: {selectedPurchaseForView.notes}
-                </div>
-              )}
-
-              {/* Signatures */}
-              <div className="pt-8 grid grid-cols-2 gap-8 text-center text-xs">
-                <div className="border-t border-slate-300 dark:border-slate-700 pt-2">
-                  <p className="font-bold">Delivered by Vendor Driver / Agent</p>
-                  <p className="text-[10px] text-slate-400">Signature & Date</p>
-                </div>
-                <div className="border-t border-slate-300 dark:border-slate-700 pt-2">
-                  <p className="font-bold">Verified & Received by Genuine Electronics</p>
-                  <p className="text-[10px] text-slate-400">Warehouse In-charge</p>
-                </div>
+              <div className="p-4 sm:p-6 overflow-y-auto bg-slate-200/70 dark:bg-slate-950/70 custom-scrollbar">
+                {renderPurchaseVoucherSheet(selectedPurchaseForView)}
               </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

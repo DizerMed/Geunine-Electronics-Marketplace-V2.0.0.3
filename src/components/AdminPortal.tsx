@@ -8,6 +8,7 @@ import { AdminStaffTab } from './admin/tabs/AdminStaffTab';
 import { AdminCustomersTab } from './admin/tabs/AdminCustomersTab';
 import { AdminOffersTab } from './admin/tabs/AdminOffersTab';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 
 import { Product, Order, POSTransaction, Staff, Category, StoreSettings, formatTZS, formatToGMT3, getEATCurrentParts, BRAND_LOGO_URL, CustomerProfile, UserProfile, CategoryItem, ExtraCost, VisitorAnalyticsSummary, Purchase, PurchaseReturn, SaleReturn } from '../types';
@@ -94,6 +95,7 @@ import { AdminVisitorAnalytics } from './AdminVisitorAnalytics';
 import { VisitorActivityHeatmap } from './VisitorActivityHeatmap';
 import { TopViewedProductsBreakdown } from './TopViewedProductsBreakdown';
 import { fetchVisitorSummary } from '../lib/visitorTrackingService';
+import { OrbiPayAutoModal } from './OrbiPayAutoModal';
 
 
 
@@ -3077,7 +3079,40 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [posCustomItemBarcode, setPosCustomItemBarcode] = useState('');
   const [posCustomItemSaveToInventory, setPosCustomItemSaveToInventory] = useState(true);
   const [posCustomItemIsSubmitting, setPosCustomItemIsSubmitting] = useState(false);
-  const [posChannelFilter, setPosChannelFilter] = useState<'all' | 'online' | 'offline'>('all');
+
+  // POS sells strictly Offline Stock products directly; Online Products remain in Online Menus & Orders
+  const offlinePosProducts = useMemo(() => {
+    return (products || []).filter((p) => Boolean(p.isLocalOnly));
+  }, [products]);
+
+  const pendingOnlineOrdersForTransfer = useMemo(() => {
+    return (orders || [])
+      .filter((o) => {
+        const pStat = (o.paymentStatus || o.payment_status || '').toLowerCase();
+        const oStat = (o.status || '').toLowerCase();
+        if (pStat === 'paid' || oStat === 'cancelled' || oStat === 'completed') return false;
+        const source = (o.orderSource || o.order_source || '').toLowerCase();
+        const oType = (o.orderType || o.order_type || '').toLowerCase();
+        const shipping = (o.shippingAddress || o.shipping_address || '').toLowerCase();
+        if (source === 'pos' || oType === 'pos_pre_sale' || shipping.includes('in-store')) return false;
+        return true;
+      })
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  }, [orders]);
+
+  const [posLinkedOrder, setPosLinkedOrder] = useState<Order | null>(null);
+  const [posTransferredQueue, setPosTransferredQueue] = useState<Order[]>([]);
+  const [isOnlineTransferDrawerOpen, setIsOnlineTransferDrawerOpen] = useState(false);
+  const [onlineTransferSearch, setOnlineTransferSearch] = useState('');
+  const [isOrbiPayPosOpen, setIsOrbiPayPosOpen] = useState(false);
+  const [orbiPayPendingPayload, setOrbiPayPendingPayload] = useState<{
+    amount: number;
+    orderId?: string;
+    customerName?: string;
+    customerPhone?: string;
+    items: any[];
+    receiptDraft: Record<string, any>;
+  } | null>(null);
 
   const [isSplitPaymentMode, setIsSplitPaymentMode] = useState(false);
   const [splitPaymentsList, setSplitPaymentsList] = useState<{ method: string; amount: number; reference?: string }[]>([
@@ -3213,129 +3248,74 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
 
     const configured = (settingsForm.paymentMethods || storeSettings?.paymentMethods || []).filter(
-
       (m) => m.isActive
-
     );
 
-
+    let configuredOrbiMethod: (typeof configured)[number] | undefined;
 
     if (configured.length > 0) {
-
       configured.forEach((m) => {
-
         const isOrbi =
-
           (m.type || '').toLowerCase().includes('orbi') ||
-
           (m.provider || '').toLowerCase().includes('orbi') ||
-
           (m.id || '').toLowerCase().includes('orbi');
 
-
-
-        if (!isOrbi) {
-
-          list.push({
-
-            id: m.id || `${m.type}-${m.provider}`,
-
-            name: m.provider || m.type,
-
-            subtitle: m.accountNumber ? `${m.accountName ? m.accountName + ' • ' : ''}${m.accountNumber}` : m.instructions || 'Saved Merchant Account',
-
-            type: m.type,
-
-            isUpcoming: false,
-
-            isDisabled: false,
-
-          });
-
+        if (isOrbi) {
+          configuredOrbiMethod = m;
+          return;
         }
 
+        list.push({
+          id: m.id || `${m.type}-${m.provider}`,
+          name: m.provider || m.type,
+          subtitle: m.accountNumber ? `${m.accountName ? m.accountName + ' • ' : ''}${m.accountNumber}` : m.instructions || 'Saved Merchant Account',
+          type: m.type,
+          isUpcoming: false,
+          isDisabled: false,
+        });
       });
-
     } else {
-
       list.push(
-
         {
-
           id: 'card',
-
           name: 'Credit / Debit Card',
-
           subtitle: 'Visa, Mastercard & POS Terminal',
-
           type: 'Card',
-
           isUpcoming: false,
-
           isDisabled: false,
-
         },
-
         {
-
           id: 'mobile-money',
-
           name: 'Mobile Money',
-
           subtitle: 'M-Pesa / Mixx By Yas / Airtel Money',
-
           type: 'Mobile Money',
-
           isUpcoming: false,
-
           isDisabled: false,
-
         },
-
         {
-
           id: 'bank-transfer',
-
           name: 'Bank Transfer',
-
           subtitle: 'Direct Bank Wire (CRDB / NMB)',
-
           type: 'Bank Transfer',
-
           isUpcoming: false,
-
           isDisabled: false,
-
         }
-
       );
-
     }
 
-
-
-    // Always include "Orbi Pay" as upcoming Business payment method (temporarily disabled on selection)
-
+    // Active Orbi Pay Automated Payment Gateway (supports QR & Wallet Auto-Complete)
     list.push({
-
-      id: 'orbi-pay',
-
-      name: 'Orbi Pay',
-
-      subtitle: 'Upcoming Business Payment Solution',
-
+      id: configuredOrbiMethod?.id || 'orbi-pay',
+      name: configuredOrbiMethod?.provider || 'Orbi Pay',
+      subtitle: configuredOrbiMethod?.accountNumber
+        ? `Auto-Complete Gateway (${configuredOrbiMethod.accountNumber})`
+        : 'Instant Auto-Payment Gateway (ORBI-9901)',
       type: 'Orbi Pay',
-
-      isUpcoming: true,
-
-      isDisabled: true,
-
+      isUpcoming: false,
+      isDisabled: false,
     });
 
-
-
     return list;
-
   }, [settingsForm.paymentMethods, storeSettings?.paymentMethods]);
 
 
@@ -3355,60 +3335,69 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
 
   const handleScanQrCode = (scannedString: string) => {
-
     const raw = String(scannedString ?? '').trim();
-
     if (!raw) return;
-
     const normalize = (value: unknown) => String(value ?? '').trim().toLowerCase();
 
     let foundProduct: Product | undefined;
+    let onlineOnlyMatch: Product | undefined;
 
     try {
-
       const parsed = JSON.parse(raw);
-
       const id = normalize(parsed?.id);
       const sku = normalize(parsed?.sku);
       const barcode = normalize(parsed?.barcode);
 
-      foundProduct = products.find((p) =>
+      foundProduct = offlinePosProducts.find((p) =>
         (id && normalize(p.id) === id) ||
         (sku && normalize(p.sku) === sku) ||
         (barcode && normalize(p.barcode) === barcode)
       );
-
+      if (!foundProduct) {
+        onlineOnlyMatch = products.find((p) =>
+          !p.isLocalOnly && (
+            (id && normalize(p.id) === id) ||
+            (sku && normalize(p.sku) === sku) ||
+            (barcode && normalize(p.barcode) === barcode)
+          )
+        );
+      }
     } catch {
-
       const query = normalize(raw);
-
-      foundProduct = products.find((p) =>
+      foundProduct = offlinePosProducts.find((p) =>
         normalize(p.barcode) === query ||
         normalize(p.sku) === query ||
         normalize(p.id) === query ||
         normalize(p.name).includes(query)
       );
-
+      if (!foundProduct) {
+        onlineOnlyMatch = products.find((p) =>
+          !p.isLocalOnly && (
+            normalize(p.barcode) === query ||
+            normalize(p.sku) === query ||
+            normalize(p.id) === query ||
+            normalize(p.name).includes(query)
+          )
+        );
+      }
     }
 
     if (foundProduct) {
-
       const added = handleAddToCartPOS(foundProduct);
-
       setScanMessage(
         added
           ? `Scanned successfully! Added "${foundProduct.name}" to POS register.`
           : `Cannot add "${foundProduct.name}": insufficient stock.`
       );
-
+    } else if (onlineOnlyMatch) {
+      setScanMessage(
+        `"${onlineOnlyMatch.name}" is an Online Product and cannot be added directly to Offline POS. Transfer an online order from Online Orders to process it in POS.`
+      );
     } else {
-
-      setScanMessage(`No product found for scanned code: "${raw}"`);
-
+      setScanMessage(`No Offline POS product found for scanned code: "${raw}"`);
     }
 
     setTimeout(() => setScanMessage(null), 4000);
-
   };
 
   const handleCopyQrPayload = (product: Product) => {
@@ -3441,10 +3430,30 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
 
 
+  useEffect(() => {
+    const handleBeforePrint = () => {
+      if ((isBulkQrModalOpen || Boolean(selectedQrProduct)) && !document.body.classList.contains('ge-printing-invoice')) {
+        document.body.classList.add('ge-printing-doc');
+      }
+    };
+    const handleAfterPrint = () => {
+      document.body.classList.remove('ge-printing-doc');
+    };
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('afterprint', handleAfterPrint);
+      document.body.classList.remove('ge-printing-doc');
+    };
+  }, [isBulkQrModalOpen, selectedQrProduct]);
+
   const handlePrintSingleQr = () => {
-
+    document.body.classList.add('ge-printing-doc');
     window.print();
-
+    window.setTimeout(() => {
+      document.body.classList.remove('ge-printing-doc');
+    }, 1500);
   };
 
 
@@ -4213,6 +4222,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   };
 
   const handleAddToCartPOS = (product: Product): boolean => {
+    if (!product.isLocalOnly) {
+      triggerHaptic('warning');
+      showAlert(
+        'Online Product Only',
+        `"${product.name}" is an Online Product. POS Register sells Offline Stock directly — use "Transfer Online Order" when continuing a customer's online order.`,
+        'warning'
+      );
+      return false;
+    }
+
     const availableStock = Math.max(0, Number(product.stock || 0));
 
     if (availableStock <= 0) {
@@ -4280,8 +4299,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setPosOrderNotes('');
     setPosCustomerName('');
     setPosCustomerPhone('');
+    setPosCustomerEmail('');
     setPosCustomerTin('');
     setPosTransactionDate('');
+    setPosLinkedOrder(null);
   };
 
   // ==========================================
@@ -4382,7 +4403,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
-  const handleLoadOrderIntoPosCart = (order: Order) => {
+  const handleLoadOrderIntoPosCart = (order: Order, options?: { silentAlert?: boolean }) => {
     const reconstructedCart = (order.items || []).map(item => {
       const existingProduct = products.find(p => p.id === item.product?.id) || item.product;
       return {
@@ -4392,13 +4413,194 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       };
     });
     setPosCart(reconstructedCart);
+    setPosLinkedOrder(order);
     setPosCustomerName(order.customerName || order.customer_name || '');
     setPosCustomerPhone(order.customerPhone || order.customer_phone || order.phone || '');
-    if (order.customerTin) setPosCustomerTin(order.customerTin);
-    if (order.discount) setPosDiscount(Number(order.discount));
+    setPosCustomerEmail(order.customerEmail || order.customer_email || '');
+    setPosCustomerTin(order.customerTin || '');
+    setPosDiscount(Number(order.discount || 0));
+    setPosExtraCosts(Array.isArray(order.extraCosts) ? order.extraCosts : []);
     setPosIncludeVat(order.includeVat === true);
+    setPosOrderNotes(order.notes || `Transferred Online Order #${order.id}`);
+    setPosTenderedAmount(0);
+    setActiveTab('pos');
     setPosActivePage('register');
-    showAlert('Order Loaded', `Order ${order.id} loaded into POS Register cart for editing.`, 'alert');
+    setPosMobileTab('cart');
+    if (!options?.silentAlert) {
+      showAlert('Order Loaded into POS', `Order ${order.id} loaded into Offline POS Register for final processing.`, 'alert');
+    }
+  };
+
+  const handleBulkTransferOnlineOrdersToPos = async (ordersToTransfer: Order[]) => {
+    if (!ensureOnline('bulk transfer online orders to POS')) return;
+    if (!Array.isArray(ordersToTransfer) || ordersToTransfer.length === 0) return;
+
+    const now = new Date().toISOString();
+    const activeCashier = profile?.fullName || profile?.displayName || profile?.full_name || user?.email || 'Counter Cashier';
+
+    try {
+      const updatedOrders = await Promise.all(
+        ordersToTransfer.map(async (order) => {
+          const existingTimeline = Array.isArray(order.trackingTimeline) ? [...order.trackingTimeline] : [];
+          const updatedOrder: Order = {
+            ...order,
+            transferredToPos: true,
+            transferred_to_pos: true,
+            transferredToPosAt: order.transferredToPosAt || now,
+            transferred_to_pos_at: order.transferred_to_pos_at || now,
+            transferredBy: activeCashier,
+            transferred_by: activeCashier,
+            orderType: 'online_to_pos',
+            order_type: 'online_to_pos',
+            status: 'transferred-to-pos',
+            trackingTimeline: [
+              ...existingTimeline,
+              {
+                title: 'Bulk Transferred to Offline POS',
+                description: `Online order marked transferred-to-pos in bulk operation by ${activeCashier}.`,
+                time: now,
+                location: 'Offline POS Counter',
+                completed: true,
+              },
+            ],
+            updatedAt: now,
+          };
+
+          if (updateOrder) {
+            await updateOrder(updatedOrder);
+          }
+          try {
+            await fetch(`/api/data/orders/${encodeURIComponent(order.id)}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(updatedOrder),
+            });
+          } catch (_) {}
+
+          return updatedOrder;
+        })
+      );
+
+      setPosTransferredQueue((prev) => {
+        const merged = [...updatedOrders];
+        prev.forEach((existing) => {
+          if (!merged.some((m) => m.id === existing.id)) {
+            merged.push(existing);
+          }
+        });
+        return merged;
+      });
+
+      triggerHaptic('success');
+      handleLoadOrderIntoPosCart(updatedOrders[0], { silentAlert: true });
+      showAlert(
+        'Bulk Transfer Complete',
+        `${updatedOrders.length} online order(s) marked 'transferred-to-pos' and queued in Offline POS Register. Order #${updatedOrders[0].id} is loaded in the cart.`,
+        'alert'
+      );
+    } catch (err: any) {
+      console.error('Bulk transfer to POS failed:', err);
+      showAlert('Bulk Transfer Failed', err?.message || 'Could not complete bulk transfer to POS.', 'error');
+    }
+  };
+
+  const handleTransferOnlineOrderToPos = async (
+    order: Order,
+    options?: { openInRegister?: boolean; silent?: boolean }
+  ) => {
+    if (!ensureOnline('transfer online orders to POS')) return;
+    const now = new Date().toISOString();
+    const activeCashier = profile?.fullName || profile?.displayName || profile?.full_name || user?.email || 'Counter Cashier';
+    const existingTimeline = Array.isArray(order.trackingTimeline) ? [...order.trackingTimeline] : [];
+
+    const updatedOrder: Order = {
+      ...order,
+      transferredToPos: true,
+      transferred_to_pos: true,
+      transferredToPosAt: order.transferredToPosAt || now,
+      transferred_to_pos_at: order.transferred_to_pos_at || now,
+      transferredBy: activeCashier,
+      transferred_by: activeCashier,
+      orderType: 'online_to_pos',
+      order_type: 'online_to_pos',
+      status: 'transferred-to-pos',
+      trackingTimeline: [
+        ...existingTimeline,
+        {
+          title: 'Transferred to Offline POS',
+          description: `Online order marked transferred-to-pos and moved to Offline POS Register by ${activeCashier}.`,
+          time: now,
+          location: 'Offline POS Counter',
+          completed: true,
+        },
+      ],
+      updatedAt: now,
+    };
+
+    try {
+      if (updateOrder) {
+        await updateOrder(updatedOrder);
+      }
+      try {
+        await fetch(`/api/data/orders/${encodeURIComponent(order.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedOrder),
+        });
+      } catch (_) {}
+
+      triggerHaptic('success');
+      if (options?.openInRegister !== false) {
+        setIsOnlineTransferDrawerOpen(false);
+        handleLoadOrderIntoPosCart(updatedOrder);
+      } else if (!options?.silent) {
+        showAlert(
+          'Transferred to Offline POS',
+          `Online Order ${order.id} is now transferred to Offline POS & ready to continue in Register or Orbi Pay Auto-Complete.`,
+          'alert'
+        );
+      }
+    } catch (err: any) {
+      console.error('Failed to transfer online order to POS:', err);
+      showAlert('Transfer Failed', err?.message || 'Could not transfer online order to POS.', 'error');
+    }
+  };
+
+  const handleOrbiAutoCompleted = async (payload: {
+    intent: any;
+    order?: Order | null;
+    posTransaction?: POSTransaction | null;
+  }) => {
+    try {
+      if (payload.order && updateOrder) {
+        await updateOrder(payload.order);
+      }
+      if (payload.order?.id) {
+        setPosTransferredQueue((prev) => prev.filter((q) => q.id !== payload.order?.id));
+      }
+      if (payload.posTransaction) {
+        setLastReceipt(payload.posTransaction);
+      }
+      if (isOrbiPayPosOpen) {
+        handleClearCartPOS();
+        setIsSplitPaymentMode(false);
+        setSplitPaymentsList([
+          { method: 'Cash', amount: 0, reference: '' },
+          { method: 'Mobile Money (M-Pesa / Airtel Money / Mixx by Yas)', amount: 0, reference: '' },
+          { method: 'Bank Transfer / CRDB / NMB', amount: 0, reference: '' }
+        ]);
+        setIsOrbiPayPosOpen(false);
+        setOrbiPayPendingPayload(null);
+      }
+      triggerHaptic('success');
+      showAlert(
+        'Orbi Pay Auto-Completed',
+        `Payment ${payload.intent?.paymentRef || ''} verified! Receipt${payload.order ? ` and Order ${payload.order.id}` : ''} auto-completed.`,
+        'alert'
+      );
+    } catch (err) {
+      console.warn('Orbi Pay post-completion sync warning:', err);
+    }
   };
 
   const handleCompleteOrderPaymentFromPos = async (
@@ -4782,7 +4984,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const posCartItemCount = posCart.reduce((sum, item) => sum + item.quantity, 0);
 
   const posFilteredProducts = useMemo(() => {
-    return products.filter((p) => {
+    return offlinePosProducts.filter((p) => {
       const matchesCategory = selectedPOSCategory === 'All' || p.category === selectedPOSCategory;
       const q = (posBarcodeQuery || '').toLowerCase().trim();
       const matchesQuery =
@@ -4792,15 +4994,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         (p.sku && String(p.sku).toLowerCase().includes(q)) ||
         (p.brand && String(p.brand).toLowerCase().includes(q));
       const matchesStock = !posFilterInStockOnly || Number(p.stock || 0) > 0;
-      const matchesChannel =
-        posChannelFilter === 'all'
-          ? true
-          : posChannelFilter === 'online'
-          ? !p.isLocalOnly
-          : Boolean(p.isLocalOnly);
-      return matchesCategory && matchesQuery && matchesStock && matchesChannel;
+      return matchesCategory && matchesQuery && matchesStock;
     });
-  }, [products, selectedPOSCategory, posBarcodeQuery, posFilterInStockOnly, posChannelFilter]);
+  }, [offlinePosProducts, selectedPOSCategory, posBarcodeQuery, posFilterInStockOnly]);
 
   const handleApplyPosShortageAsDiscount = (shortage: number) => {
     if (shortage <= 0) return;
@@ -4934,8 +5130,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       customerPhone: String(posCustomerPhone || '').trim() || (isOrderLoan ? String(posLoanGuarantorPhone || '').trim() : undefined) || undefined,
       customerEmail: String(posCustomerEmail || '').trim() || undefined,
       customerTin: String(posCustomerTin || '').trim() || undefined,
-      orderReference: !isSplitPaymentMode && String(posPaymentReference || '').trim() ? String(posPaymentReference).trim() : undefined,
-      order_reference: !isSplitPaymentMode && String(posPaymentReference || '').trim() ? String(posPaymentReference).trim() : undefined,
+      orderReference: !isSplitPaymentMode && String(posPaymentReference || '').trim()
+        ? String(posPaymentReference).trim()
+        : (posLinkedOrder ? posLinkedOrder.id : undefined),
+      order_reference: !isSplitPaymentMode && String(posPaymentReference || '').trim()
+        ? String(posPaymentReference).trim()
+        : (posLinkedOrder ? posLinkedOrder.id : undefined),
       tenderedAmount: posEffectiveTendered > 0 ? posEffectiveTendered : undefined,
       changeAmount: posChangeAmount > 0 ? posChangeAmount : undefined,
       isLoan: isOrderLoan,
@@ -4954,11 +5154,34 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       loan_guarantor_phone: isOrderLoan ? (String(posLoanGuarantorPhone || '').trim() || undefined) : undefined,
       loanStatus: isOrderLoan ? (Math.max(0, posTotal - posLoanDownPayment) > 0 ? 'unpaid' : 'paid') : undefined,
       loan_status: isOrderLoan ? (Math.max(0, posTotal - posLoanDownPayment) > 0 ? 'unpaid' : 'paid') : undefined,
-      notes: String(posOrderNotes || '').trim() || undefined,
+      notes: String(posOrderNotes || '').trim() || (posLinkedOrder ? `Settled transferred online order ${posLinkedOrder.id} in Offline POS` : undefined),
       vatPercentage: posIncludeVat ? posVatPct : 0,
       includeVat: posIncludeVat,
       createdAt,
     };
+
+    // Route Orbi Pay through the automated QR / gateway auto-complete modal
+    if (!isSplitPaymentMode && pmPos.includes('orbi')) {
+      const orbiAmount = Math.max(0, Math.round(posTotal));
+      if (orbiAmount <= 0) {
+        showAlert('Invalid Amount', 'Total payable must be greater than zero to initiate Orbi Pay.', 'warning');
+        return;
+      }
+      setOrbiPayPendingPayload({
+        amount: orbiAmount,
+        orderId: posLinkedOrder?.id,
+        customerName: receipt.customerName,
+        customerPhone: receipt.customerPhone,
+        items: receipt.items,
+        receiptDraft: {
+          ...receipt,
+          orderId: posLinkedOrder?.id,
+        },
+      });
+      setShowPOSSalePreview(false);
+      setIsOrbiPayPosOpen(true);
+      return;
+    }
 
     try {
       if (completePOSTransaction) {
@@ -4976,6 +5199,48 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         
         queueStockDelta(stockAdjustments);
         await addPOSTransaction(receipt);
+      }
+
+      // If this POS checkout settled a transferred Online Order, update that Order as well
+      if (posLinkedOrder) {
+        const linkedTotal = Math.max(0, posTotal);
+        const paidSoFar = isOrderLoan ? Math.max(0, posLoanDownPayment || 0) : linkedTotal;
+        const settledOrder: Order = {
+          ...posLinkedOrder,
+          items: receipt.items.map(it => ({
+            product: it.product,
+            quantity: it.quantity,
+            price: it.price || it.product.price
+          })),
+          totalAmount: linkedTotal,
+          total_amount: linkedTotal,
+          subtotal: receipt.subtotal,
+          tax: receipt.tax,
+          discount: receipt.discount,
+          paymentMethod: finalPaymentMethod,
+          payment_method: finalPaymentMethod,
+          paymentStatus: isOrderLoan ? (paidSoFar > 0 ? 'Partial' : 'Pending') : 'Paid',
+          payment_status: isOrderLoan ? (paidSoFar > 0 ? 'Partial' : 'Pending') : 'Paid',
+          paidAmount: paidSoFar,
+          paid_amount: paidSoFar,
+          outstandingBalance: Math.max(0, linkedTotal - paidSoFar),
+          outstanding_balance: Math.max(0, linkedTotal - paidSoFar),
+          status: 'Completed',
+          transferredToPos: true,
+          transferred_to_pos: true,
+          updatedAt: new Date().toISOString(),
+        };
+        try {
+          if (updateOrder) await updateOrder(settledOrder);
+          await fetch(`/api/data/orders/${encodeURIComponent(posLinkedOrder.id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settledOrder),
+          });
+        } catch (orderErr) {
+          console.warn('Could not sync linked order after POS completion:', orderErr);
+        }
+        setPosTransferredQueue((prev) => prev.filter((q) => q.id !== posLinkedOrder.id));
       }
 
       setLastReceipt(receipt);
@@ -9348,6 +9613,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             onOpenInvoice={(order) => setSelectedOrderForInvoice(order)}
             onOpenReceipt={(tx) => setLastReceipt(tx)}
             onLoadOrderIntoPosCart={handleLoadOrderIntoPosCart}
+            onTransferToPos={(order) => handleTransferOnlineOrderToPos(order, { openInRegister: false })}
+            onOrbiAutoCompleted={handleOrbiAutoCompleted}
             onCompletePayment={handleCompleteOrderPaymentFromPos}
             onUpdateOrder={handleUpdateOrderFromPos}
             onCancelOrder={handleCancelOrderFromPos}
@@ -9513,7 +9780,26 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </button>
                 </div>
 
-                
+                {/* Transfer Online Order into Offline POS */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOnlineTransferSearch('');
+                    setIsOnlineTransferDrawerOpen(true);
+                    triggerHaptic('light');
+                  }}
+                  className="px-3 py-1.5 rounded-xl text-xs font-black bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 hover:bg-indigo-600 hover:text-white flex items-center gap-1.5 transition-all active:scale-95 shadow-xs"
+                  title="Transfer an Online Storefront Order into Offline POS Register"
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>Transfer Online Order</span>
+                  {pendingOnlineOrdersForTransfer.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-indigo-600 text-white">
+                      {pendingOnlineOrdersForTransfer.length}
+                    </span>
+                  )}
+                </button>
+
                 {/* Custom Item / Local Stock */}
                 <button
                   type="button"
@@ -9721,7 +10007,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                   {/* Filter Pills & Channel / Stock Controls */}
                   <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
-                    {/* Row 1: Category Pills */}
+                    {/* Row 1: Category Pills (Offline Stock Only) */}
                     <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide no-scrollbar">
                       <button
                         type="button"
@@ -9732,10 +10018,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             : isDark ? 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
                         }`}
                       >
-                        All ({products.length})
+                        All ({offlinePosProducts.length})
                       </button>
                       {categories.map(cat => {
-                        const count = products.filter(p => p.category === cat.name).length;
+                        const count = offlinePosProducts.filter(p => p.category === cat.name).length;
                         return (
                           <button
                             key={cat.id}
@@ -9753,46 +10039,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       })}
                     </div>
 
-                    {/* Row 2: Dedicated Channel (All / Online / Offline) + In-Stock Filter */}
+                    {/* Row 2: Offline POS Scope Indicator + In-Stock Filter */}
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className={`inline-flex items-center p-0.5 rounded-xl border text-[11px] font-bold ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'}`}>
-                        <button
-                          type="button"
-                          onClick={() => setPosChannelFilter('all')}
-                          className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
-                            posChannelFilter === 'all'
-                              ? 'bg-slate-700 text-white shadow-xs'
-                              : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          All Channels ({products.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPosChannelFilter('online')}
-                          className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all whitespace-nowrap ${
-                            posChannelFilter === 'online'
-                              ? 'bg-blue-600 text-white shadow-xs'
-                              : isDark ? 'text-slate-400 hover:text-blue-400' : 'text-slate-600 hover:text-blue-600'
-                          }`}
-                          title="Products synced to the Online Storefront & POS"
-                        >
-                          <Globe className="w-3 h-3 shrink-0" />
-                          <span>Online ({products.filter(p => !p.isLocalOnly).length})</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPosChannelFilter('offline')}
-                          className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all whitespace-nowrap ${
-                            posChannelFilter === 'offline'
-                              ? 'bg-amber-600 text-white shadow-xs'
-                              : isDark ? 'text-slate-400 hover:text-amber-400' : 'text-slate-600 hover:text-amber-600'
-                          }`}
-                          title="Local in-store stock available on POS only"
-                        >
-                          <Store className="w-3 h-3 shrink-0" />
-                          <span>Offline ({products.filter(p => Boolean(p.isLocalOnly)).length})</span>
-                        </button>
+                      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-xl border text-[11px] font-bold ${isDark ? 'bg-amber-950/30 border-amber-800/50 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                        <Store className="w-3.5 h-3.5 shrink-0" />
+                        <span>Offline POS Stock Only ({offlinePosProducts.length})</span>
+                        <span className="hidden sm:inline opacity-75 font-medium">• Online items remain in Online Menus & Orders</span>
                       </div>
 
                       <button
@@ -9819,17 +10071,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     return (
                       <div className={`flex-1 rounded-2xl border p-12 text-center flex flex-col items-center justify-center ${cardBg}`}>
                         <Package className="w-12 h-12 text-slate-400 mb-3 stroke-[1.5]" />
-                        <h4 className={`text-base font-bold ${textTitle}`}>No products found</h4>
+                        <h4 className={`text-base font-bold ${textTitle}`}>No Offline POS products found</h4>
                         <p className={`text-xs mt-1 max-w-sm ${textSub}`}>
-                          Try clearing the search query or adjusting category/channel filters.
+                          POS Register displays Offline Stock only. Try clearing filters, adding Local Stock, or transferring an Online Order.
                         </p>
-                        {(posBarcodeQuery || posChannelFilter !== 'all' || selectedPOSCategory !== 'All') && (
+                        {(posBarcodeQuery || selectedPOSCategory !== 'All' || posFilterInStockOnly) && (
                           <button
                             type="button"
                             onClick={() => {
                               setPosBarcodeQuery('');
-                              setPosChannelFilter('all');
                               setSelectedPOSCategory('All');
+                              setPosFilterInStockOnly(false);
                             }}
                             className="mt-4 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 shadow-sm"
                           >
@@ -10227,6 +10479,70 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       )}
                     </div>
                   </div>
+
+                  {(posLinkedOrder || posTransferredQueue.length > 0) && (
+                    <div className="mb-3 px-3 py-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 space-y-2">
+                      {posLinkedOrder && (
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Globe className="w-4 h-4 text-indigo-500 shrink-0" />
+                            <div className="min-w-0">
+                              <div className="text-[11px] font-black text-indigo-600 dark:text-indigo-300 truncate">
+                                Continuing Online Order #{posLinkedOrder.id}
+                              </div>
+                              <div className={`text-[10px] truncate ${textSub}`}>
+                                {posLinkedOrder.customerName || 'Customer'} • Ready for Offline POS / Orbi Pay
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPosLinkedOrder(null)}
+                            className="text-[10px] font-bold px-2 py-1 rounded-lg bg-white/70 dark:bg-slate-900/70 text-slate-600 dark:text-slate-300 hover:text-rose-500 border border-slate-200 dark:border-slate-700 shrink-0"
+                            title="Detach linked online order from current cart"
+                          >
+                            Unlink
+                          </button>
+                        </div>
+                      )}
+
+                      {posTransferredQueue.length > 0 && (
+                        <div className="pt-1.5 border-t border-indigo-500/20 space-y-1.5">
+                          <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-300">
+                            <span>Transferred Queue ({posTransferredQueue.length})</span>
+                            <button
+                              type="button"
+                              onClick={() => setPosTransferredQueue([])}
+                              className="text-[10px] font-bold text-slate-400 hover:text-rose-500 normal-case"
+                            >
+                              Clear Queue
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
+                            {posTransferredQueue.map((qOrder) => {
+                              const isActiveQ = posLinkedOrder?.id === qOrder.id;
+                              return (
+                                <button
+                                  key={qOrder.id}
+                                  type="button"
+                                  onClick={() => handleLoadOrderIntoPosCart(qOrder, { silentAlert: true })}
+                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border whitespace-nowrap transition-all shrink-0 ${
+                                    isActiveQ
+                                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                      : isDark
+                                      ? 'bg-slate-900 text-slate-300 border-slate-700 hover:border-indigo-500'
+                                      : 'bg-white text-slate-700 border-indigo-200 hover:border-indigo-400'
+                                  }`}
+                                >
+                                  #{qOrder.id} • {qOrder.customerName || 'Customer'}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Customer Info Selection / Input & Intelligence Lookup */}
                   {(() => {
@@ -11061,6 +11377,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     {!isSplitPaymentMode ? (
                       <div className="grid grid-cols-3 gap-1.5">
                         {posAvailablePaymentMethods.map((m) => {
+                          const isOrbi = m.type.toLowerCase().includes('orbi') || m.name.toLowerCase().includes('orbi');
                           const isSelected = posPaymentMethod === m.name || (posPaymentMethod === m.type && !m.isDisabled);
                           return (
                             <button
@@ -11068,23 +11385,31 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               type="button"
                               disabled={m.isDisabled}
                               onClick={() => {
-                                if (m.isDisabled) {
-                                  showAlert('Upcoming Payment Method', 'Orbi Pay is disabled during this release.', 'warning');
-                                  return;
-                                }
                                 setPosPaymentMethod(m.name);
                               }}
-                              className={`p-2 rounded-xl border text-center transition-all ${
+                              className={`p-2 rounded-xl border text-center transition-all flex items-center justify-center gap-1 ${
                                 m.isDisabled
                                   ? 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800'
                                   : isSelected
-                                  ? 'bg-blue-600 text-white border-blue-600 shadow-md font-black'
+                                  ? isOrbi
+                                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-indigo-500 shadow-md font-black'
+                                    : 'bg-blue-600 text-white border-blue-600 shadow-md font-black'
+                                  : isOrbi
+                                  ? isDark
+                                    ? 'bg-indigo-950/30 text-indigo-300 border-indigo-700/60 hover:bg-indigo-900/40 font-bold'
+                                    : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 font-bold'
                                   : isDark
                                   ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 font-semibold'
                                   : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 font-semibold'
                               }`}
                             >
-                              <div className="text-xs truncate">{m.name}</div>
+                              {isOrbi && <Zap className="w-3 h-3 shrink-0" />}
+                              <span className="text-xs truncate">{m.name}</span>
+                              {isOrbi && (
+                                <span className={`text-[8px] px-1 py-0.2 rounded font-black uppercase ${isSelected ? 'bg-white/20 text-white' : 'bg-indigo-500/15 text-indigo-500'}`}>
+                                  Auto
+                                </span>
+                              )}
                             </button>
                           );
                         })}
@@ -11311,7 +11636,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </div>
 
                         <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                          <span>✓ Full payable amount of {formatTZS(posTotal)} received via {posPaymentMethod}.</span>
+                          {(posPaymentMethod || '').toLowerCase().includes('orbi') ? (
+                            <span className="text-indigo-500 dark:text-indigo-400 font-bold">
+                              ⚡ Checkout will open Orbi Pay QR & Auto-Complete gateway to settle {formatTZS(posTotal)} automatically.
+                            </span>
+                          ) : (
+                            <span>✓ Full payable amount of {formatTZS(posTotal)} received via {posPaymentMethod}.</span>
+                          )}
                         </div>
                       </div>
                     )}
@@ -11820,6 +12151,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             clearOrders={clearOrders}
             onOpenInvoice={(order) => setSelectedOrderForInvoice(order)}
             onOpenReceipt={(tx) => setLastReceipt(tx)}
+            onTransferToPos={(order, opts) => handleTransferOnlineOrderToPos(order, opts)}
+            onBulkTransferToPos={handleBulkTransferOnlineOrdersToPos}
+            onOpenInPos={(order) => handleLoadOrderIntoPosCart(order)}
             isDark={isDark}
             cardBg={cardBg}
             textTitle={textTitle}
@@ -15621,7 +15955,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
 
-                {products.map((p) => (
+                {offlinePosProducts.map((p) => (
 
                   <button
 
@@ -15797,6 +16131,97 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
         </div>
 
+      )}
+
+      {/* Isolated Printable QR Shelf Label Portal (Single & Bulk) */}
+      {(isBulkQrModalOpen || selectedQrProduct) && typeof document !== 'undefined' && createPortal(
+        <div className="ge-doc-print-portal hidden print:block bg-white text-slate-900" aria-hidden="true">
+          <div className="ge-doc-sheet bg-white text-slate-900">
+            {isBulkQrModalOpen ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b-2 border-slate-900">
+                  <div>
+                    <h2 className="text-base font-black uppercase tracking-wide text-slate-900">
+                      {storeSettings?.storeName || 'GENUINE ELECTRONICS'} — Product Shelf QR Labels
+                    </h2>
+                    <p className="text-[11px] font-semibold text-slate-600">
+                      {products.length} Inventory Shelf Tags • Generated {formatToGMT3(new Date().toISOString())}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  {products.map((p) => (
+                    <div
+                      key={p.id}
+                      className="break-inside-avoid bg-white text-slate-900 rounded-xl p-4 border border-slate-300 text-center space-y-2"
+                    >
+                      <div className="flex justify-center">
+                        <QRCodeSVG
+                          value={JSON.stringify({ id: p.id, sku: p.sku, barcode: p.barcode, name: p.name, price: p.price })}
+                          size={100}
+                          level="M"
+                        />
+                      </div>
+                      <h4 className="font-bold text-xs line-clamp-2 text-slate-900">{p.name}</h4>
+                      <div className="text-xs font-black text-blue-700">{formatTZS(p.price)}</div>
+                      <div className="text-[9px] font-mono text-slate-600 pt-1 border-t border-slate-200 flex justify-between gap-1">
+                        <span className="truncate">{p.sku}</span>
+                        <span className="truncate">{p.brand}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : selectedQrProduct ? (
+              <div className="max-w-sm mx-auto pt-4">
+                <div className="bg-white text-slate-900 rounded-2xl p-6 border-2 border-slate-300 text-center space-y-4 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 bg-blue-600 text-white text-[9px] font-black uppercase tracking-wider px-3 py-1 rounded-bl-xl">
+                    Genuine Electronics
+                  </div>
+                  <div className="pt-2 flex justify-center">
+                    <div className="p-3 bg-white rounded-xl border border-slate-200">
+                      <QRCodeSVG
+                        value={JSON.stringify({
+                          id: selectedQrProduct.id,
+                          sku: selectedQrProduct.sku,
+                          barcode: selectedQrProduct.barcode,
+                          name: selectedQrProduct.name,
+                          price: selectedQrProduct.price,
+                          currency: 'TZS',
+                          brand: selectedQrProduct.brand,
+                          genuineVerified: true
+                        })}
+                        size={180}
+                        level="H"
+                        includeMargin={true}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-base text-slate-900 leading-snug">{selectedQrProduct.name}</h4>
+                    <p className="text-xs font-bold text-blue-700 mt-1">{selectedQrProduct.brand} • {selectedQrProduct.category}</p>
+                    <div className="text-lg font-black text-slate-900 mt-2">{formatTZS(selectedQrProduct.price)}</div>
+                  </div>
+                  <div className="pt-3 border-t border-slate-200 text-left grid grid-cols-2 gap-2 text-[11px] font-mono">
+                    <div>
+                      <span className="text-slate-500 uppercase text-[9px] block font-sans">SKU Number</span>
+                      <span className="font-bold text-slate-800">{selectedQrProduct.sku}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-slate-500 uppercase text-[9px] block font-sans">EAN / Barcode</span>
+                      <span className="font-bold text-slate-800">{selectedQrProduct.barcode}</span>
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-slate-600 font-semibold pt-1 flex items-center justify-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Verified Official Warranty Product Tag</span>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* 4. CUSTOMER CRM PROFILE & ORDER HISTORY MODAL */}
@@ -16959,6 +17384,186 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         saleDate={posTransactionDate}
         onUpdateSaleDate={setPosTransactionDate}
       />
+
+      {/* Orbi Pay Automated Payment Gateway Modal for POS Checkout */}
+      {orbiPayPendingPayload && (
+        <OrbiPayAutoModal
+          isOpen={isOrbiPayPosOpen}
+          onClose={() => {
+            setIsOrbiPayPosOpen(false);
+            setOrbiPayPendingPayload(null);
+          }}
+          amount={orbiPayPendingPayload.amount}
+          orderId={orbiPayPendingPayload.orderId}
+          customerName={orbiPayPendingPayload.customerName}
+          customerPhone={orbiPayPendingPayload.customerPhone}
+          cashierName={profile?.fullName || profile?.displayName || profile?.full_name || user?.email || 'Counter Cashier'}
+          items={orbiPayPendingPayload.items}
+          receiptDraft={orbiPayPendingPayload.receiptDraft}
+          formatTZS={formatTZS}
+          isDark={isDark}
+          onAutoCompleted={handleOrbiAutoCompleted}
+        />
+      )}
+
+      {/* Online Order Transfer to Offline POS Drawer/Modal */}
+      {isOnlineTransferDrawerOpen && (
+        <div className="fixed inset-0 z-[65] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className={`max-w-2xl w-full rounded-3xl border shadow-2xl overflow-hidden flex flex-col max-h-[85vh] ${modalBg}`}>
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-indigo-600/5">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-indigo-600 text-white">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className={`font-black text-base ${textTitle}`}>Transfer Online Order to Offline POS</h3>
+                  <p className={`text-xs ${textSub}`}>
+                    Select a customer online order to transfer to Offline POS Register or settle automatically via Orbi Pay.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsOnlineTransferDrawerOpen(false)}
+                className="p-1.5 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={onlineTransferSearch}
+                  onChange={(e) => setOnlineTransferSearch(e.target.value)}
+                  placeholder="Search online order by Order ID, customer name, or phone..."
+                  className={`w-full rounded-xl pl-10 pr-4 py-2.5 text-xs font-semibold border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${inputBg}`}
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {(() => {
+                const q = onlineTransferSearch.trim().toLowerCase();
+                const filtered = pendingOnlineOrdersForTransfer.filter((o) => {
+                  if (!q) return true;
+                  return (
+                    String(o.id || '').toLowerCase().includes(q) ||
+                    String(o.customerName || o.customer_name || '').toLowerCase().includes(q) ||
+                    String(o.customerPhone || o.customer_phone || o.phone || '').toLowerCase().includes(q)
+                  );
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="py-12 text-center space-y-2">
+                      <ShoppingCart className="w-10 h-10 text-slate-400 mx-auto stroke-[1.5]" />
+                      <h4 className={`text-sm font-bold ${textTitle}`}>No pending online orders found</h4>
+                      <p className={`text-xs ${textSub}`}>
+                        Unpaid online customer orders will appear here ready to transfer to Offline POS.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return filtered.map((o) => {
+                  const isAlreadyTransferred = Boolean(
+                    o.status === 'transferred-to-pos' || o.transferredToPos || o.transferred_to_pos || o.orderType === 'online_to_pos' || o.order_type === 'online_to_pos'
+                  );
+                  const orderAmount = Number(o.outstandingBalance ?? o.outstanding_balance ?? o.totalAmount ?? o.total_amount ?? 0);
+                  return (
+                    <div
+                      key={o.id}
+                      className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                        isDark ? 'bg-slate-900/70 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-xs font-black text-indigo-500">#{o.id}</span>
+                          {isAlreadyTransferred ? (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-indigo-500/15 text-indigo-500 border border-indigo-500/30">
+                              Already in POS
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-blue-500/15 text-blue-500 border border-blue-500/30">
+                              Online Order
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-500">
+                            {o.status}
+                          </span>
+                        </div>
+                        <div className={`text-xs font-bold flex items-center gap-2 flex-wrap ${textTitle}`}>
+                          <span className="flex items-center gap-1">
+                            <User className="w-3.5 h-3.5 text-slate-400" />
+                            {o.customerName || o.customer_name || 'Online Customer'}
+                          </span>
+                          {(o.customerPhone || o.customer_phone || o.phone) && (
+                            <span className={`font-mono text-[11px] ${textSub}`}>
+                              {o.customerPhone || o.customer_phone || o.phone}
+                            </span>
+                          )}
+                        </div>
+                        <div className={`text-[11px] ${textSub}`}>
+                          {(o.items || []).reduce((sum, it) => sum + Number(it.quantity || 0), 0)} item(s) • Total{' '}
+                          <span className="font-black text-emerald-500">{formatTZS(orderAmount)}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => handleTransferOnlineOrderToPos(o, { openInRegister: true })}
+                          className="px-3 py-2 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm flex items-center gap-1.5 transition-all"
+                        >
+                          <Store className="w-3.5 h-3.5" />
+                          <span>{isAlreadyTransferred ? 'Continue in POS' : 'Transfer & Open POS'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await handleTransferOnlineOrderToPos(o, { openInRegister: false, silent: true });
+                            setIsOnlineTransferDrawerOpen(false);
+                            setOrbiPayPendingPayload({
+                              amount: Math.max(0, Math.round(orderAmount)),
+                              orderId: o.id,
+                              customerName: o.customerName || o.customer_name || 'Online Customer',
+                              customerPhone: o.customerPhone || o.customer_phone || o.phone || '',
+                              items: o.items || [],
+                              receiptDraft: {
+                                orderId: o.id,
+                                items: o.items || [],
+                                subtotal: Number(o.subtotal || orderAmount),
+                                tax: Number(o.tax || 0),
+                                discount: Number(o.discount || 0),
+                                total: orderAmount,
+                                customerName: o.customerName || o.customer_name || 'Online Customer',
+                                customerPhone: o.customerPhone || o.customer_phone || o.phone || '',
+                                customerEmail: o.customerEmail || o.customer_email || '',
+                                customerTin: o.customerTin || '',
+                                includeVat: o.includeVat === true,
+                                vatPercentage: o.includeVat === true ? (o.vatPercentage ?? 18) : 0,
+                              },
+                            });
+                            setIsOrbiPayPosOpen(true);
+                          }}
+                          className="px-3 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-sm flex items-center gap-1.5 transition-all"
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>Orbi Pay Auto</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Global Keyboard Shortcut Cheat Sheet Modal */}
 

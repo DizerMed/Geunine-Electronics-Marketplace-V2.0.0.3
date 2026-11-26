@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import multer from "multer";
@@ -113,7 +114,8 @@ let memoryStore: Record<string, Record<string, any>> = {
   visitor_logs: {},
   purchases: {},
   purchaseReturns: {},
-  salesReturns: {}
+  salesReturns: {},
+  orbi_payments: {}
 };
 
 function loadDiskDb() {
@@ -3141,6 +3143,14 @@ function normalizeFromSupabase(colName: string, row: any): any {
   if (result.productids !== undefined && result.productids !== null) result.productIds = result.productids;
   if (result.banner_image !== undefined && result.banner_image !== null) result.bannerImage = result.banner_image;
   if (result.bannerimage !== undefined && result.bannerimage !== null) result.bannerImage = result.bannerimage;
+
+  if (result.order_type !== undefined && result.order_type !== null && !result.orderType) result.orderType = result.order_type;
+  if (result.order_source !== undefined && result.order_source !== null && !result.orderSource) result.orderSource = result.order_source;
+  if (result.transferred_to_pos !== undefined && result.transferred_to_pos !== null) result.transferredToPos = Boolean(result.transferred_to_pos);
+  if (result.transferred_to_pos_at !== undefined && result.transferred_to_pos_at !== null) result.transferredToPosAt = result.transferred_to_pos_at;
+  if (result.transferred_by !== undefined && result.transferred_by !== null) result.transferredBy = result.transferred_by;
+  if (result.orbi_payment_ref !== undefined && result.orbi_payment_ref !== null) result.orbiPaymentRef = result.orbi_payment_ref;
+  if (result.auto_completed_via_orbi_pay !== undefined && result.auto_completed_via_orbi_pay !== null) result.autoCompletedViaOrbiPay = Boolean(result.auto_completed_via_orbi_pay);
 
   if (result.avatar_url !== undefined && result.avatar_url !== null) result.avatar = result.avatar_url;
   if (result.created_at !== undefined && result.created_at !== null) result.createdAt = result.created_at;
@@ -6629,6 +6639,583 @@ GUIDELINES:
   } catch (err: any) {
     console.error('AI Analytics Error:', err);
     res.status(500).json({ error: err.message || 'Failed to generate AI analytics insights' });
+  }
+});
+
+// ==========================================
+// ORBI PAY AUTO-PAYMENT GATEWAY & AUTO-COMPLETE
+// ==========================================
+function getOrbiPayConfig() {
+  const rawUrl = (process.env.ORBI_PAY_API_URL || '').trim();
+  const apiKey = (process.env.ORBI_PAY_API_KEY || '').trim();
+  const merchantId = (process.env.ORBI_PAY_MERCHANT_ID || 'ORBI-9901').trim();
+  const webhookSecret = (process.env.ORBI_PAY_WEBHOOK_SECRET || '').trim();
+
+  let validatedBaseUrl = '';
+  if (rawUrl) {
+    try {
+      const parsed = new URL(rawUrl);
+      const host = parsed.hostname.toLowerCase();
+      const isBlockedHost =
+        host === 'localhost' ||
+        host === '::1' ||
+        host.startsWith('127.') ||
+        host.startsWith('10.') ||
+        host.startsWith('169.254.') ||
+        host.startsWith('192.168.') ||
+        /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
+      if (parsed.protocol === 'https:' && !isBlockedHost) {
+        validatedBaseUrl = parsed.origin + parsed.pathname.replace(/\/+$/, '');
+      }
+    } catch {
+      validatedBaseUrl = '';
+    }
+  }
+
+  const isLive = Boolean(validatedBaseUrl && apiKey);
+  return { isLive, baseUrl: validatedBaseUrl, apiKey, merchantId, webhookSecret };
+}
+
+function getSafeOrbiIntentView(intent: any) {
+  if (!intent) return null;
+  return {
+    paymentRef: intent.paymentRef,
+    gatewayTransactionId: intent.gatewayTransactionId,
+    orderId: intent.orderId,
+    amount: Number(intent.amount || 0),
+    currency: intent.currency || 'TZS',
+    status: intent.status,
+    mode: intent.mode,
+    merchantId: intent.merchantId,
+    qrPayload: intent.qrPayload,
+    checkoutUrl: intent.checkoutUrl,
+    customerPhone: intent.customerPhone,
+    customerName: intent.customerName,
+    cashierName: intent.cashierName,
+    items: intent.items || [],
+    posTransactionId: intent.posTransactionId,
+    createdAt: intent.createdAt,
+    completedAt: intent.completedAt,
+  };
+}
+
+async function autoCompleteOrbiPayment(
+  paymentRef: string,
+  gatewayDetails?: { gatewayTransactionId?: string; verifiedVia?: string }
+): Promise<{
+  alreadyCompleted: boolean;
+  intent: any;
+  order: any | null;
+  posTransaction: any | null;
+}> {
+  if (!memoryStore['orbi_payments']) memoryStore['orbi_payments'] = {};
+  const intent = memoryStore['orbi_payments'][paymentRef];
+  if (!intent) {
+    throw new Error(`Orbi Pay intent "${paymentRef}" not found.`);
+  }
+
+  if (intent.status === 'PAID' && intent.posTransactionId && memoryStore['posTransactions']?.[intent.posTransactionId]) {
+    const existingTx = normalizeFromSupabase('posTransactions', memoryStore['posTransactions'][intent.posTransactionId]);
+    const existingOrder = intent.orderId && memoryStore['orders']?.[intent.orderId]
+      ? normalizeFromSupabase('orders', memoryStore['orders'][intent.orderId])
+      : null;
+    return { alreadyCompleted: true, intent, order: existingOrder, posTransaction: existingTx };
+  }
+
+  const now = new Date().toISOString();
+  const supabase = getSupabaseAdmin();
+  intent.status = 'PAID';
+  intent.completedAt = now;
+  intent.gatewayTransactionId =
+    gatewayDetails?.gatewayTransactionId ||
+    intent.gatewayTransactionId ||
+    `ORB-TX-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+  intent.verifiedVia = gatewayDetails?.verifiedVia || intent.verifiedVia || 'orbi_gateway';
+
+  let updatedOrder: any = null;
+
+  // 1. Update linked Order if orderId exists
+  if (intent.orderId) {
+    let existingOrder = memoryStore['orders']?.[intent.orderId] || null;
+    if (!existingOrder && supabase) {
+      try {
+        const { data } = await supabase.from('orders').select('*').eq('id', intent.orderId).maybeSingle();
+        if (data) existingOrder = normalizeFromSupabase('orders', data);
+      } catch (_) {}
+    }
+
+    if (existingOrder) {
+      const draft = intent.receiptDraft || {};
+      const orderTotal = Number(draft.total ?? intent.amount ?? existingOrder.totalAmount ?? existingOrder.total_amount ?? 0);
+      const timeline = Array.isArray(existingOrder.trackingTimeline) ? [...existingOrder.trackingTimeline] : [];
+      timeline.push({
+        title: 'Auto-Paid via Orbi Pay',
+        description: `Payment Ref ${paymentRef} (${intent.gatewayTransactionId}) settled automatically.`,
+        time: now,
+        location: 'Orbi Pay Gateway',
+        completed: true
+      });
+
+      const mergedItems = Array.isArray(draft.items) && draft.items.length > 0
+        ? draft.items.map((it: any) => ({
+            product: it.product,
+            quantity: Number(it.quantity || 1),
+            price: Number(it.price ?? it.product?.price ?? 0)
+          }))
+        : existingOrder.items;
+
+      const mergedOrder = {
+        ...existingOrder,
+        items: mergedItems,
+        totalAmount: orderTotal,
+        total_amount: orderTotal,
+        subtotal: Number(draft.subtotal ?? existingOrder.subtotal ?? orderTotal),
+        tax: Number(draft.tax ?? existingOrder.tax ?? 0),
+        discount: Number(draft.discount ?? existingOrder.discount ?? 0),
+        includeVat: draft.includeVat !== undefined ? Boolean(draft.includeVat) : existingOrder.includeVat,
+        vatPercentage: draft.vatPercentage !== undefined ? Number(draft.vatPercentage) : existingOrder.vatPercentage,
+        paymentStatus: 'Paid',
+        payment_status: 'Paid',
+        status: 'Completed',
+        paymentMethod: 'Orbi Pay',
+        payment_method: 'Orbi Pay',
+        paidAmount: orderTotal,
+        paid_amount: orderTotal,
+        outstandingBalance: 0,
+        outstanding_balance: 0,
+        orbiPaymentRef: paymentRef,
+        orbi_payment_ref: paymentRef,
+        autoCompletedViaOrbiPay: true,
+        auto_completed_via_orbi_pay: true,
+        trackingTimeline: timeline,
+        updatedAt: now
+      };
+
+      if (supabase) {
+        try {
+          await safeSupabaseUpsert(supabase, 'orders', mergedOrder);
+        } catch (err: any) {
+          console.warn('[OrbiPay] Failed to upsert order in Supabase:', err?.message);
+        }
+      }
+
+      if (!memoryStore['orders']) memoryStore['orders'] = {};
+      memoryStore['orders'][existingOrder.id] = mergedOrder;
+      updatedOrder = normalizeFromSupabase('orders', mergedOrder);
+
+      broadcastEvent({
+        type: 'COLLECTION_UPDATE',
+        collection: 'orders',
+        action: 'UPDATE',
+        id: existingOrder.id,
+        item: updatedOrder,
+        timestamp: Date.now()
+      });
+    }
+  }
+
+  // 2. Create idempotent POS Transaction receipt (unless already created for this paymentRef)
+  if (!memoryStore['posTransactions']) memoryStore['posTransactions'] = {};
+  const existingTxMatch = Object.values(memoryStore['posTransactions']).find(
+    (tx: any) => tx && (tx.orderReference === paymentRef || tx.order_reference === paymentRef)
+  );
+
+  let finalTx: any = existingTxMatch || null;
+
+  if (!finalTx) {
+    const eatDate = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    const yy = String(eatDate.getUTCFullYear()).slice(-2);
+    const mm = String(eatDate.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(eatDate.getUTCDate()).padStart(2, '0');
+    const hh = String(eatDate.getUTCHours()).padStart(2, '0');
+    const mn = String(eatDate.getUTCMinutes()).padStart(2, '0');
+    const ss = String(eatDate.getUTCSeconds()).padStart(2, '0');
+    const suffix = crypto.randomBytes(3).toString('hex').toUpperCase();
+    const receiptNumber = `REC-${yy}${mm}${dd}-${hh}${mn}${ss}-${suffix}`;
+
+    const draft = intent.receiptDraft || {};
+    const txItems = Array.isArray(draft.items) && draft.items.length > 0
+      ? draft.items
+      : (Array.isArray(intent.items) && intent.items.length > 0
+          ? intent.items
+          : (updatedOrder?.items || []));
+
+    const txTotal = Number(draft.total ?? intent.amount ?? updatedOrder?.totalAmount ?? 0);
+    const newTx = {
+      id: receiptNumber,
+      receiptNumber,
+      receipt_number: receiptNumber,
+      createdAt: draft.createdAt || now,
+      items: txItems,
+      subtotal: Number(draft.subtotal ?? updatedOrder?.subtotal ?? txTotal),
+      tax: Number(draft.tax ?? updatedOrder?.tax ?? 0),
+      discount: Number(draft.discount ?? updatedOrder?.discount ?? 0),
+      extraCosts: draft.extraCosts ?? updatedOrder?.extraCosts ?? [],
+      total: txTotal,
+      totalAmount: txTotal,
+      paymentMethod: 'Orbi Pay',
+      payment_method: 'Orbi Pay',
+      priceTier: draft.priceTier || 'retail',
+      cashierName: intent.cashierName || draft.cashierName || updatedOrder?.cashierName || 'Counter Cashier',
+      customerName: intent.customerName || draft.customerName || updatedOrder?.customerName || 'Walk-in Customer',
+      customerPhone: intent.customerPhone || draft.customerPhone || updatedOrder?.customerPhone || '',
+      customerEmail: draft.customerEmail || updatedOrder?.customerEmail || '',
+      customerTin: draft.customerTin || updatedOrder?.customerTin || '',
+      orderReference: paymentRef,
+      order_reference: paymentRef,
+      tenderedAmount: txTotal,
+      changeAmount: 0,
+      includeVat: Boolean(draft.includeVat ?? updatedOrder?.includeVat ?? false),
+      vatPercentage: Number(draft.vatPercentage ?? updatedOrder?.vatPercentage ?? 0),
+      status: 'Completed',
+      notes: draft.notes || (intent.orderId
+        ? `Auto-completed online transferred order ${intent.orderId} via Orbi Pay (${paymentRef})`
+        : `Orbi Pay Auto-Complete (${paymentRef})`),
+      updatedAt: now
+    };
+
+    if (supabase) {
+      try {
+        const { error } = await safeSupabaseUpsert(supabase, 'pos_transactions', newTx);
+        if (!error) {
+          await syncRelationalPOSItems(supabase, 'pos_transactions', receiptNumber, newTx);
+        }
+      } catch (err: any) {
+        console.warn('[OrbiPay] Failed to upsert pos_transaction in Supabase:', err?.message);
+      }
+    }
+
+    memoryStore['posTransactions'][receiptNumber] = newTx;
+    finalTx = normalizeFromSupabase('posTransactions', newTx);
+
+    broadcastEvent({
+      type: 'COLLECTION_UPDATE',
+      collection: 'posTransactions',
+      action: 'ADD',
+      id: receiptNumber,
+      item: finalTx,
+      timestamp: Date.now()
+    });
+
+    // 3. Deduct inventory stock once if not already deducted
+    if (!intent.stockDeducted && Array.isArray(txItems) && txItems.length > 0) {
+      intent.stockDeducted = true;
+      for (const it of txItems) {
+        const prodId = it?.product?.id || it?.productId || it?.product_id;
+        const qty = Number(it?.quantity) || 0;
+        if (!prodId || qty <= 0) continue;
+
+        let prod = memoryStore['products']?.[prodId];
+        if (!prod && supabase) {
+          try {
+            const { data } = await supabase.from('products').select('*').eq('id', prodId).maybeSingle();
+            if (data) prod = normalizeFromSupabase('products', data);
+          } catch (_) {}
+        }
+
+        if (prod) {
+          const newStock = Math.max(0, (Number(prod.stock) || 0) - qty);
+          prod.stock = newStock;
+          prod.updatedAt = now;
+          if (!memoryStore['products']) memoryStore['products'] = {};
+          memoryStore['products'][prodId] = prod;
+
+          if (supabase) {
+            try {
+              await supabase.from('products').update({ stock: newStock, updated_at: now }).eq('id', prodId);
+            } catch (_) {}
+          }
+
+          broadcastEvent({
+            type: 'COLLECTION_UPDATE',
+            collection: 'products',
+            action: 'UPDATE',
+            id: prodId,
+            item: normalizeFromSupabase('products', prod),
+            timestamp: Date.now()
+          });
+        }
+      }
+    }
+  }
+
+  intent.posTransactionId = finalTx?.id || intent.posTransactionId;
+  memoryStore['orbi_payments'][paymentRef] = intent;
+  saveDiskDb(true);
+
+  broadcastEvent({
+    type: 'ORBI_PAYMENT_COMPLETED',
+    paymentRef,
+    orderId: intent.orderId,
+    order: updatedOrder,
+    posTransaction: finalTx,
+    timestamp: Date.now()
+  });
+
+  return {
+    alreadyCompleted: false,
+    intent,
+    order: updatedOrder,
+    posTransaction: finalTx
+  };
+}
+
+app.post('/api/payments/orbi-pay/initiate', async (req, res) => {
+  try {
+    const { amount, orderId, customerPhone, customerName, cashierName, items, receiptDraft } = req.body || {};
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return res.status(400).json({ error: 'A valid positive payment amount (TZS) is required.' });
+    }
+
+    const cfg = getOrbiPayConfig();
+    const paymentRef = `ORB-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
+    const now = new Date().toISOString();
+
+    let mode: 'live' | 'sandbox' = cfg.isLive ? 'live' : 'sandbox';
+    let gatewayTransactionId: string | undefined;
+    let checkoutUrl: string | undefined;
+    let qrPayload = `orbi://pay?merchant=${encodeURIComponent(cfg.merchantId)}&ref=${encodeURIComponent(paymentRef)}&amount=${Math.round(numericAmount)}&currency=TZS`;
+
+    if (cfg.isLive) {
+      try {
+        const endpoint = new URL('/v1/payments/initiate', cfg.baseUrl).toString();
+        const gatewayRes = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${cfg.apiKey}`
+          },
+          body: JSON.stringify({
+            merchantId: cfg.merchantId,
+            reference: paymentRef,
+            amount: Math.round(numericAmount),
+            currency: 'TZS',
+            orderId: orderId ? String(orderId).trim() : undefined,
+            customerPhone: customerPhone ? String(customerPhone).trim() : undefined,
+            customerName: customerName ? String(customerName).trim() : undefined
+          })
+        });
+
+        if (!gatewayRes.ok) {
+          const errBody = await gatewayRes.text();
+          return res.status(502).json({ error: `Orbi Pay gateway rejected initiation (${gatewayRes.status}): ${errBody.slice(0, 200)}` });
+        }
+
+        const gatewayJson: any = await gatewayRes.json();
+        gatewayTransactionId = gatewayJson.transactionId || gatewayJson.id;
+        checkoutUrl = gatewayJson.checkoutUrl || gatewayJson.paymentUrl;
+        if (gatewayJson.qrPayload) qrPayload = String(gatewayJson.qrPayload);
+      } catch (err: any) {
+        return res.status(502).json({ error: `Failed to reach Orbi Pay gateway: ${err.message}` });
+      }
+    }
+
+    const intent = {
+      paymentRef,
+      gatewayTransactionId,
+      orderId: orderId ? String(orderId).trim() : undefined,
+      amount: Math.round(numericAmount),
+      currency: 'TZS',
+      status: 'PENDING',
+      mode,
+      merchantId: cfg.merchantId,
+      qrPayload,
+      checkoutUrl,
+      customerPhone: customerPhone ? String(customerPhone).trim() : '',
+      customerName: customerName ? String(customerName).trim() : 'Walk-in Customer',
+      cashierName: cashierName ? String(cashierName).trim() : 'Counter Cashier',
+      items: Array.isArray(items) ? items : [],
+      receiptDraft: receiptDraft && typeof receiptDraft === 'object' ? receiptDraft : undefined,
+      stockDeducted: false,
+      createdAt: now
+    };
+
+    if (!memoryStore['orbi_payments']) memoryStore['orbi_payments'] = {};
+    memoryStore['orbi_payments'][paymentRef] = intent;
+    saveDiskDb(true);
+
+    return res.json({ success: true, intent: getSafeOrbiIntentView(intent) });
+  } catch (err: any) {
+    console.error('[OrbiPay Initiate Error]:', err);
+    return res.status(500).json({ error: err.message || 'Failed to initiate Orbi Pay payment.' });
+  }
+});
+
+app.get('/api/payments/orbi-pay/status/:paymentRef', async (req, res) => {
+  try {
+    const paymentRef = String(req.params.paymentRef || '').trim();
+    if (!/^[A-Za-z0-9_-]{4,64}$/.test(paymentRef)) {
+      return res.status(400).json({ error: 'Invalid payment reference format.' });
+    }
+
+    const intent = memoryStore['orbi_payments']?.[paymentRef];
+    if (!intent) {
+      return res.status(404).json({ error: 'Orbi Pay payment intent not found.' });
+    }
+
+    const cfg = getOrbiPayConfig();
+    if (intent.mode === 'live' && cfg.isLive && intent.status === 'PENDING') {
+      try {
+        const statusEndpoint = new URL(`/v1/payments/${encodeURIComponent(paymentRef)}`, cfg.baseUrl).toString();
+        const gatewayRes = await fetch(statusEndpoint, {
+          headers: { 'Authorization': `Bearer ${cfg.apiKey}` }
+        });
+        if (gatewayRes.ok) {
+          const gatewayJson: any = await gatewayRes.json();
+          const gwStatus = String(gatewayJson.status || '').toUpperCase();
+          if (gwStatus === 'PAID' || gwStatus === 'COMPLETED' || gwStatus === 'SUCCESS') {
+            const completed = await autoCompleteOrbiPayment(paymentRef, {
+              gatewayTransactionId: gatewayJson.transactionId || gatewayJson.id,
+              verifiedVia: 'orbi_status_poll'
+            });
+            return res.json({
+              success: true,
+              intent: getSafeOrbiIntentView(completed.intent),
+              order: completed.order,
+              posTransaction: completed.posTransaction
+            });
+          } else if (gwStatus === 'FAILED' || gwStatus === 'EXPIRED') {
+            intent.status = gwStatus;
+            saveDiskDb();
+          }
+        }
+      } catch (err: any) {
+        console.warn('[OrbiPay Live Status Check Warning]:', err?.message);
+      }
+    }
+
+    const order = intent.orderId && memoryStore['orders']?.[intent.orderId]
+      ? normalizeFromSupabase('orders', memoryStore['orders'][intent.orderId])
+      : null;
+    const posTransaction = intent.posTransactionId && memoryStore['posTransactions']?.[intent.posTransactionId]
+      ? normalizeFromSupabase('posTransactions', memoryStore['posTransactions'][intent.posTransactionId])
+      : null;
+
+    return res.json({
+      success: true,
+      intent: getSafeOrbiIntentView(intent),
+      order,
+      posTransaction
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to check Orbi Pay status.' });
+  }
+});
+
+app.post('/api/payments/orbi-pay/confirm', async (req, res) => {
+  try {
+    const paymentRef = String(req.body?.paymentRef || '').trim();
+    if (!/^[A-Za-z0-9_-]{4,64}$/.test(paymentRef)) {
+      return res.status(400).json({ error: 'Invalid payment reference.' });
+    }
+
+    const intent = memoryStore['orbi_payments']?.[paymentRef];
+    if (!intent) {
+      return res.status(404).json({ error: 'Orbi Pay payment intent not found.' });
+    }
+
+    const cfg = getOrbiPayConfig();
+    if (intent.mode === 'live' && cfg.isLive) {
+      const verifyEndpoint = new URL(`/v1/payments/${encodeURIComponent(paymentRef)}`, cfg.baseUrl).toString();
+      const gatewayRes = await fetch(verifyEndpoint, {
+        headers: { 'Authorization': `Bearer ${cfg.apiKey}` }
+      });
+      if (!gatewayRes.ok) {
+        return res.status(502).json({ error: 'Unable to verify payment status with Orbi Pay gateway.' });
+      }
+      const gatewayJson: any = await gatewayRes.json();
+      const gwStatus = String(gatewayJson.status || '').toUpperCase();
+      if (gwStatus !== 'PAID' && gwStatus !== 'COMPLETED' && gwStatus !== 'SUCCESS') {
+        return res.status(409).json({
+          error: `Orbi Pay gateway reports payment is still ${gwStatus || 'PENDING'}. Wait for customer confirmation.`
+        });
+      }
+      const completed = await autoCompleteOrbiPayment(paymentRef, {
+        gatewayTransactionId: gatewayJson.transactionId || gatewayJson.id,
+        verifiedVia: 'orbi_live_verify'
+      });
+      return res.json({
+        success: true,
+        alreadyCompleted: completed.alreadyCompleted,
+        intent: getSafeOrbiIntentView(completed.intent),
+        order: completed.order,
+        posTransaction: completed.posTransaction
+      });
+    }
+
+    const completed = await autoCompleteOrbiPayment(paymentRef, {
+      gatewayTransactionId: req.body?.gatewayTransactionId ? String(req.body.gatewayTransactionId).trim() : undefined,
+      verifiedVia: 'orbi_sandbox_auto_complete'
+    });
+
+    return res.json({
+      success: true,
+      alreadyCompleted: completed.alreadyCompleted,
+      intent: getSafeOrbiIntentView(completed.intent),
+      order: completed.order,
+      posTransaction: completed.posTransaction
+    });
+  } catch (err: any) {
+    console.error('[OrbiPay Confirm Error]:', err);
+    return res.status(500).json({ error: err.message || 'Failed to confirm Orbi Pay payment.' });
+  }
+});
+
+app.post('/api/payments/orbi-pay/webhook', async (req, res) => {
+  try {
+    const cfg = getOrbiPayConfig();
+    const signatureHeader = String(req.headers['x-orbi-signature'] || '').trim();
+
+    if (cfg.webhookSecret) {
+      if (!signatureHeader) {
+        return res.status(401).json({ error: 'Missing Orbi Pay webhook signature.' });
+      }
+      const expected = crypto
+        .createHmac('sha256', cfg.webhookSecret)
+        .update(JSON.stringify(req.body || {}))
+        .digest('hex');
+
+      const sigBuf = Buffer.from(signatureHeader);
+      const expBuf = Buffer.from(expected);
+      if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+        return res.status(401).json({ error: 'Invalid Orbi Pay webhook signature.' });
+      }
+    } else if (cfg.isLive) {
+      return res.status(503).json({ error: 'ORBI_PAY_WEBHOOK_SECRET is not configured for live webhook verification.' });
+    }
+
+    const paymentRef = String(req.body?.paymentRef || req.body?.reference || '').trim();
+    const status = String(req.body?.status || '').toUpperCase();
+    const eventType = String(req.body?.event || '').toLowerCase();
+
+    if (!paymentRef || !memoryStore['orbi_payments']?.[paymentRef]) {
+      return res.status(404).json({ error: 'Unknown payment reference.' });
+    }
+
+    if (status === 'PAID' || status === 'COMPLETED' || status === 'SUCCESS' || eventType === 'payment.completed') {
+      const completed = await autoCompleteOrbiPayment(paymentRef, {
+        gatewayTransactionId: req.body?.transactionId ? String(req.body.transactionId).trim() : undefined,
+        verifiedVia: 'orbi_webhook'
+      });
+      return res.json({
+        success: true,
+        alreadyCompleted: completed.alreadyCompleted,
+        posTransactionId: completed.posTransaction?.id,
+        orderId: completed.order?.id
+      });
+    }
+
+    if (status === 'FAILED' || status === 'EXPIRED') {
+      memoryStore['orbi_payments'][paymentRef].status = status;
+      saveDiskDb();
+      return res.json({ success: true, status });
+    }
+
+    return res.json({ success: true, ignored: true });
+  } catch (err: any) {
+    console.error('[OrbiPay Webhook Error]:', err);
+    return res.status(500).json({ error: err.message || 'Webhook processing error.' });
   }
 });
 

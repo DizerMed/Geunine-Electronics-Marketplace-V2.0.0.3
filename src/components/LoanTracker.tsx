@@ -23,6 +23,7 @@ import {
 import { triggerHaptic } from '../utils/haptics';
 import { formatTzPhone } from '../utils/phoneFormat';
 import { customAlert, customConfirm, customPrompt } from '../utils/dialog';
+import { buildDocumentBaseName, buildDocumentExportFilename } from '../utils/docFilename';
 
 export type LoanStatusFilter = 'all' | 'overdue' | 'partial' | 'unpaid' | 'active' | 'paid';
 export type LoanPriorityPreset = 'all' | 'overdue' | 'due_today' | 'due_soon' | 'high_balance';
@@ -468,8 +469,16 @@ export const LoanTracker: React.FC<LoanTrackerProps> = ({
     const storeName = storeSettings?.storeName || 'Genuine Electronics';
     const storeTel = storeSettings?.phone || '+255 768 929 203';
 
+    const loanCustomerName = getLoanCustomerName(tx);
+    const loanDocName = buildDocumentBaseName({
+      customerName: loanCustomerName,
+      docNo: tx.receiptNumber || tx.id,
+      docCategory: 'receipt',
+    });
+
     let msg = `🧾 *UTHIBITISHO WA MALIPO YA MKOPO (INSTALLMENT RECEIPT)*\n*${storeName.toUpperCase()}*\n----------------------------------------\n`;
-    msg += `👤 *Mteja:* ${getLoanCustomerName(tx)}\n`;
+    msg += `🏷️ *Dokumenti:* ${loanDocName}\n`;
+    msg += `👤 *Mteja:* ${loanCustomerName}\n`;
     msg += `📄 *Akaunti / Risiti:* ${tx.id}\n`;
     msg += `💵 *Kiasi Kilicholipwa:* ${formatTZS(rep.amount)}\n`;
     msg += `💳 *Njia ya Malipo:* ${rep.paymentMethod}\n`;
@@ -506,7 +515,19 @@ export const LoanTracker: React.FC<LoanTrackerProps> = ({
 
       canvas.toBlob(async (blob) => {
         if (!blob) return;
-        const fileName = `Installment_Receipt_${tx.id.replace('#', '')}.png`;
+        const customerName = getLoanCustomerName(tx);
+        const receiptRef = tx.receiptNumber || tx.id;
+        const docBaseName = buildDocumentBaseName({
+          customerName,
+          docNo: receiptRef,
+          docCategory: 'receipt',
+        });
+        const fileName = buildDocumentExportFilename({
+          customerName,
+          docNo: receiptRef,
+          docCategory: 'receipt',
+          extension: 'png',
+        });
         const file = new File([blob], fileName, { type: 'image/png' });
 
         let shared = false;
@@ -523,7 +544,7 @@ export const LoanTracker: React.FC<LoanTrackerProps> = ({
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           try {
             await navigator.share({
-              title: `Installment Receipt ${tx.id}`,
+              title: docBaseName,
               files: [file]
             });
             shared = true;

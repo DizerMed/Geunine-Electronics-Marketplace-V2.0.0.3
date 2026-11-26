@@ -33,9 +33,13 @@ import {
   Eye,
   Trash2,
   History,
-  Tag
+  Tag,
+  Store,
+  Zap,
+  Globe
 } from 'lucide-react';
 import { customConfirm } from '../utils/dialog';
+import { OrbiPayAutoModal } from './OrbiPayAutoModal';
 
 export interface POSOrdersManagerProps {
   orders: Order[];
@@ -44,6 +48,8 @@ export interface POSOrdersManagerProps {
   onOpenInvoice: (order: Order) => void;
   onOpenReceipt: (tx: POSTransaction) => void;
   onLoadOrderIntoPosCart: (order: Order) => void;
+  onTransferToPos?: (order: Order) => Promise<void> | void;
+  onOrbiAutoCompleted?: (payload: { intent: any; order?: Order | null; posTransaction?: POSTransaction | null }) => void;
   onCompletePayment: (order: Order, tenderDetails: { method: string; tenderedAmount: number; changeAmount: number; notes?: string; orderReference?: string }) => Promise<void> | void;
   onUpdateOrder: (order: Order) => Promise<void> | void;
   onCancelOrder: (orderId: string, reason?: string) => Promise<void> | void;
@@ -62,7 +68,7 @@ export interface POSOrdersManagerProps {
   showAlert: (title: string, msg: string, type?: any) => void;
 }
 
-type SubMenuTab = 'all' | 'awaiting_payment' | 'partial' | 'confirmed';
+type SubMenuTab = 'all' | 'transferred' | 'awaiting_payment' | 'partial' | 'confirmed';
 
 export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
   orders = [],
@@ -71,6 +77,8 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
   onOpenInvoice,
   onOpenReceipt,
   onLoadOrderIntoPosCart,
+  onTransferToPos,
+  onOrbiAutoCompleted,
   onCompletePayment,
   onUpdateOrder,
   onCancelOrder,
@@ -92,11 +100,12 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
   const [activeSubMenu, setActiveSubMenu] = useState<SubMenuTab>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month'>('all');
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'pos' | 'web'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'pos' | 'web' | 'transferred'>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'amount_desc' | 'amount_asc'>('newest');
 
   // Interactive Modals State
   const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<Order | null>(null);
+  const [orbiPayOrder, setOrbiPayOrder] = useState<Order | null>(null);
   const [paymentTenderMethod, setPaymentTenderMethod] = useState<string>('Cash');
   const [paymentTenderAmount, setPaymentTenderAmount] = useState<string>('');
   const [paymentReference, setPaymentReference] = useState<string>('');
@@ -152,12 +161,26 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
       }
 
       // Source Filter
+      const isTransferred = Boolean(
+        order.status === 'transferred-to-pos' ||
+        order.transferredToPos ||
+        order.transferred_to_pos ||
+        order.orderType === 'online_to_pos' ||
+        order.order_type === 'online_to_pos'
+      );
+      const isPos =
+        order.orderSource === 'pos' ||
+        order.order_source === 'pos' ||
+        order.orderType === 'pos_pre_sale' ||
+        order.order_type === 'pos_pre_sale' ||
+        (order.shippingAddress || '').includes('In-Store');
+
       if (sourceFilter === 'pos') {
-        const isPos = order.orderSource === 'pos' || order.order_source === 'pos' || order.orderType === 'pos_pre_sale' || order.order_type === 'pos_pre_sale' || (order.shippingAddress || '').includes('In-Store');
-        if (!isPos) return false;
+        if (!isPos && !isTransferred) return false;
       } else if (sourceFilter === 'web') {
-        const isPos = order.orderSource === 'pos' || order.order_source === 'pos' || order.orderType === 'pos_pre_sale' || order.order_type === 'pos_pre_sale' || (order.shippingAddress || '').includes('In-Store');
         if (isPos) return false;
+      } else if (sourceFilter === 'transferred') {
+        if (!isTransferred) return false;
       }
 
       // Date Filter
@@ -182,6 +205,9 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
         return false;
       }
 
+      if (activeSubMenu === 'transferred') {
+        return isTransferred && oStat !== 'cancelled';
+      }
       if (activeSubMenu === 'awaiting_payment') {
         return (pStat === 'pending' || pStat === 'unpaid') && oStat !== 'cancelled' && paidAmt === 0;
       }
@@ -213,6 +239,7 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
   // Key KPI Metrics
   const metrics = useMemo(() => {
     let totalActive = 0;
+    let transferredCount = 0;
     let awaitingPaymentTotal = 0;
     let awaitingPaymentCount = 0;
     let partialDepositTotal = 0;
@@ -227,24 +254,28 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
       const total = Number(o.totalAmount || o.total_amount || 0);
       const paid = Number(o.paidAmount ?? o.paid_amount ?? o.downPayment ?? o.down_payment ?? 0);
       const pStat = (o.paymentStatus || o.payment_status || 'Pending').toLowerCase();
-
-      totalActive++;
+      const isTransferred = Boolean(o.status === 'transferred-to-pos' || o.transferredToPos || o.transferred_to_pos || o.orderType === 'online_to_pos' || o.order_type === 'online_to_pos');
 
       if (pStat === 'paid' || oStat === 'completed' || oStat === 'delivered') {
         completedCount++;
         completedTotal += total;
-      } else if (paid > 0 && paid < total) {
-        partialCount++;
-        partialDepositTotal += paid;
-        awaitingPaymentTotal += Math.max(0, total - paid);
       } else {
-        awaitingPaymentCount++;
-        awaitingPaymentTotal += total;
+        totalActive++;
+        if (isTransferred) transferredCount++;
+        if (paid > 0 && paid < total) {
+          partialCount++;
+          partialDepositTotal += paid;
+          awaitingPaymentTotal += Math.max(0, total - paid);
+        } else {
+          awaitingPaymentCount++;
+          awaitingPaymentTotal += total;
+        }
       }
     });
 
     return {
       totalActive,
+      transferredCount,
       awaitingPaymentTotal,
       awaitingPaymentCount,
       partialDepositTotal,
@@ -301,6 +332,13 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
   // Execute complete payment
   const handleExecutePayment = async () => {
     if (!selectedOrderForPayment) return;
+    if (paymentTenderMethod.toLowerCase().includes('orbi')) {
+      const targetOrder = selectedOrderForPayment;
+      setSelectedOrderForPayment(null);
+      setOrbiPayOrder(targetOrder);
+      return;
+    }
+
     const total = Number(selectedOrderForPayment.totalAmount || selectedOrderForPayment.total_amount || 0);
     const paidSoFar = Number(selectedOrderForPayment.paidAmount ?? selectedOrderForPayment.paid_amount ?? 0);
     const balance = Math.max(0, total - paidSoFar);
@@ -569,6 +607,24 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
 
         <button
           type="button"
+          onClick={() => setActiveSubMenu('transferred')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+            activeSubMenu === 'transferred'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : isDark ? 'text-slate-400 hover:text-white hover:bg-slate-800/60' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <Store className="w-3 h-3" />
+          <span>Online → POS</span>
+          {metrics.transferredCount > 0 && (
+            <span className={`text-[9.5px] px-1.5 py-0.2 rounded-full ${activeSubMenu === 'transferred' ? 'bg-white/20 text-white' : 'bg-indigo-500/20 text-indigo-500'}`}>
+              {metrics.transferredCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveSubMenu('awaiting_payment')}
           className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
             activeSubMenu === 'awaiting_payment'
@@ -608,7 +664,7 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
           onClick={() => setActiveSubMenu('confirmed')}
           className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
             activeSubMenu === 'confirmed'
-              ? 'bg-indigo-600 text-white shadow-sm'
+              ? 'bg-blue-600 text-white shadow-sm'
               : isDark ? 'text-slate-400 hover:text-white hover:bg-slate-800/60' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
@@ -729,6 +785,13 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
             const isFullyPaid = (order.paymentStatus || order.payment_status) === 'Paid' || balance === 0;
             const isPartial = paid > 0 && paid < total;
             const isExpanded = !!expandedOrderIds[order.id];
+            const isTransferred = Boolean(
+              order.status === 'transferred-to-pos' ||
+              order.transferredToPos ||
+              order.transferred_to_pos ||
+              order.orderType === 'online_to_pos' ||
+              order.order_type === 'online_to_pos'
+            );
             const isPosOrder = order.orderSource === 'pos' || order.order_source === 'pos' || order.orderType === 'pos_pre_sale';
 
             return (
@@ -747,10 +810,15 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
                         Quote #{order.quotationNumber}
                       </span>
                     )}
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                      isPosOrder ? 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 ${
+                      isTransferred
+                        ? 'bg-indigo-600/15 text-indigo-500 border border-indigo-500/30'
+                        : isPosOrder
+                        ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                        : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                     }`}>
-                      {isPosOrder ? 'Counter Quotation' : 'Online Storefront'}
+                      {isTransferred ? <Store className="w-3 h-3" /> : !isPosOrder ? <Globe className="w-3 h-3" /> : null}
+                      <span>{isTransferred ? 'Online → POS' : isPosOrder ? 'Counter Quotation' : 'Online Storefront'}</span>
                     </span>
                     <span className="text-[11px] text-slate-400 flex items-center gap-1">
                       <Calendar className="w-3 h-3" />
@@ -776,6 +844,8 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
                     <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
                       (order.status || 'Pending').toLowerCase() === 'completed'
                         ? 'bg-emerald-500/10 text-emerald-500'
+                        : (order.status || 'Pending').toLowerCase() === 'transferred-to-pos'
+                        ? 'bg-indigo-500/15 text-indigo-500 border border-indigo-500/30'
                         : (order.status || 'Pending').toLowerCase() === 'cancelled'
                         ? 'bg-rose-500/10 text-rose-500'
                         : 'bg-blue-500/10 text-blue-500'
@@ -924,6 +994,45 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
                         <Send className="w-3.5 h-3.5" />
                       </button>
 
+                      {/* Transfer Web Order to Offline POS */}
+                      {!isPosOrder && !isTransferred && onTransferToPos && !isFullyPaid && (order.status || '').toLowerCase() !== 'cancelled' && (
+                        <button
+                          type="button"
+                          onClick={() => onTransferToPos(order)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-black bg-indigo-600/10 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-400 hover:text-white border border-indigo-500/30 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                          title="Transfer this online order to Offline POS Register"
+                        >
+                          <Store className="w-3.5 h-3.5" />
+                          <span>Transfer to POS</span>
+                        </button>
+                      )}
+
+                      {/* Continue Order directly inside POS Register Cart */}
+                      {!isFullyPaid && (order.status || '').toLowerCase() !== 'cancelled' && (
+                        <button
+                          type="button"
+                          onClick={() => onLoadOrderIntoPosCart(order)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-black bg-blue-600/10 hover:bg-blue-600 text-blue-600 dark:text-blue-400 hover:text-white border border-blue-500/30 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                          title="Load this order into POS Register Cart to continue or edit items"
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5" />
+                          <span>Continue in POS</span>
+                        </button>
+                      )}
+
+                      {/* Orbi Pay Auto-Complete Button */}
+                      {!isFullyPaid && (order.status || '').toLowerCase() !== 'cancelled' && (
+                        <button
+                          type="button"
+                          onClick={() => setOrbiPayOrder(order)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                          title="Pay & Auto-Complete Order via Orbi Pay"
+                        >
+                          <Zap className="w-3.5 h-3.5 text-amber-300" />
+                          <span>Orbi Pay Auto</span>
+                        </button>
+                      )}
+
                       {/* Complete Payment Button */}
                       {!isFullyPaid && (order.status || '').toLowerCase() !== 'cancelled' && (
                         <button
@@ -1028,6 +1137,7 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
               <div className="grid grid-cols-2 gap-2">
                 {[
                   'Cash',
+                  'Orbi Pay (Auto-Complete)',
                   'M-Pesa / Vodacom',
                   'Airtel Money',
                   'Mixx by Yas (Tigo)',
@@ -1040,7 +1150,9 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
                     onClick={() => setPaymentTenderMethod(method)}
                     className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all text-left truncate ${
                       paymentTenderMethod === method
-                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
+                        ? method.includes('Orbi')
+                          ? 'bg-indigo-600 text-white border-indigo-500 shadow-xs'
+                          : 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
                         : isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-700 hover:bg-slate-100'
                     }`}
                   >
@@ -1571,6 +1683,32 @@ export const POSOrdersManager: React.FC<POSOrdersManagerProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Orbi Pay Auto-Complete Modal for Pending / Transferred Online Orders */}
+      {orbiPayOrder && (
+        <OrbiPayAutoModal
+          isOpen={Boolean(orbiPayOrder)}
+          onClose={() => setOrbiPayOrder(null)}
+          amount={Math.max(0, Number(orbiPayOrder.totalAmount || orbiPayOrder.total_amount || 0) - Number(orbiPayOrder.paidAmount ?? orbiPayOrder.paid_amount ?? 0))}
+          orderId={orbiPayOrder.id}
+          customerName={orbiPayOrder.customerName || orbiPayOrder.customer_name || 'Walk-in Customer'}
+          customerPhone={orbiPayOrder.customerPhone || orbiPayOrder.customer_phone || orbiPayOrder.phone || ''}
+          cashierName={activeCashierName}
+          items={orbiPayOrder.items || []}
+          formatTZS={formatTZS}
+          isDark={isDark}
+          onAutoCompleted={({ intent, order: updatedOrd, posTransaction }) => {
+            const ordId = orbiPayOrder.id;
+            setOrbiPayOrder(null);
+            if (previewOrder?.id === ordId) setPreviewOrder(null);
+            if (onOrbiAutoCompleted) {
+              onOrbiAutoCompleted({ intent, order: updatedOrd || orbiPayOrder, posTransaction });
+            } else if (posTransaction) {
+              onOpenReceipt(posTransaction);
+            }
+          }}
+        />
       )}
     </div>
   );

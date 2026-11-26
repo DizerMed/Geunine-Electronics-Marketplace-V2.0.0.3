@@ -8,6 +8,7 @@ import { jsPDF } from 'jspdf';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatTZS, formatToGMT3, StoreSettings, BRAND_LOGO_URL, POSTransaction } from '../types';
 import { parseReceiptQueryParams, fetchOnlineReceiptVerification, buildReceiptVerificationUrl } from '../services/receiptQrService';
+import { buildDocumentBaseName, buildDocumentExportFilename, withTemporaryPrintTitle } from '../utils/docFilename';
 
 interface ReceiptVerificationModalProps {
   isOpen: boolean;
@@ -127,8 +128,15 @@ export const ReceiptVerificationModal: React.FC<ReceiptVerificationModalProps> =
     }
   };
 
+  const receiptDocName = buildDocumentBaseName({
+    customerName,
+    docNo: receiptId,
+    docCategory: 'receipt',
+  });
+
   const handleShareWhatsApp = () => {
     const text = ` OFFICIAL SOFT COPY RECEIPT - Genuine Electronics Tanzania\n` +
+      ` Document: ${receiptDocName}\n` +
       ` Order No: ${rawReceipt?.orderNo || activeOrderNo}\n` +
       ` Receipt No: ${receiptId}\n` +
       (cleanOrderRef ? ` Payment Ref: ${cleanOrderRef}\n` : '') +
@@ -140,7 +148,9 @@ export const ReceiptVerificationModal: React.FC<ReceiptVerificationModalProps> =
   };
 
   const handlePrint = () => {
-    window.print();
+    withTemporaryPrintTitle(receiptDocName, () => {
+      window.print();
+    });
   };
 
   const handleDownloadImage = async () => {
@@ -153,7 +163,12 @@ export const ReceiptVerificationModal: React.FC<ReceiptVerificationModalProps> =
       });
       const dataUrl = canvas.toDataURL('image/png');
       const link = document.createElement('a');
-      link.download = `Receipt_${receiptId.replace(/[^a-zA-Z0-9]/g, '_')}_SoftCopy.png`;
+      link.download = buildDocumentExportFilename({
+        customerName,
+        docNo: receiptId,
+        docCategory: 'receipt',
+        extension: 'png',
+      });
       link.href = dataUrl;
       link.click();
     } catch (err) {
@@ -178,7 +193,12 @@ export const ReceiptVerificationModal: React.FC<ReceiptVerificationModalProps> =
         format: [80, 200]
       });
       pdf.addImage(imgData, 'PNG', 0, 0, 80, (canvas.height * 80) / canvas.width);
-      pdf.save(`Receipt_${receiptId.replace(/[^a-zA-Z0-9]/g, '_')}_SoftCopy.pdf`);
+      pdf.save(buildDocumentExportFilename({
+        customerName,
+        docNo: receiptId,
+        docCategory: 'receipt',
+        extension: 'pdf',
+      }));
     } catch (err) {
       console.error('Failed to generate PDF:', err);
     } finally {

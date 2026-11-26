@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { PurchaseReturn, PurchaseReturnItem, Purchase, Product, StoreSettings } from '../../../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { PurchaseReturn, PurchaseReturnItem, Purchase, Product, StoreSettings, BRAND_LOGO_URL } from '../../../types';
 import {
   RotateCcw,
   Search,
@@ -293,8 +294,169 @@ export const POSPurchaseReturnsManager: React.FC<POSPurchaseReturnsManagerProps>
     }
   };
 
+  useEffect(() => {
+    const onBeforePrint = () => {
+      if (!document.body.classList.contains('ge-printing-invoice') && document.querySelector('.ge-doc-print-portal')) {
+        document.body.classList.add('ge-printing-doc');
+      }
+    };
+    const onAfterPrint = () => document.body.classList.remove('ge-printing-doc');
+    window.addEventListener('beforeprint', onBeforePrint);
+    window.addEventListener('afterprint', onAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', onBeforePrint);
+      window.removeEventListener('afterprint', onAfterPrint);
+      document.body.classList.remove('ge-printing-doc');
+    };
+  }, []);
+
   const handlePrintDebitNote = () => {
+    document.body.classList.add('ge-printing-doc');
     window.print();
+    window.setTimeout(() => {
+      document.body.classList.remove('ge-printing-doc');
+    }, 1500);
+  };
+
+  const renderDebitNoteSheet = (ret: PurchaseReturn) => {
+    const rawDate = ret.createdAt || ret.created_at;
+    const formattedDate = rawDate ? formatToGMT3(rawDate) : '—';
+    const refNumber = ret.returnNumber || ret.return_number || ret.id;
+    const vendorName = ret.supplierName || ret.supplier_name || 'Vendor';
+    const purchaseRef = ret.purchaseNumber || ret.purchase_number || 'Direct';
+    const processedBy = ret.processedBy || ret.processed_by || 'Staff';
+    const status = ret.refundStatus || ret.refund_status || 'Credit Note';
+    const totalAmt = Number(ret.totalAmount || ret.total_amount) || 0;
+
+    return (
+      <div className="ge-doc-sheet bg-white text-slate-900 font-sans text-xs rounded-xl shadow-xl border border-slate-300 p-6 sm:p-8 space-y-5 max-w-[210mm] mx-auto">
+        <div className="flex items-start justify-between gap-4 pb-4 border-b-2 border-slate-900">
+          <div className="flex items-center gap-3 min-w-0">
+            <img
+              src={BRAND_LOGO_URL}
+              alt={storeSettings?.storeName || 'Genuine Electronics'}
+              className="h-11 w-auto max-w-[110px] object-contain shrink-0"
+              referrerPolicy="no-referrer"
+            />
+            <div>
+              <h2 className="text-lg font-black tracking-tight uppercase text-slate-900">
+                {storeSettings?.storeName || 'GENUINE ELECTRONICS'}
+              </h2>
+              {storeSettings?.tagline && (
+                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">{storeSettings.tagline}</p>
+              )}
+              <p className="text-[10px] text-slate-600 mt-0.5">
+                {storeSettings?.address || 'Dar es Salaam, Tanzania'} • Tel: {storeSettings?.phone || '+255 768 929 203'}
+              </p>
+              {(storeSettings?.tin || storeSettings?.vrn) && (
+                <p className="text-[10px] font-mono text-slate-600">
+                  {storeSettings?.tin ? `TIN: ${storeSettings.tin}` : ''}
+                  {storeSettings?.tin && storeSettings?.vrn ? ' | ' : ''}
+                  {storeSettings?.vrn ? `VRN: ${storeSettings.vrn}` : ''}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="text-right shrink-0">
+            <div className="inline-block px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-900 border-2 border-amber-700">
+              Official Supplier Debit Note
+            </div>
+            <p className="font-mono font-black text-base text-slate-900 mt-1.5">{refNumber}</p>
+            <p className="text-[10px] text-slate-600 font-medium">Issued: {formattedDate}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 p-3.5 rounded-xl border border-slate-300 keep-together">
+          <div>
+            <span className="font-black text-slate-500 block text-[10px] uppercase tracking-wider">DEBIT TO SUPPLIER:</span>
+            <span className="font-black text-sm text-slate-900 block mt-0.5">{vendorName}</span>
+            <span className="block text-slate-700 mt-1">
+              <strong className="text-slate-900">Reason:</strong> {ret.reason || 'Vendor Return'}
+            </span>
+          </div>
+
+          <div className="text-right space-y-0.5">
+            <span className="font-black text-slate-500 block text-[10px] uppercase tracking-wider">VOUCHER METADATA:</span>
+            <span className="block text-slate-700">
+              Purchase PO: <strong className="font-mono text-slate-900">{purchaseRef}</strong>
+            </span>
+            <span className="block text-slate-700">
+              Officer: <strong className="text-slate-900">{processedBy}</strong>
+            </span>
+            <span className="block text-slate-700">
+              Settlement: <strong className="text-slate-900">{status}</strong>
+            </span>
+          </div>
+        </div>
+
+        <div className="border-2 border-slate-900 rounded-xl overflow-hidden">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-100 text-slate-900 border-b-2 border-slate-900 font-black">
+                <th className="p-2.5 w-9 text-center">#</th>
+                <th className="p-2.5">Returned Item</th>
+                <th className="p-2.5 text-center">Return Qty</th>
+                <th className="p-2.5 text-right">Unit Cost</th>
+                <th className="p-2.5 text-right">Debit Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {(ret.items || []).map((it, idx) => (
+                <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'}>
+                  <td className="p-2.5 text-center font-bold text-slate-500">{idx + 1}</td>
+                  <td className="p-2.5 font-bold text-slate-900">
+                    {it.productName}
+                    {it.reason && <div className="text-[10px] font-normal text-slate-500">{it.reason}</div>}
+                  </td>
+                  <td className="p-2.5 text-center font-black text-red-700">-{it.quantity}</td>
+                  <td className="p-2.5 text-right text-slate-800">{formatTZS(it.unitCost)}</td>
+                  <td className="p-2.5 text-right font-black text-slate-900">{formatTZS(it.totalRefund)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-100 font-black border-t-2 border-slate-900">
+                <td colSpan={4} className="p-2.5 text-right text-slate-900 uppercase">Total Debit Claim:</td>
+                <td className="p-2.5 text-right text-amber-900 font-mono text-sm">
+                  {formatTZS(totalAmt)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div className="flex justify-between items-center text-xs p-3 rounded-xl bg-slate-50 border border-slate-300 keep-together">
+          <div>
+            <span className="font-bold text-slate-600">Settlement Method: </span>
+            <span className="font-extrabold text-slate-900">{status}</span>
+          </div>
+          <div>
+            <span className="font-bold text-slate-600">Status: </span>
+            <span className="font-black text-amber-800 uppercase bg-amber-100 border border-amber-300 px-2 py-0.5 rounded">
+              Authorized Return
+            </span>
+          </div>
+        </div>
+
+        {ret.notes && (
+          <div className="p-3 rounded-lg border border-slate-300 bg-slate-50 text-[11px] text-slate-700 italic keep-together">
+            <strong className="not-italic text-slate-900">Notes:</strong> {ret.notes}
+          </div>
+        )}
+
+        <div className="pt-8 grid grid-cols-2 gap-8 text-center text-xs keep-together">
+          <div className="border-t-2 border-slate-400 pt-2">
+            <p className="font-black text-slate-900">Authorized By {storeSettings?.storeName || 'Genuine Electronics'}</p>
+            <p className="text-[10px] text-slate-500">Inventory Controller / Manager</p>
+          </div>
+          <div className="border-t-2 border-slate-400 pt-2">
+            <p className="font-black text-slate-900">Received & Acknowledged by Vendor</p>
+            <p className="text-[10px] text-slate-500">Supplier Representative Signature & Stamp</p>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -799,121 +961,49 @@ export const POSPurchaseReturnsManager: React.FC<POSPurchaseReturnsManagerProps>
 
       {/* MODAL: View & Print Debit Note */}
       {selectedReturnForView && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
-          <div className={`w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl border shadow-2xl ${modalBg} border-slate-200 dark:border-slate-800 overflow-hidden`}>
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 print:hidden shrink-0">
-              <div className="flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-amber-500" />
-                <h3 className={`text-sm font-black ${textTitle}`}>
-                  Vendor Debit Note: {selectedReturnForView.returnNumber || selectedReturnForView.return_number}
-                </h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePrintDebitNote}
-                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print Debit Note</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedReturnForView(null)}
-                  className="p-1 rounded-xl text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+        <>
+          {typeof document !== 'undefined' &&
+            createPortal(
+              <div className="ge-doc-print-portal hidden print:block bg-white text-slate-900" aria-hidden="true">
+                {renderDebitNoteSheet(selectedReturnForView)}
+              </div>,
+              document.body
+            )}
 
-            <div className="p-6 overflow-y-auto space-y-5 text-xs text-slate-800 dark:text-slate-200 font-sans print:p-0 print:text-black">
-              <div className="text-center pb-4 border-b border-slate-200 dark:border-slate-700">
-                <h2 className="text-xl font-black tracking-tight">{storeSettings.storeName}</h2>
-                <p className="text-[11px] text-slate-500">{storeSettings.tagline}</p>
-                <p className="text-[11px] text-slate-500">{storeSettings.address} • Tel: {storeSettings.phone}</p>
-                <div className="mt-2 inline-block px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
-                  Official Supplier Debit Note Voucher
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 backdrop-blur-xs animate-in fade-in">
+            <div className={`w-full max-w-3xl max-h-[92vh] flex flex-col rounded-2xl border shadow-2xl ${modalBg} border-slate-200 dark:border-slate-800 overflow-hidden`}>
+              <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 no-print shrink-0">
+                <div className="flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-amber-500" />
+                  <h3 className={`text-sm font-black ${textTitle}`}>
+                    Vendor Debit Note: {selectedReturnForView.returnNumber || selectedReturnForView.return_number}
+                  </h3>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 text-xs">
-                <div>
-                  <span className="font-bold text-slate-400 block text-[10px]">DEBIT TO SUPPLIER:</span>
-                  <span className="font-bold text-sm block">{selectedReturnForView.supplierName || selectedReturnForView.supplier_name}</span>
-                  <span className="block text-slate-500 mt-1">Reason: {selectedReturnForView.reason}</span>
-                </div>
-
-                <div className="text-right">
-                  <span className="font-bold text-slate-400 block text-[10px]">DEBIT NOTE REF:</span>
-                  <span className="font-mono font-bold text-sm text-amber-600 dark:text-amber-400 block">
-                    {selectedReturnForView.returnNumber || selectedReturnForView.return_number}
-                  </span>
-                  <span className="block text-slate-500">Purchase PO: {selectedReturnForView.purchaseNumber || selectedReturnForView.purchase_number || 'Direct'}</span>
-                  <span className="block text-slate-500">Date: {selectedReturnForView.createdAt || selectedReturnForView.created_at}</span>
-                  <span className="block text-slate-500">Officer: {selectedReturnForView.processedBy || selectedReturnForView.processed_by || 'Staff'}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePrintDebitNote}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print Debit Note</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedReturnForView(null)}
+                    className="p-1.5 rounded-xl text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
               </div>
 
-              <table className="w-full text-left border-collapse border border-slate-200 dark:border-slate-700">
-                <thead>
-                  <tr className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                    <th className="p-2 border border-slate-200 dark:border-slate-700">Returned Item</th>
-                    <th className="p-2 text-center border border-slate-200 dark:border-slate-700">Return Qty</th>
-                    <th className="p-2 text-right border border-slate-200 dark:border-slate-700">Unit Cost</th>
-                    <th className="p-2 text-right border border-slate-200 dark:border-slate-700">Debit Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(selectedReturnForView.items || []).map((it, idx) => (
-                    <tr key={idx} className="border-b border-slate-100 dark:border-slate-800">
-                      <td className="p-2 border border-slate-200 dark:border-slate-700 font-bold">{it.productName}</td>
-                      <td className="p-2 text-center border border-slate-200 dark:border-slate-700 font-black text-red-600">-{it.quantity}</td>
-                      <td className="p-2 text-right border border-slate-200 dark:border-slate-700">{formatTZS(it.unitCost)}</td>
-                      <td className="p-2 text-right border border-slate-200 dark:border-slate-700 font-black">{formatTZS(it.totalRefund)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-slate-50 dark:bg-slate-800/60 font-black">
-                    <td colSpan={3} className="p-2 text-right border border-slate-200 dark:border-slate-700">Total Debit Claim:</td>
-                    <td className="p-2 text-right border border-slate-200 dark:border-slate-700 text-amber-600 dark:text-amber-400 font-mono">
-                      {formatTZS(Number(selectedReturnForView.totalAmount || selectedReturnForView.total_amount) || 0)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-
-              <div className="flex justify-between items-center text-xs p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
-                <div>
-                  <span className="font-bold">Settlement Method: </span>
-                  <span>{selectedReturnForView.refundStatus || selectedReturnForView.refund_status}</span>
-                </div>
-                <div>
-                  <span className="font-bold">Status: </span>
-                  <span className="font-black text-amber-600 uppercase">Authorized Return</span>
-                </div>
-              </div>
-
-              {selectedReturnForView.notes && (
-                <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] text-slate-500 italic">
-                  Note: {selectedReturnForView.notes}
-                </div>
-              )}
-
-              <div className="pt-8 grid grid-cols-2 gap-8 text-center text-xs">
-                <div className="border-t border-slate-300 dark:border-slate-700 pt-2">
-                  <p className="font-bold">Authorized By Genuine Electronics</p>
-                  <p className="text-[10px] text-slate-400">Inventory Controller / Manager</p>
-                </div>
-                <div className="border-t border-slate-300 dark:border-slate-700 pt-2">
-                  <p className="font-bold">Received & Acknowledged by Vendor</p>
-                  <p className="text-[10px] text-slate-400">Supplier Representative Signature</p>
-                </div>
+              <div className="p-4 sm:p-6 overflow-y-auto bg-slate-200/70 dark:bg-slate-950/70 custom-scrollbar">
+                {renderDebitNoteSheet(selectedReturnForView)}
               </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

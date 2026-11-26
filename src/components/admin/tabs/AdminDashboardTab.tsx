@@ -1171,8 +1171,10 @@ export const AdminDashboardTab: React.FC<AdminDashboardTabProps> = ({
                             <td className={`p-3 font-extrabold whitespace-nowrap ${textTitle}`}>{formatTZS(o.totalAmount)}</td>
                             <td className="p-3 whitespace-nowrap">
                               <span className={`px-2.5 py-1 rounded-md font-bold text-[11px] border inline-flex items-center gap-1 ${
-                                o.status === 'Delivered'
+                                o.status === 'Delivered' || o.status === 'Completed'
                                   ? isDark ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/80' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : o.status === 'transferred-to-pos'
+                                  ? isDark ? 'bg-indigo-950/60 text-indigo-300 border-indigo-800/80' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
                                   : o.status === 'Shipped'
                                   ? isDark ? 'bg-blue-950/60 text-blue-300 border-blue-800/80' : 'bg-blue-50 text-blue-700 border-blue-200'
                                   : isDark ? 'bg-amber-950/60 text-amber-300 border-amber-800/80' : 'bg-amber-50 text-amber-700 border-amber-200'
@@ -1190,8 +1192,10 @@ export const AdminDashboardTab: React.FC<AdminDashboardTabProps> = ({
                               >
                                 <option value="Pending">Pending</option>
                                 <option value="Processing">Processing</option>
+                                <option value="transferred-to-pos">transferred-to-pos</option>
                                 <option value="Shipped">Shipped</option>
                                 <option value="Delivered">Delivered</option>
+                                <option value="Completed">Completed</option>
                                 <option value="Cancelled">Cancelled</option>
                               </select>
                             </td>

@@ -31,21 +31,37 @@
     display: none !important;
   }
 
-  /* Complete Print Isolation for Paginated A4 Invoices:
-     When an invoice print portal is mounted on body, hide #root and every non-invoice element */
+  /* Complete Print Isolation for Paginated A4 Invoices and Printable Vouchers/Reports:
+     When a print portal is mounted on body, hide #root and every non-portal element */
   body.ge-printing-invoice > *:not(.ge-invoice-print-portal),
-  body:has(.ge-invoice-print-portal) > *:not(.ge-invoice-print-portal) {
+  body:not(.ge-printing-doc):has(.ge-invoice-print-portal) > *:not(.ge-invoice-print-portal),
+  body.ge-printing-doc > *:not(.ge-doc-print-portal),
+  body:not(.ge-printing-invoice):has(.ge-doc-print-portal) > *:not(.ge-doc-print-portal) {
     display: none !important;
   }
 
-  .ge-invoice-print-portal {
+  .ge-invoice-print-portal,
+  .ge-doc-print-portal {
     display: block !important;
     position: static !important;
     width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
     background: #ffffff !important;
+    color: #0f172a !important;
     overflow: visible !important;
+  }
+
+  .ge-doc-print-portal .ge-doc-sheet {
+    width: 100% !important;
+    max-width: 194mm !important;
+    margin: 0 auto !important;
+    padding: 6mm 8mm !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
   }
 
   .ge-invoice-screen-preview {

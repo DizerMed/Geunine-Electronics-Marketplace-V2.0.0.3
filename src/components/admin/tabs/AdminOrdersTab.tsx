@@ -28,7 +28,9 @@ import {
   RefreshCw,
   ExternalLink,
   ShieldCheck,
-  CreditCard
+  CreditCard,
+  Store,
+  Zap
 } from "lucide-react";
 
 export interface AdminOrdersTabProps {
@@ -39,6 +41,9 @@ export interface AdminOrdersTabProps {
   clearOrders?: () => Promise<void> | void;
   onOpenInvoice?: (order: Order) => void;
   onOpenReceipt?: (tx: any) => void;
+  onTransferToPos?: (order: Order, options?: { openInRegister?: boolean }) => Promise<void> | void;
+  onBulkTransferToPos?: (orders: Order[]) => Promise<void> | void;
+  onOpenInPos?: (order: Order) => void;
   isDark: boolean;
   cardBg: string;
   textTitle: string;
@@ -60,6 +65,9 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
   clearOrders,
   onOpenInvoice,
   onOpenReceipt,
+  onTransferToPos,
+  onBulkTransferToPos,
+  onOpenInPos,
   isDark,
   cardBg,
   textTitle,
@@ -111,10 +119,72 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
                 </span>
 
                 <span className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${isDark ? 'bg-amber-950/40 border-amber-800 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-
                   {orders.filter(o => o.status === 'Pending' || o.status === 'Processing').length} Active Processing
-
                 </span>
+
+                <button
+                  type="button"
+                  onClick={() => setOrderStatusFilter(prev => prev === 'transferred-to-pos' ? 'All' : 'transferred-to-pos')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border inline-flex items-center gap-1.5 transition-all cursor-pointer ${
+                    orderStatusFilter === 'transferred-to-pos'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : isDark ? 'bg-indigo-950/40 border-indigo-800 text-indigo-300 hover:bg-indigo-900/50' : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                  }`}
+                  title="Quick filter: View orders transferred to Offline POS"
+                >
+                  <Store className="w-3.5 h-3.5" />
+                  <span>
+                    {orders.filter(o => Boolean(o.status === 'transferred-to-pos' || o.transferredToPos || o.transferred_to_pos || o.orderType === 'online_to_pos' || o.order_type === 'online_to_pos')).length} Transferred to POS
+                  </span>
+                </button>
+
+                {selectedOrderIds.length > 0 && (onBulkTransferToPos || onTransferToPos) && (() => {
+                  const selectedOrders = orders.filter(o => selectedOrderIds.includes(o.id));
+                  const eligible = selectedOrders.filter(o => {
+                    const st = (o.status || '').toLowerCase();
+                    const pStat = (o.paymentStatus || o.payment_status || 'Pending').toLowerCase();
+                    const isPendingOrTransferred =
+                      st === 'pending' ||
+                      st === 'transferred-to-pos' ||
+                      Boolean(o.transferredToPos || o.transferred_to_pos || o.orderType === 'online_to_pos' || o.order_type === 'online_to_pos');
+                    return isPendingOrTransferred && pStat !== 'paid' && st !== 'cancelled' && st !== 'completed';
+                  });
+                  return (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (eligible.length === 0) {
+                          showAlert(
+                            'No Eligible Orders',
+                            "Select one or more unpaid 'Pending' or 'transferred-to-pos' online orders to transfer to Offline POS.",
+                            'warning'
+                          );
+                          return;
+                        }
+                        if (
+                          eligible.length === 1 ||
+                          (await customConfirm(
+                            `Transfer ${eligible.length} selected online order(s) to Offline POS in a single operation and mark them as 'transferred-to-pos'?`,
+                            'Bulk Transfer to POS'
+                          ))
+                        ) {
+                          if (onBulkTransferToPos) {
+                            await onBulkTransferToPos(eligible);
+                          } else if (onTransferToPos) {
+                            for (let i = 0; i < eligible.length; i++) {
+                              await onTransferToPos(eligible[i], { openInRegister: i === 0 });
+                            }
+                          }
+                          setSelectedOrderIds([]);
+                        }
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition-all flex items-center gap-1.5 shadow-sm"
+                    >
+                      <Store className="w-3.5 h-3.5" />
+                      <span>Transfer Selected to POS ({eligible.length})</span>
+                    </button>
+                  );
+                })()}
 
                 {selectedOrderIds.length > 0 && deleteOrder && (
 
@@ -172,7 +242,233 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
 
             </div>
 
+            {/* Search, Filter Chips & Status Dropdown */}
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={orderSearchQuery}
+                    onChange={(e) => setOrderSearchQuery(e.target.value)}
+                    placeholder="Search orders by ID, customer name, phone, or email..."
+                    className={`w-full pl-10 pr-8 py-2.5 rounded-xl border text-xs font-semibold ${
+                      isDark ? 'bg-slate-900 border-slate-800 text-white placeholder-slate-500' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'
+                    }`}
+                  />
+                  {orderSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setOrderSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <select
+                  value={orderStatusFilter}
+                  onChange={(e) => setOrderStatusFilter(e.target.value)}
+                  className={`px-3.5 py-2.5 rounded-xl border text-xs font-bold ${
+                    isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+                  }`}
+                >
+                  <option value="All">All Statuses</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Processing">Processing</option>
+                  <option value="transferred-to-pos">Transferred to POS (transferred-to-pos)</option>
+                  <option value="Shipped">Shipped</option>
+                  <option value="Delivered">Delivered</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+              </div>
 
+              {/* Quick Filter Chips */}
+              {(() => {
+                const isOrderTransferredToPos = (o: Order) =>
+                  Boolean(
+                    o.status === 'transferred-to-pos' ||
+                    o.transferredToPos ||
+                    o.transferred_to_pos ||
+                    o.orderType === 'online_to_pos' ||
+                    o.order_type === 'online_to_pos'
+                  );
+                const transferredCount = orders.filter(isOrderTransferredToPos).length;
+                const chips: { value: string; label: string; count?: number; isPosChip?: boolean }[] = [
+                  { value: 'All', label: 'All Orders', count: orders.length },
+                  { value: 'transferred-to-pos', label: 'Transferred to POS', count: transferredCount, isPosChip: true },
+                  { value: 'Pending', label: 'Pending', count: orders.filter(o => o.status === 'Pending').length },
+                  { value: 'Processing', label: 'Processing', count: orders.filter(o => o.status === 'Processing').length },
+                  { value: 'Shipped', label: 'Shipped', count: orders.filter(o => o.status === 'Shipped').length },
+                  { value: 'Delivered', label: 'Delivered', count: orders.filter(o => o.status === 'Delivered').length },
+                  { value: 'Completed', label: 'Completed', count: orders.filter(o => o.status === 'Completed').length },
+                ];
+
+                return (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {chips.map((chip) => {
+                      const active = orderStatusFilter === chip.value;
+                      return (
+                        <button
+                          key={chip.value}
+                          type="button"
+                          onClick={() => setOrderStatusFilter(active && chip.value !== 'All' ? 'All' : chip.value)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-bold border inline-flex items-center gap-1.5 transition-all cursor-pointer ${
+                            active
+                              ? chip.isPosChip
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                : 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                              : chip.isPosChip
+                              ? isDark
+                                ? 'bg-indigo-950/40 text-indigo-300 border-indigo-700/60 hover:bg-indigo-900/50'
+                                : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                              : isDark
+                              ? 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
+                              : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                          }`}
+                        >
+                          {chip.isPosChip && <Store className="w-3.5 h-3.5" />}
+                          <span>{chip.label}</span>
+                          {chip.count !== undefined && (
+                            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                              active
+                                ? 'bg-white/20 text-white'
+                                : chip.isPosChip
+                                ? 'bg-indigo-500/15 text-indigo-500'
+                                : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {chip.count}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {(() => {
+              const q = orderSearchQuery.trim().toLowerCase();
+              const filteredAdminOrders = orders.filter((o) => {
+                const isTransferred = Boolean(
+                  o.status === 'transferred-to-pos' ||
+                  o.transferredToPos ||
+                  o.transferred_to_pos ||
+                  o.orderType === 'online_to_pos' ||
+                  o.order_type === 'online_to_pos'
+                );
+                const matchesStatus =
+                  orderStatusFilter === 'All' ||
+                  (orderStatusFilter === 'transferred-to-pos' ? isTransferred : o.status === orderStatusFilter);
+                if (!matchesStatus) return false;
+                if (!q) return true;
+                return (
+                  String(o.id || '').toLowerCase().includes(q) ||
+                  String(o.customerName || o.customer_name || '').toLowerCase().includes(q) ||
+                  String(o.customerEmail || o.customer_email || '').toLowerCase().includes(q) ||
+                  String(o.customerPhone || o.customer_phone || o.phone || '').toLowerCase().includes(q)
+                );
+              });
+              const eligibleBulkTransferIds = filteredAdminOrders
+                .filter((o) => {
+                  const st = (o.status || '').toLowerCase();
+                  const pStat = (o.paymentStatus || o.payment_status || 'Pending').toLowerCase();
+                  const isPendingOrTransferred =
+                    st === 'pending' ||
+                    st === 'transferred-to-pos' ||
+                    Boolean(o.transferredToPos || o.transferred_to_pos || o.orderType === 'online_to_pos' || o.order_type === 'online_to_pos');
+                  return isPendingOrTransferred && pStat !== 'paid' && st !== 'cancelled' && st !== 'completed';
+                })
+                .map((o) => o.id);
+
+              const selectedEligibleOrders = orders.filter((o) => {
+                if (!selectedOrderIds.includes(o.id)) return false;
+                const st = (o.status || '').toLowerCase();
+                const pStat = (o.paymentStatus || o.payment_status || 'Pending').toLowerCase();
+                const isPendingOrTransferred =
+                  st === 'pending' ||
+                  st === 'transferred-to-pos' ||
+                  Boolean(o.transferredToPos || o.transferred_to_pos || o.orderType === 'online_to_pos' || o.order_type === 'online_to_pos');
+                return isPendingOrTransferred && pStat !== 'paid' && st !== 'cancelled' && st !== 'completed';
+              });
+
+              return (
+            <div className="space-y-3">
+              {/* Bulk Selection Toolbar */}
+              <div className={`px-4 py-2.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2 ${
+                selectedOrderIds.length > 0
+                  ? isDark ? 'bg-indigo-950/35 border-indigo-700/60' : 'bg-indigo-50/80 border-indigo-200'
+                  : isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <div className="flex items-center gap-2 flex-wrap text-xs">
+                  <span className={`font-bold ${textTitle}`}>
+                    {selectedOrderIds.length > 0
+                      ? `${selectedOrderIds.length} order(s) selected (${selectedEligibleOrders.length} eligible for POS transfer)`
+                      : `Bulk Transfer: Select 'Pending' or 'transferred-to-pos' orders (${eligibleBulkTransferIds.length} available)`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {eligibleBulkTransferIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOrderIds(eligibleBulkTransferIds)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                        isDark ? 'bg-slate-800 border-slate-700 text-indigo-300 hover:bg-slate-700' : 'bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-50'
+                      }`}
+                    >
+                      Select Pending / Transferred ({eligibleBulkTransferIds.length})
+                    </button>
+                  )}
+                  {selectedOrderIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOrderIds([])}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                        isDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white' : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Clear Selection
+                    </button>
+                  )}
+                  {selectedOrderIds.length > 0 && (onBulkTransferToPos || onTransferToPos) && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (selectedEligibleOrders.length === 0) {
+                          showAlert(
+                            'No Eligible Orders',
+                            "Only unpaid 'Pending' or 'transferred-to-pos' orders can be transferred to Offline POS.",
+                            'warning'
+                          );
+                          return;
+                        }
+                        if (
+                          selectedEligibleOrders.length === 1 ||
+                          (await customConfirm(
+                            `Transfer ${selectedEligibleOrders.length} selected online order(s) to Offline POS in a single operation?`,
+                            'Bulk Transfer to POS'
+                          ))
+                        ) {
+                          if (onBulkTransferToPos) {
+                            await onBulkTransferToPos(selectedEligibleOrders);
+                          } else if (onTransferToPos) {
+                            for (let i = 0; i < selectedEligibleOrders.length; i++) {
+                              await onTransferToPos(selectedEligibleOrders[i], { openInRegister: i === 0 });
+                            }
+                          }
+                          setSelectedOrderIds([]);
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-black bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 shadow-sm transition-all"
+                    >
+                      <Store className="w-3.5 h-3.5" />
+                      <span>Bulk Transfer to POS ({selectedEligibleOrders.length})</span>
+                    </button>
+                  )}
+                </div>
+              </div>
 
             <div className={`rounded-2xl border overflow-hidden ${cardBg}`}>
 
@@ -190,11 +486,13 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
 
                           type="checkbox"
 
-                          onChange={(e) => setSelectedOrderIds(e.target.checked ? orders.map(o => o.id) : [])}
+                          aria-label="Select all visible orders"
 
-                          checked={orders.length > 0 && selectedOrderIds.length === orders.length}
+                          onChange={(e) => setSelectedOrderIds(e.target.checked ? filteredAdminOrders.map(o => o.id) : [])}
 
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          checked={filteredAdminOrders.length > 0 && filteredAdminOrders.every(o => selectedOrderIds.includes(o.id))}
+
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
 
                         />
 
@@ -222,9 +520,10 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
 
                   <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
 
-                    {orders.map((o) => (
-
-                      <tr key={o.id} className={`transition-colors ${tableRowHover}`}>
+                    {filteredAdminOrders.map((o) => {
+                      const isRowSelected = selectedOrderIds.includes(o.id);
+                      return (
+                      <tr key={o.id} className={`transition-colors ${isRowSelected ? (isDark ? 'bg-indigo-950/25' : 'bg-indigo-50/60') : tableRowHover}`}>
 
                         <td className="p-4 w-10 text-center">
 
@@ -232,11 +531,13 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
 
                             type="checkbox"
 
-                            checked={selectedOrderIds.includes(o.id)}
+                            aria-label={`Select order ${o.id}`}
+
+                            checked={isRowSelected}
 
                             onChange={(e) => setSelectedOrderIds(e.target.checked ? [...selectedOrderIds, o.id] : selectedOrderIds.filter(id => id !== o.id))}
 
-                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
 
                           />
 
@@ -247,6 +548,20 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
                           <div className={`font-bold ${textTitle}`}>{o.id}</div>
 
                           <div className={`text-[11px] ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>{formatToGMT3(o.createdAt)}</div>
+
+                          {(o.status === 'transferred-to-pos' || o.transferredToPos || o.transferred_to_pos || o.orderType === 'online_to_pos' || o.order_type === 'online_to_pos') && (
+                            <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+                              <Store className="w-3 h-3" />
+                              <span>transferred-to-pos</span>
+                            </span>
+                          )}
+
+                          {(o.autoCompletedViaOrbiPay || o.auto_completed_via_orbi_pay) && (
+                            <span className="mt-1 ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+                              <Zap className="w-3 h-3" />
+                              <span>Orbi Auto-Paid</span>
+                            </span>
+                          )}
 
                         </td>
 
@@ -329,29 +644,19 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
                         <td className="p-4">
 
                           <span className={`px-2.5 py-1 rounded-lg font-bold text-[11px] border inline-flex items-center gap-1 ${
-
-                            o.status === 'Delivered'
-
+                            o.status === 'Delivered' || o.status === 'Completed'
                               ? isDark ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/80' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-
+                              : o.status === 'transferred-to-pos'
+                              ? isDark ? 'bg-indigo-950/60 text-indigo-300 border-indigo-700/80' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
                               : o.status === 'Shipped'
-
                               ? isDark ? 'bg-blue-950/60 text-blue-300 border-blue-800/80' : 'bg-blue-50 text-blue-700 border-blue-200'
-
                               : o.status === 'Processing'
-
                               ? isDark ? 'bg-amber-950/60 text-amber-300 border-amber-800/80' : 'bg-amber-50 text-amber-700 border-amber-200'
-
                               : o.status === 'Cancelled'
-
                               ? isDark ? 'bg-rose-950/60 text-rose-300 border-rose-800/80' : 'bg-rose-50 text-rose-700 border-rose-200'
-
                               : isDark ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'
-
                           }`}>
-
                             {o.status}
-
                           </span>
 
                         </td>
@@ -495,6 +800,39 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
 
                           <div className="flex items-center justify-end gap-2">
 
+                            {(() => {
+                              const isTransferred = Boolean(o.status === 'transferred-to-pos' || o.transferredToPos || o.transferred_to_pos || o.orderType === 'online_to_pos' || o.order_type === 'online_to_pos');
+                              const isOpenForPos = (o.paymentStatus || 'Pending') !== 'Paid' && o.status !== 'Cancelled' && o.status !== 'Completed';
+                              if (!isOpenForPos) return null;
+                              if (isTransferred && onOpenInPos) {
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenInPos(o)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-emerald-600/10 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white border border-emerald-500/25 font-bold text-xs transition-colors flex items-center gap-1 shadow-sm whitespace-nowrap"
+                                    title="Continue this transferred online order inside Offline POS"
+                                  >
+                                    <Store className="w-3.5 h-3.5" />
+                                    <span>Open in POS</span>
+                                  </button>
+                                );
+                              }
+                              if (!isTransferred && onTransferToPos) {
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => onTransferToPos(o)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-indigo-600/10 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-400 hover:text-white border border-indigo-500/25 font-bold text-xs transition-colors flex items-center gap-1 shadow-sm whitespace-nowrap"
+                                    title="Transfer this Online Order to Offline POS Register / Orbi Pay"
+                                  >
+                                    <Store className="w-3.5 h-3.5" />
+                                    <span>Transfer to POS</span>
+                                  </button>
+                                );
+                              }
+                              return null;
+                            })()}
+
                             <button
 
                               type="button"
@@ -544,15 +882,12 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
                             >
 
                               <option value="Pending">Pending</option>
-
                               <option value="Processing">Processing</option>
-
+                              <option value="transferred-to-pos">transferred-to-pos</option>
                               <option value="Shipped">Shipped</option>
-
                               <option value="Delivered">Delivered</option>
-
+                              <option value="Completed">Completed</option>
                               <option value="Cancelled">Cancelled</option>
-
                             </select>
 
 
@@ -625,7 +960,35 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
 
                       </tr>
 
-                    ))}
+                    );
+                    })}
+                    {filteredAdminOrders.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="p-10 text-center">
+                          <div className="flex flex-col items-center gap-2">
+                            <Store className="w-8 h-8 text-slate-400 stroke-[1.5]" />
+                            <div className={`text-sm font-bold ${textTitle}`}>No matching orders found</div>
+                            <div className={`text-xs ${textSub}`}>
+                              {orderStatusFilter === 'transferred-to-pos'
+                                ? 'No orders have been transferred to Offline POS yet.'
+                                : 'Try clearing your search or status filter.'}
+                            </div>
+                            {(orderStatusFilter !== 'All' || orderSearchQuery.trim() !== '') && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOrderStatusFilter('All');
+                                  setOrderSearchQuery('');
+                                }}
+                                className="mt-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-500"
+                              >
+                                Show All Orders
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
 
                   </tbody>
 
@@ -634,6 +997,9 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
               </div>
 
             </div>
+            </div>
+              );
+            })()}
 
 
 
@@ -706,15 +1072,12 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
                       >
 
                         <option value="Pending">Pending (Awaiting Confirmation)</option>
-
                         <option value="Processing">Processing (Packed & Ready)</option>
-
+                        <option value="transferred-to-pos">transferred-to-pos (In Offline POS)</option>
                         <option value="Shipped">Shipped (In Transit / Dispatched)</option>
-
                         <option value="Delivered">Delivered (Handed to Customer)</option>
-
+                        <option value="Completed">Completed</option>
                         <option value="Cancelled">Cancelled</option>
-
                       </select>
 
                     </div>

@@ -12,6 +12,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { groupCartItemsByTaxStatus } from '../utils/taxUtils';
 import { buildInvoiceVerificationUrl } from '../services/receiptQrService';
 import { customAlert } from '../utils/dialog';
+import { buildDocumentBaseName, buildDocumentExportFilename, withTemporaryPrintTitle } from '../utils/docFilename';
 
 export interface InvoiceGeneratorProps {
   order: Order;
@@ -201,13 +202,24 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     };
   }, [showShareFormatModal]);
 
+  const documentBaseNameRef = useRef<string>('');
+
   // Body class isolation sync for direct printing
   useEffect(() => {
+    let prevTitle: string | null = null;
     const handleBeforePrint = () => {
       document.body.classList.add('ge-printing-invoice');
+      if (documentBaseNameRef.current) {
+        prevTitle = document.title;
+        document.title = documentBaseNameRef.current;
+      }
     };
     const handleAfterPrint = () => {
       document.body.classList.remove('ge-printing-invoice');
+      if (prevTitle !== null) {
+        document.title = prevTitle;
+        prevTitle = null;
+      }
     };
     window.addEventListener('beforeprint', handleBeforePrint);
     window.addEventListener('afterprint', handleAfterPrint);
@@ -215,12 +227,17 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
       window.removeEventListener('beforeprint', handleBeforePrint);
       window.removeEventListener('afterprint', handleAfterPrint);
       document.body.classList.remove('ge-printing-invoice');
+      if (prevTitle !== null) {
+        document.title = prevTitle;
+      }
     };
   }, []);
 
   const handlePrint = useCallback(() => {
     document.body.classList.add('ge-printing-invoice');
-    window.print();
+    withTemporaryPrintTitle(documentBaseNameRef.current || document.title, () => {
+      window.print();
+    });
     window.setTimeout(() => {
       document.body.classList.remove('ge-printing-invoice');
     }, 1500);
@@ -294,6 +311,11 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     ? `PRO-${cleanOrderNo}`
     : `INV-${cleanOrderNo}`;
   const invoiceNo = currentDocRef;
+  const documentBaseName = buildDocumentBaseName({
+    customerName: order.customerName,
+    docNo: invoiceNo,
+  });
+  documentBaseNameRef.current = documentBaseName;
   const orderItems = useMemo(() => order.items || [], [order.items]);
   const totalUnits = orderItems.reduce((sum, item) => sum + (item.quantity || 1), 0);
 
@@ -801,9 +823,12 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
   };
 
   const getCleanInvoiceFilename = (extension: 'pdf' | 'png', pageSuffix?: string) => {
-    const cleanNo = (order.id || 'ORDER').replace('#', '');
-    const docPrefix = docType === 'delivery' ? 'DeliveryNote' : docType === 'proforma' ? 'Proforma' : 'TaxInvoice';
-    return `${docPrefix}_${invoiceNo}_${cleanNo}${pageSuffix ? `_${pageSuffix}` : ''}.${extension}`;
+    return buildDocumentExportFilename({
+      customerName: order.customerName,
+      docNo: invoiceNo,
+      pageSuffix,
+      extension,
+    });
   };
 
   const triggerBlobDownload = (blobOrUrl: Blob | string, filename: string) => {
@@ -854,7 +879,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
       if (canvases.length === 0) throw new Error('No rendered pages available');
       const composite = composeMultiPageImageCanvas(canvases);
       const dataUrl = composite.toDataURL('image/png', 1.0);
-      const filename = getCleanInvoiceFilename('png', canvases.length > 1 ? `${canvases.length}Pages` : undefined);
+      const filename = getCleanInvoiceFilename('png', canvases.length > 1 ? `${canvases.length} Pages` : undefined);
       triggerBlobDownload(dataUrl, filename);
     } catch (err) {
       console.error('Failed to generate PNG invoice:', err);
@@ -871,6 +896,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
       msg += `📍 ${storeSettings?.address || 'Kariakoo, Dar es Salaam Tanzania'}\n`;
       msg += `📞 Hotline: ${storeSettings?.phone || '+255 768 929 203'} | Dispatch & Logistics Dept.\n`;
       msg += `----------------------------------------\n`;
+      msg += `🏷️ *Document:* ${documentBaseName}\n`;
       msg += `📄 *Consignment Ref:* ${currentDocRef}\n`;
       msg += `📅 *Date:* ${orderDate}\n`;
       if (order.customerName) msg += `👤 *Consignee / Recipient:* ${order.customerName}\n`;
@@ -911,6 +937,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     ];
     msg += `📞 ${contactParts.join(' | ')}\n`;
     msg += `----------------------------------------\n`;
+    msg += `🏷️ *Document:* ${documentBaseName}\n`;
     msg += `📄 *Doc Reference:* ${currentDocRef}\n`;
     msg += `📅 *Date & Time:* ${orderDate}\n`;
     if (order.customerName) msg += `👤 *Customer / Buyer:* ${order.customerName}\n`;
@@ -1005,7 +1032,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         if (navigator.share) {
           try {
             await navigator.share({
-              title: `${docType === 'tax' ? 'Invoice' : docType === 'proforma' ? 'Proforma' : 'Delivery Note'} ${invoiceNo}`,
+              title: documentBaseName,
               text,
             });
           } catch (shareErr: any) {
@@ -1028,7 +1055,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
           const dataUrl = canvases[i].toDataURL('image/png', 1.0);
           const res = await fetch(dataUrl);
           const blob = await res.blob();
-          const suffix = canvases.length > 1 ? `Page_${i + 1}_of_${canvases.length}` : undefined;
+          const suffix = canvases.length > 1 ? `Page ${i + 1} of ${canvases.length}` : undefined;
           pageFiles.push(new File([blob], getCleanInvoiceFilename('png', suffix), { type: 'image/png' }));
         }
 
@@ -1036,7 +1063,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         if (navigator.canShare && navigator.canShare({ files: pageFiles })) {
           try {
             await navigator.share({
-              title: `${docType === 'tax' ? 'Invoice' : docType === 'proforma' ? 'Proforma' : 'Delivery Note'} ${invoiceNo}`,
+              title: documentBaseName,
               files: pageFiles,
             });
             shared = true;
@@ -1052,7 +1079,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         if (!shared) {
           const composite = composeMultiPageImageCanvas(canvases);
           const dataUrl = composite.toDataURL('image/png', 1.0);
-          const singleName = getCleanInvoiceFilename('png', canvases.length > 1 ? `${canvases.length}Pages` : undefined);
+          const singleName = getCleanInvoiceFilename('png', canvases.length > 1 ? `${canvases.length} Pages` : undefined);
 
           if (canvases.length > 1 && navigator.canShare) {
             const res = await fetch(dataUrl);
@@ -1061,7 +1088,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
             if (navigator.canShare({ files: [singleFile] })) {
               try {
                 await navigator.share({
-                  title: `${docType === 'tax' ? 'Invoice' : docType === 'proforma' ? 'Proforma' : 'Delivery Note'} ${invoiceNo}`,
+                  title: documentBaseName,
                   files: [singleFile],
                 });
                 shared = true;
@@ -1087,7 +1114,7 @@ export const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           try {
             await navigator.share({
-              title: `${docType === 'tax' ? 'Invoice' : docType === 'proforma' ? 'Proforma' : 'Delivery Note'} ${invoiceNo}`,
+              title: documentBaseName,
               files: [file],
             });
             shared = true;

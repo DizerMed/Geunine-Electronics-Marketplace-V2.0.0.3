@@ -10,6 +10,7 @@ import { getLoanDueDate, isLoanTransaction as checkIsLoanTransaction } from '../
 import { groupCartItemsByTaxStatus } from '../utils/taxUtils';
 import { buildReceiptVerificationUrl } from '../services/receiptQrService';
 import { customAlert, customConfirm } from '../utils/dialog';
+import { buildDocumentBaseName, buildDocumentExportFilename, withTemporaryPrintTitle } from '../utils/docFilename';
 
 interface POSReceiptModalProps {
   storeSettings?: StoreSettings;
@@ -146,9 +147,18 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
     loanStatusSwahili = 'IMELIPWA NUSU';
   }
 
+  const receiptDocNo = receipt.id || receipt.receiptNumber || '0000';
+  const receiptBaseName = buildDocumentBaseName({
+    customerName: activeCustomerName,
+    docNo: receiptDocNo,
+    docCategory: 'receipt',
+  });
+
   const handlePrint = () => {
     triggerHaptic('medium');
-    window.print();
+    withTemporaryPrintTitle(receiptBaseName, () => {
+      window.print();
+    });
   };
 
   const getReceiptText = () => {
@@ -162,6 +172,7 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
       `Simu / Tel: ${storeSettings?.phone || '+255 768 929 203'}`,
       `Eneo / Address: ${storeSettings?.address || 'Kariakoo, Dar es Salaam'}`,
       `----------------------------------------`,
+      `DOKUMENTI:       ${receiptBaseName}`,
       `NAMBA YA RISITI: ${receipt.id}`,
       `TAREHE NA MUDA:  ${formatToGMT3(receipt.createdAt)}`,
       `MUUZAJI:         ${receipt.cashierName}`,
@@ -250,8 +261,12 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
   };
 
   const getCleanReceiptFilename = (extension: 'pdf' | 'png') => {
-    const cleanReceiptNo = receipt.id.replace('#', '');
-    return `Receipt_${cleanReceiptNo}.${extension}`;
+    return buildDocumentExportFilename({
+      customerName: activeCustomerName,
+      docNo: receiptDocNo,
+      docCategory: 'receipt',
+      extension,
+    });
   };
 
   const handleShareMenuClick = () => {
@@ -269,7 +284,7 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
         if (navigator.share) {
           try {
             await navigator.share({
-              title: `Receipt ${receipt.id}`,
+              title: receiptBaseName,
               text: text
             });
           } catch (shareErr: any) {
@@ -299,7 +314,7 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
           if (navigator.canShare && navigator.canShare({ files: [file] })) {
             try {
               await navigator.share({
-                title: `Receipt ${receipt.id}`,
+                title: receiptBaseName,
                 files: [file]
               });
               shared = true;
@@ -334,7 +349,7 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           try {
             await navigator.share({
-              title: `Receipt ${receipt.id}`,
+              title: receiptBaseName,
               files: [file]
             });
             shared = true;
@@ -399,7 +414,9 @@ export const POSReceiptModal: React.FC<POSReceiptModalProps> = ({ receipt, onClo
     } catch (err) {
       console.error('Failed to generate PDF receipt:', err);
       customAlert('Could not generate PDF receipt file directly. Opening print window instead.');
-      window.print();
+      withTemporaryPrintTitle(receiptBaseName, () => {
+        window.print();
+      });
     } finally {
       setIsGeneratingPDF(false);
     }

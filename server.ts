@@ -4803,7 +4803,7 @@ app.get('/api/sync/pull', async (req, res) => {
   }
 });
 
-app.post('/api/inventory/adjust', async (req, res) => {
+app.post(['/api/inventory/adjust', '/api/stock-adjust'], async (req, res) => {
   try {
     const { adjustments } = req.body; // Array of { productId: string, delta: number, reason?: string, txId?: string }
     
@@ -4812,53 +4812,63 @@ app.post('/api/inventory/adjust', async (req, res) => {
     }
 
     const supabase = getSupabaseAdmin();
-    if (!supabase) {
-      return res.status(503).json({ error: 'Database service is currently unconfigured or unavailable.' });
-    }
-
     const results: any[] = [];
+    const now = new Date().toISOString();
 
     for (const adj of adjustments) {
       const { productId, delta, reason, txId } = adj;
       if (!productId || typeof delta !== 'number') continue;
 
-      const { data: productData, error: fetchError } = await supabase.from('products').select('*').eq('id', productId).maybeSingle();
-      if (fetchError) {
-        results.push({ productId, error: `Failed to fetch from cloud: ${fetchError.message}`, delta });
-        continue;
+      let productData = memoryStore['products']?.[productId];
+      if (!productData && supabase) {
+        try {
+          const { data } = await supabase.from('products').select('*').eq('id', productId).maybeSingle();
+          if (data) productData = normalizeFromSupabase('products', data);
+        } catch (_) {}
       }
 
       if (productData) {
         const currentStock = Number(productData.stock) || 0;
         const newStock = Math.max(0, currentStock + delta);
-        const now = new Date().toISOString();
-        
-        const { error: updateError } = await supabase
-          .from('products')
-          .update({ stock: newStock, updated_at: now })
-          .eq('id', productId);
+        productData.stock = newStock;
+        productData.updatedAt = now;
 
-        if (updateError) {
-          results.push({ productId, error: `Failed to update stock in cloud: ${updateError.message}`, delta });
-        } else {
-          results.push({
-            productId,
-            previousStock: currentStock,
-            delta,
-            newStock,
-            reason: reason || 'pos_delta_adjust',
-            txId
-          });
+        if (!memoryStore['products']) memoryStore['products'] = {};
+        memoryStore['products'][productId] = productData;
+
+        if (supabase) {
+          try {
+            await supabase.from('products').update({ stock: newStock, updated_at: now }).eq('id', productId);
+          } catch (_) {}
         }
+
+        broadcastEvent({
+          type: 'COLLECTION_UPDATE',
+          collection: 'products',
+          action: 'UPDATE',
+          id: productId,
+          item: normalizeFromSupabase('products', productData),
+          timestamp: Date.now()
+        });
+
+        results.push({
+          productId,
+          previousStock: currentStock,
+          delta,
+          newStock,
+          reason: reason || 'pos_delta_adjust',
+          txId
+        });
       } else {
         results.push({
           productId,
-          error: 'Product not found in cloud database',
+          error: 'Product not found in store database',
           delta
         });
       }
     }
 
+    saveDiskDb(true);
     return res.json({
       success: true,
       results

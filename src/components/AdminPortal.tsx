@@ -5125,7 +5125,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       return;
     }
 
-    // Do not block checkout on low stock for transferred online orders
+    // Block checkout on insufficient stock ONLY for regular POS sales (transferred online orders bypass low-stock blocking)
     const stockErrors = isLinkedOnlineOrder ? [] : posCart.filter(item => {
       const current = products.find(p => p.id === item.product.id);
       return !current || Number(current.stock || 0) < item.quantity;

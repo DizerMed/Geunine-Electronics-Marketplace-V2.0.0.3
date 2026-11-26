@@ -1083,7 +1083,7 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
               }`}
             >
               <tr>
-                <th className="p-3.5 w-10">
+                <th className="px-2 py-3 w-8 text-center">
                   <button onClick={handleSelectAll} className="text-slate-400 hover:text-slate-200">
                     {selectedIds.length > 0 && selectedIds.length === filteredTransactions.length ? (
                       <CheckSquare className="w-4 h-4 text-emerald-500" />
@@ -1092,15 +1092,15 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
                     )}
                   </button>
                 </th>
-                <th className="p-3.5">Receipt #</th>
-                <th className="p-3.5">Date & Time</th>
-                <th className="p-3.5">Cashier</th>
-                <th className="p-3.5">Customer</th>
-                <th className="p-3.5">Payment Method</th>
-                <th className="p-3.5">Items</th>
-                <th className="p-3.5">Total Amount</th>
-                <th className="p-3.5 text-center">Receipt</th>
-                <th className="p-3.5 text-right">Actions</th>
+                <th className="px-2.5 py-3">Receipt #</th>
+                <th className="px-2.5 py-3">Date & Time</th>
+                <th className="px-2.5 py-3">Cashier</th>
+                <th className="px-2.5 py-3">Customer</th>
+                <th className="px-2.5 py-3">Payment</th>
+                <th className="px-2.5 py-3">Items</th>
+                <th className="px-2.5 py-3">Total Amount</th>
+                <th className="px-2.5 py-3 text-center">Receipt</th>
+                <th className="px-2.5 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
@@ -1129,7 +1129,7 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
                         isSelected ? (isDark ? 'bg-slate-800/40' : 'bg-blue-50/40') : ''
                       }`}
                     >
-                      <td className="p-3.5">
+                      <td className="px-2 py-3 w-8 text-center">
                         <button
                           onClick={() => {
                             if (isSelected) {
@@ -1147,7 +1147,7 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
                           )}
                         </button>
                       </td>
-                      <td className="p-3.5 font-bold font-mono text-blue-500">
+                      <td className="px-2.5 py-3 font-bold font-mono text-blue-500 whitespace-nowrap">
                         <div>{tx.receiptNumber || tx.id.slice(0, 8)}</div>
                         {(isRefunded || isPartialReturn) && (
                           <span className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${
@@ -1160,20 +1160,22 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
                           </span>
                         )}
                       </td>
-                      <td className="p-3.5 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                      <td className="px-2.5 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap">
                         {formatToGMT3(tx.createdAt)}
                       </td>
-                      <td className="p-3.5 font-medium flex items-center gap-1.5">
-                        <User className="w-3 h-3 text-slate-400" />
-                        <span>{tx.cashierName || 'Admin'}</span>
+                      <td className="px-2.5 py-3 font-medium max-w-[120px]">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <User className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="truncate">{tx.cashierName || 'Admin'}</span>
+                        </div>
                       </td>
-                      <td className="p-3.5">
-                        <div className="font-medium">{tx.customerName || 'Walk-in Customer'}</div>
+                      <td className="px-2.5 py-3 max-w-[140px]">
+                        <div className="font-medium truncate">{tx.customerName || 'Walk-in Customer'}</div>
                         {tx.customerPhone && (
-                          <div className="text-[10px] text-slate-400">{tx.customerPhone}</div>
+                          <div className="text-[10px] text-slate-400 truncate">{tx.customerPhone}</div>
                         )}
                       </td>
-                      <td className="p-3.5">
+                      <td className="px-2.5 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1 flex-wrap">
                           {tx.splitPayments && tx.splitPayments.length > 0 ? (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
@@ -1191,8 +1193,8 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
                           )}
                         </div>
                       </td>
-                      <td className="p-3.5 font-medium">{itemsCount} items</td>
-                      <td className="p-3.5 font-black whitespace-nowrap">
+                      <td className="px-2.5 py-3 font-medium whitespace-nowrap">{itemsCount} items</td>
+                      <td className="px-2.5 py-3 font-black whitespace-nowrap">
                         {returnedAmount > 0 ? (
                           <div>
                             <div className={isRefunded ? 'text-rose-500' : 'text-emerald-500'}>
@@ -1211,7 +1213,7 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
                           </span>
                         )}
                       </td>
-                      <td className="p-3.5 text-center">
+                      <td className="px-2.5 py-3 text-center whitespace-nowrap">
                         <button
                           onClick={() => onOpenReceipt(tx)}
                           className="p-1.5 rounded-lg bg-blue-600/10 hover:bg-blue-600 text-blue-500 hover:text-white transition-all shadow-sm"
@@ -1220,7 +1222,7 @@ export const POSSalesHistory: React.FC<POSSalesHistoryProps> = ({
                           <Receipt className="w-4 h-4" />
                         </button>
                       </td>
-                      <td className="p-3.5 text-right">
+                      <td className="px-2.5 py-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => setViewingTx(tx)}

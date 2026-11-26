@@ -599,23 +599,23 @@ export const AdminCustomersTab: React.FC<AdminCustomersTabProps> = ({
 
                     <thead>
 
-                      <tr className={`border-b font-bold uppercase tracking-wider ${tableHeaderBg}`}>
+                      <tr className={`border-b text-[11px] font-bold uppercase tracking-wider ${tableHeaderBg}`}>
 
-                        <th className="p-4">Customer Profile</th>
+                        <th className="px-2.5 py-3">Customer Profile</th>
 
-                        <th className="p-4">Contact Details</th>
+                        <th className="px-2.5 py-3">Contact</th>
 
-                        <th className="p-4">Location / City</th>
+                        <th className="px-2.5 py-3">Location</th>
 
-                        <th className="p-4">Tier</th>
+                        <th className="px-2.5 py-3">Tier</th>
 
-                        <th className="p-4">Orders</th>
+                        <th className="px-2.5 py-3">Orders</th>
 
-                        <th className="p-4">Lifetime Value</th>
+                        <th className="px-2.5 py-3">Lifetime Value</th>
 
-                        <th className="p-4">Last Activity</th>
+                        <th className="px-2.5 py-3">Last Activity</th>
 
-                        <th className="p-4 text-right">Actions</th>
+                        <th className="px-2.5 py-3 text-right">Actions</th>
 
                       </tr>
 
@@ -641,11 +641,11 @@ export const AdminCustomersTab: React.FC<AdminCustomersTabProps> = ({
 
                           <tr key={cust.id} className={`transition-colors ${tableRowHover}`}>
 
-                            <td className="p-4">
+                            <td className="px-2.5 py-3 max-w-[180px]">
 
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2.5 min-w-0">
 
-                                <div className={`w-9 h-9 rounded-xl font-bold flex items-center justify-center text-xs shrink-0 ${
+                                <div className={`w-8 h-8 rounded-xl font-bold flex items-center justify-center text-xs shrink-0 ${
 
                                   cust.tier === 'Platinum VIP'
 
@@ -667,11 +667,11 @@ export const AdminCustomersTab: React.FC<AdminCustomersTabProps> = ({
 
                                 </div>
 
-                                <div>
+                                <div className="min-w-0">
 
-                                  <div className={`font-bold ${textTitle}`}>{cust.name}</div>
+                                  <div className={`font-bold truncate ${textTitle}`} title={cust.name}>{cust.name}</div>
 
-                                  <div className="text-[10px] text-slate-500 font-mono">{cust.email}</div>
+                                  <div className="text-[10px] text-slate-500 font-mono truncate" title={cust.email}>{cust.email}</div>
 
                                 </div>
 
@@ -681,7 +681,7 @@ export const AdminCustomersTab: React.FC<AdminCustomersTabProps> = ({
 
 
 
-                            <td className="p-4">
+                            <td className="px-2.5 py-3 whitespace-nowrap">
 
                               <div className="space-y-0.5">
 
@@ -713,9 +713,9 @@ export const AdminCustomersTab: React.FC<AdminCustomersTabProps> = ({
 
 
 
-                            <td className="p-4">
+                            <td className="px-2.5 py-3">
 
-                              <div className="text-slate-400 truncate max-w-[140px]">
+                              <div className="text-slate-400 truncate max-w-[115px]">
 
                                 {cust.city || (cust.address ? cust.address.slice(0, 20) + '...' : 'Dar es Salaam')}
 
@@ -725,7 +725,7 @@ export const AdminCustomersTab: React.FC<AdminCustomersTabProps> = ({
 
 
 
-                            <td className="p-4">
+                            <td className="px-2.5 py-3 whitespace-nowrap">
 
                               <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider border ${
 
@@ -753,7 +753,7 @@ export const AdminCustomersTab: React.FC<AdminCustomersTabProps> = ({
 
 
 
-                            <td className="p-4">
+                            <td className="px-2.5 py-3 whitespace-nowrap">
 
                               <div className="font-extrabold text-slate-200">{cust.totalOrders} {cust.totalOrders === 1 ? 'order' : 'orders'}</div>
 
@@ -761,7 +761,7 @@ export const AdminCustomersTab: React.FC<AdminCustomersTabProps> = ({
 
                                 <Package className="w-3 h-3 text-purple-400 shrink-0" />
 
-                                <span>{cust.totalItemsPurchased || 0} items purchased</span>
+                                <span>{cust.totalItemsPurchased || 0} items</span>
 
                               </div>
 
@@ -769,7 +769,7 @@ export const AdminCustomersTab: React.FC<AdminCustomersTabProps> = ({
 
 
 
-                            <td className="p-4 font-mono font-black text-emerald-400 whitespace-nowrap">
+                            <td className="px-2.5 py-3 font-mono font-black text-emerald-400 whitespace-nowrap">
 
                               {formatTZS(cust.lifetimeValue)}
 
@@ -777,7 +777,7 @@ export const AdminCustomersTab: React.FC<AdminCustomersTabProps> = ({
 
 
 
-                            <td className="p-4 text-slate-400 whitespace-nowrap">
+                            <td className="px-2.5 py-3 text-slate-400 whitespace-nowrap">
 
                               {cust.lastOrder ? new Date(cust.lastOrder).toLocaleDateString() : 'N/A'}
 
@@ -785,7 +785,7 @@ export const AdminCustomersTab: React.FC<AdminCustomersTabProps> = ({
 
 
 
-                            <td className="p-4 text-right">
+                            <td className="px-2.5 py-3 text-right whitespace-nowrap">
 
                               <div className="flex items-center justify-end gap-1.5">
 

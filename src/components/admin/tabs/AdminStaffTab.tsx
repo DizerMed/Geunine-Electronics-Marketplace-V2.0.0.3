@@ -884,19 +884,19 @@ export const AdminStaffTab: React.FC<AdminStaffTabProps> = ({
 
                         <thead>
 
-                          <tr className={`border-b font-bold uppercase tracking-wider ${tableHeaderBg}`}>
+                          <tr className={`border-b text-[11px] font-bold uppercase tracking-wider ${tableHeaderBg}`}>
 
-                            <th className="p-4">Staff Member</th>
+                            <th className="px-2.5 py-3">Staff Member</th>
 
-                            <th className="p-4">Role</th>
+                            <th className="px-2.5 py-3">Role</th>
 
-                            <th className="p-4">Contact Info</th>
+                            <th className="px-2.5 py-3">Contact Info</th>
 
-                            <th className="p-4">POS Performance</th>
+                            <th className="px-2.5 py-3">POS Performance</th>
 
-                            <th className="p-4">Status</th>
+                            <th className="px-2.5 py-3">Status</th>
 
-                            <th className="p-4 text-right">Actions</th>
+                            <th className="px-2.5 py-3 text-right">Actions</th>
 
                           </tr>
 
@@ -936,17 +936,17 @@ export const AdminStaffTab: React.FC<AdminStaffTabProps> = ({
 
                                 <tr key={st.id} className={`transition-colors ${tableRowHover}`}>
 
-                                  <td className="p-4">
+                                  <td className="px-2.5 py-3 max-w-[180px]">
 
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-2.5 min-w-0">
 
                                       {st.avatar ? (
 
-                                        <img src={st.avatar} alt={st.name} className="w-10 h-10 rounded-xl object-cover border" />
+                                        <img src={st.avatar} alt={st.name} className="w-9 h-9 rounded-xl object-cover border shrink-0" />
 
                                       ) : (
 
-                                        <div className="w-10 h-10 rounded-xl bg-blue-600 text-white font-black flex items-center justify-center">
+                                        <div className="w-9 h-9 rounded-xl bg-blue-600 text-white font-black flex items-center justify-center shrink-0">
 
                                           {st.name.substring(0, 2).toUpperCase()}
 
@@ -954,11 +954,11 @@ export const AdminStaffTab: React.FC<AdminStaffTabProps> = ({
 
                                       )}
 
-                                      <div>
+                                      <div className="min-w-0">
 
-                                        <div className={`font-bold ${textTitle}`}>{st.name}</div>
+                                        <div className={`font-bold truncate ${textTitle}`} title={st.name}>{st.name}</div>
 
-                                        <div className="text-[10px] text-slate-500 font-mono">ID: {st.id.substring(0, 12)}</div>
+                                        <div className="text-[10px] text-slate-500 font-mono truncate">ID: {st.id.substring(0, 12)}</div>
 
                                       </div>
 
@@ -966,25 +966,25 @@ export const AdminStaffTab: React.FC<AdminStaffTabProps> = ({
 
                                   </td>
 
-                                  <td className="p-4">
+                                  <td className="px-2.5 py-3 whitespace-nowrap">
 
                                     <span className="font-semibold text-blue-500">{st.role}</span>
 
                                   </td>
 
-                                  <td className="p-4">
+                                  <td className="px-2.5 py-3 max-w-[175px]">
 
-                                    <div className="space-y-0.5">
+                                    <div className="space-y-0.5 min-w-0">
 
-                                      <div className={`font-mono ${textSub}`}>{st.email}</div>
+                                      <div className={`font-mono truncate ${textSub}`} title={st.email}>{st.email}</div>
 
-                                      {st.phone && <div className="text-slate-500 text-[11px]">{st.phone}</div>}
+                                      {st.phone && <div className="text-slate-500 text-[11px] truncate">{st.phone}</div>}
 
                                     </div>
 
                                   </td>
 
-                                  <td className="p-4">
+                                  <td className="px-2.5 py-3 whitespace-nowrap">
 
                                     <div className="font-mono">
 
@@ -996,7 +996,7 @@ export const AdminStaffTab: React.FC<AdminStaffTabProps> = ({
 
                                   </td>
 
-                                  <td className="p-4">
+                                  <td className="px-2.5 py-3 whitespace-nowrap">
 
                                     <button
 
@@ -1032,7 +1032,7 @@ export const AdminStaffTab: React.FC<AdminStaffTabProps> = ({
 
                                   </td>
 
-                                  <td className="p-4 text-right">
+                                  <td className="px-2.5 py-3 text-right whitespace-nowrap">
 
                                     <div className="flex items-center justify-end gap-1.5">
 

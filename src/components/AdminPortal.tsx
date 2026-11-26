@@ -4403,23 +4403,42 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
+  const isPosPreSaleOrder = (order: Order | null | undefined): boolean => {
+    if (!order) return false;
+    const source = (order.orderSource || order.order_source || '').toLowerCase();
+    const oType = (order.orderType || order.order_type || '').toLowerCase();
+    return source === 'pos' || oType === 'pos_pre_sale';
+  };
+
   const handleLoadOrderIntoPosCart = (order: Order, options?: { silentAlert?: boolean }) => {
-    const reconstructedCart = (order.items || []).map(item => {
-      const existingProduct = products.find(p => p.id === item.product?.id) || item.product;
-      return {
-        product: existingProduct,
-        quantity: item.quantity,
-        price: item.price || existingProduct.price
-      };
-    });
-    setPosCart(reconstructedCart);
+    const isPosQuotation = isPosPreSaleOrder(order);
+
+    if (isPosQuotation) {
+      // Local POS Pre-Sale Quotation: restore local POS items into the register cart
+      const reconstructedCart = (order.items || []).map(item => {
+        const existingProduct = products.find(p => p.id === item.product?.id) || item.product;
+        return {
+          product: existingProduct,
+          quantity: item.quantity,
+          price: item.price || existingProduct.price
+        };
+      });
+      setPosCart(reconstructedCart);
+      setPosDiscount(Number(order.discount || 0));
+      setPosExtraCosts(Array.isArray(order.extraCosts) ? order.extraCosts : []);
+    } else {
+      // Online / Transferred-to-POS Order: transfer ONLY order details to Local POS,
+      // never adding online items into the local POS stock cart or local inventory.
+      setPosCart([]);
+      setPosDiscount(0);
+      setPosExtraCosts([]);
+    }
+
     setPosLinkedOrder(order);
     setPosCustomerName(order.customerName || order.customer_name || '');
     setPosCustomerPhone(order.customerPhone || order.customer_phone || order.phone || '');
     setPosCustomerEmail(order.customerEmail || order.customer_email || '');
     setPosCustomerTin(order.customerTin || '');
-    setPosDiscount(Number(order.discount || 0));
-    setPosExtraCosts(Array.isArray(order.extraCosts) ? order.extraCosts : []);
     setPosIncludeVat(order.includeVat === true);
     setPosOrderNotes(order.notes || `Transferred Online Order #${order.id}`);
     setPosTenderedAmount(0);
@@ -4427,7 +4446,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setPosActivePage('register');
     setPosMobileTab('cart');
     if (!options?.silentAlert) {
-      showAlert('Order Loaded into POS', `Order ${order.id} loaded into Offline POS Register for final processing.`, 'alert');
+      showAlert(
+        isPosQuotation ? 'Quotation Loaded into POS' : 'Order Details Loaded into POS',
+        isPosQuotation
+          ? `Quotation ${order.id} loaded into Offline POS Register.`
+          : `Order details for #${order.id} transferred to Local POS Register (order details only — items not added to local stock).`,
+        'alert'
+      );
     }
   };
 
@@ -4495,7 +4520,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       handleLoadOrderIntoPosCart(updatedOrders[0], { silentAlert: true });
       showAlert(
         'Bulk Transfer Complete',
-        `${updatedOrders.length} online order(s) marked 'transferred-to-pos' and queued in Offline POS Register. Order #${updatedOrders[0].id} is loaded in the cart.`,
+        `${updatedOrders.length} online order(s) marked 'transferred-to-pos' and queued in Offline POS Register. Order #${updatedOrders[0].id} details are loaded in the register (local stock untouched).`,
         'alert'
       );
     } catch (err: any) {
@@ -4643,16 +4668,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     };
 
     try {
-      if (completePOSTransaction) {
+      const isPosQuotation = isPosPreSaleOrder(order);
+      if (completePOSTransaction && isPosQuotation) {
         await completePOSTransaction(newTx);
       } else {
-        const stockAdjustments = (order.items || []).map(item => ({
-          productId: item.product?.id,
-          delta: -item.quantity,
-          reason: 'pos_sale',
-          txId: newTx.id
-        }));
-        queueStockDelta(stockAdjustments);
+        if (isPosQuotation) {
+          const stockAdjustments = (order.items || []).map(item => ({
+            productId: item.product?.id,
+            delta: -item.quantity,
+            reason: 'pos_sale',
+            txId: newTx.id
+          }));
+          if (stockAdjustments.length > 0) {
+            queueStockDelta(stockAdjustments);
+          }
+        }
         await addPOSTransaction(newTx);
       }
 
@@ -4896,24 +4926,54 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     triggerHaptic('success');
   };
 
+  const isLinkedOnlineOrder = Boolean(posLinkedOrder && !isPosPreSaleOrder(posLinkedOrder));
+  const linkedOrderTotalAmount = isLinkedOnlineOrder
+    ? Math.max(0, Number(posLinkedOrder?.totalAmount ?? posLinkedOrder?.total_amount ?? 0))
+    : 0;
+  const linkedOrderPaidAmount = isLinkedOnlineOrder
+    ? Math.max(0, Number(posLinkedOrder?.paidAmount ?? posLinkedOrder?.paid_amount ?? 0))
+    : 0;
+  const linkedOrderBalanceDue = isLinkedOnlineOrder && posLinkedOrder
+    ? Math.max(
+        0,
+        posLinkedOrder.outstandingBalance !== undefined && posLinkedOrder.outstandingBalance !== null
+          ? Number(posLinkedOrder.outstandingBalance)
+          : (posLinkedOrder.outstanding_balance !== undefined && posLinkedOrder.outstanding_balance !== null
+              ? Number(posLinkedOrder.outstanding_balance)
+              : Math.max(0, linkedOrderTotalAmount - linkedOrderPaidAmount))
+      )
+    : 0;
+
   const posVatPct = Math.min(100, Math.max(0, Number(storeSettings?.vatPercentage ?? 18)));
   const posCartGross = posCart.reduce((sum, item) => sum + getPosItemUnitPrice(item) * item.quantity, 0);
+  const posGrossBeforeAdjustments = posCartGross + linkedOrderBalanceDue;
   const posCartMinMarginTotal = posCart.reduce((sum, item) => {
     const unitPrice = getPosItemUnitPrice(item);
     const minUnitPrice = getPosItemMinAllowedPrice(item.product);
     const effectiveUnitFloor = minUnitPrice > 0 ? Math.min(unitPrice, minUnitPrice) : 0;
     return sum + effectiveUnitFloor * item.quantity;
   }, 0);
-  const posMaxAllowedDiscount = Math.max(0, posCartGross - posCartMinMarginTotal);
+  const posCartMaxAllowedDiscount = Math.max(0, posCartGross - posCartMinMarginTotal);
+  const posMaxAllowedDiscount = posCartMaxAllowedDiscount + linkedOrderBalanceDue;
   const posExtraCostsTotal = posExtraCosts.reduce((sum, cost) => sum + (Number(cost.amount) || 0), 0);
   const posDiscountClamped = Math.min(Math.max(0, Number(posDiscount) || 0), posMaxAllowedDiscount);
-  const posDiscountedGross = Math.max(0, posCartGross - posDiscountClamped);
+  const posDiscountedGross = Math.max(0, posGrossBeforeAdjustments - posDiscountClamped);
 
-  const posVatInclusiveGross = posCart.reduce((sum, item) => {
+  const posCartVatInclusiveGross = posCart.reduce((sum, item) => {
     const isItemVat = item.product?.isVatInclusive !== false;
     return isItemVat ? sum + getPosItemUnitPrice(item) * item.quantity : sum;
   }, 0);
-  const posDiscountOnVatGross = posCartGross > 0 ? (posVatInclusiveGross / posCartGross) * posDiscountClamped : 0;
+  const linkedOrderScale = (isLinkedOnlineOrder && linkedOrderTotalAmount > 0)
+    ? Math.min(1, linkedOrderBalanceDue / linkedOrderTotalAmount)
+    : 0;
+  const linkedOrderVatGross = (isLinkedOnlineOrder && Array.isArray(posLinkedOrder?.items))
+    ? posLinkedOrder.items.reduce((sum, it) => {
+        const isItemVat = it.product?.isVatInclusive !== false;
+        return isItemVat ? sum + Number(it.price ?? it.product?.price ?? 0) * Number(it.quantity || 1) : sum;
+      }, 0) * linkedOrderScale
+    : 0;
+  const posVatInclusiveGross = posCartVatInclusiveGross + linkedOrderVatGross;
+  const posDiscountOnVatGross = posGrossBeforeAdjustments > 0 ? (posVatInclusiveGross / posGrossBeforeAdjustments) * posDiscountClamped : 0;
   const posDiscountedVatGross = Math.max(0, posVatInclusiveGross - posDiscountOnVatGross);
 
   const posTax = (posIncludeVat && posVatInclusiveGross > 0 && posVatPct > 0)
@@ -4925,8 +4985,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const handleCommitPosDiscount = (rawDiscount: number, continueToCheckout = false): boolean => {
     const parsedDisc = Math.max(0, Math.round(Number(rawDiscount) || 0));
     setPosDiscountDraft(null);
-    if (posCart.length > 0 && parsedDisc > posMaxAllowedDiscount) {
-      const safeTotal = Math.max(0, posCartGross - posMaxAllowedDiscount + posExtraCostsTotal);
+    if ((posCart.length > 0 || isLinkedOnlineOrder) && parsedDisc > posMaxAllowedDiscount) {
+      const safeTotal = Math.max(0, posGrossBeforeAdjustments - posMaxAllowedDiscount + posExtraCostsTotal);
       triggerHaptic('warning');
       setPendingSafePricePrompt({
         kind: 'discount',
@@ -4943,7 +5003,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   };
 
   const handleOpenPosCheckoutPreview = () => {
-    if (posCart.length === 0) return;
+    if (posCart.length === 0 && !posLinkedOrder) return;
     if (pendingSafePricePrompt) return;
     if (posDiscountDraft !== null) {
       const ok = handleCommitPosDiscount(Number(posDiscountDraft) || 0, true);
@@ -5035,7 +5095,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   };
 
   const handleCompletePOS = async () => {
-    if (posCart.length === 0) return;
+    if (posCart.length === 0 && !posLinkedOrder) return;
     if (!ensureOnline('complete checkout transactions')) return;
 
     if (isSplitPaymentMode) {
@@ -5065,8 +5125,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       return;
     }
 
-    // Re-check the snapshot of inventory immediately before checkout. The definitive
-    // protection should be the backend completePOSTransaction transaction below.
+    // Re-check local inventory ONLY for items in posCart (never validate or touch local stock for transferred online order items).
     const stockErrors = posCart.filter(item => {
       const current = products.find(p => p.id === item.product.id);
       return !current || Number(current.stock || 0) < item.quantity;
@@ -5107,16 +5166,31 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       ? `Split Tender (${splitPaymentsList.filter(p => Number(p.amount) > 0).map(p => p.method.split(' ')[0]).join(' + ')})`
       : posPaymentMethod;
 
+    const localPosReceiptItems = posCart.map(item => ({
+      ...item,
+      price: getPosItemUnitPrice(item),
+      priceTier: item.priceTier || posPriceTier,
+      serialNumbers: item.serialNumbers || [],
+      quantity: Number(item.quantity),
+      ...(isLinkedOnlineOrder ? { isLocalPosAddition: true } : {}),
+    }));
+
+    const linkedOnlineReceiptItems = (isLinkedOnlineOrder && Array.isArray(posLinkedOrder?.items))
+      ? posLinkedOrder.items.map(it => ({
+          product: it.product,
+          quantity: Number(it.quantity || 1),
+          price: Number(it.price ?? it.product?.price ?? 0),
+          serialNumbers: it.serialNumbers || [],
+          isTransferredOnlineItem: true,
+        }))
+      : [];
+
+    const combinedReceiptItems = [...linkedOnlineReceiptItems, ...localPosReceiptItems];
+
     const receipt: POSTransaction = {
       id: receiptNumber,
       receiptNumber,
-      items: posCart.map(item => ({
-        ...item,
-        price: getPosItemUnitPrice(item),
-        priceTier: item.priceTier || posPriceTier,
-        serialNumbers: item.serialNumbers || [],
-        quantity: Number(item.quantity)
-      })),
+      items: combinedReceiptItems as any,
       subtotal: Math.max(0, posSubtotal),
       tax: Math.max(0, posTax),
       discount: posDiscountClamped,
@@ -5176,6 +5250,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         receiptDraft: {
           ...receipt,
           orderId: posLinkedOrder?.id,
+          skipStockDeduction: isLinkedOnlineOrder && posCart.length === 0,
         },
       });
       setShowPOSSalePreview(false);
@@ -5184,50 +5259,58 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
 
     try {
-      if (completePOSTransaction) {
+      if (completePOSTransaction && posCart.length > 0 && !isLinkedOnlineOrder) {
         // Production path: backend/database transaction must validate current stock,
         // decrement it, create the receipt, and commit atomically/idempotently.
         await completePOSTransaction(receipt);
       } else {
-        // Atomic stock delta deduction for POS transactions
-        const stockAdjustments = posCart.map(item => ({
-          productId: item.product.id,
-          delta: -item.quantity,
-          reason: 'pos_sale',
-          txId: receipt.id
-        }));
-        
-        queueStockDelta(stockAdjustments);
+        // Atomic stock delta deduction strictly for local offline POS cart items (never transferred online items)
+        if (posCart.length > 0) {
+          const stockAdjustments = posCart.map(item => ({
+            productId: item.product.id,
+            delta: -item.quantity,
+            reason: 'pos_sale',
+            txId: receipt.id
+          }));
+          queueStockDelta(stockAdjustments);
+        }
         await addPOSTransaction(receipt);
       }
 
       // If this POS checkout settled a transferred Online Order, update that Order as well
       if (posLinkedOrder) {
-        const linkedTotal = Math.max(0, posTotal);
-        const paidSoFar = isOrderLoan ? Math.max(0, posLoanDownPayment || 0) : linkedTotal;
+        const currentPaymentCollected = isOrderLoan ? Math.max(0, posLoanDownPayment || 0) : Math.max(0, posTotal);
+        const updatedOrderTotal = isLinkedOnlineOrder && linkedOrderPaidAmount > 0
+          ? Math.max(0, linkedOrderTotalAmount + posCartGross + posExtraCostsTotal - posDiscountClamped)
+          : Math.max(0, posTotal);
+        const totalPaidAcrossOrder = isLinkedOnlineOrder
+          ? Math.min(updatedOrderTotal, linkedOrderPaidAmount + currentPaymentCollected)
+          : currentPaymentCollected;
+        const remainingBalance = Math.max(0, updatedOrderTotal - totalPaidAcrossOrder);
+
         const settledOrder: Order = {
           ...posLinkedOrder,
-          items: receipt.items.map(it => ({
+          items: combinedReceiptItems.map(it => ({
             product: it.product,
             quantity: it.quantity,
             price: it.price || it.product.price
           })),
-          totalAmount: linkedTotal,
-          total_amount: linkedTotal,
+          totalAmount: updatedOrderTotal,
+          total_amount: updatedOrderTotal,
           subtotal: receipt.subtotal,
           tax: receipt.tax,
-          discount: receipt.discount,
+          discount: isLinkedOnlineOrder ? Number(posLinkedOrder.discount || 0) + receipt.discount : receipt.discount,
           paymentMethod: finalPaymentMethod,
           payment_method: finalPaymentMethod,
-          paymentStatus: isOrderLoan ? (paidSoFar > 0 ? 'Partial' : 'Pending') : 'Paid',
-          payment_status: isOrderLoan ? (paidSoFar > 0 ? 'Partial' : 'Pending') : 'Paid',
-          paidAmount: paidSoFar,
-          paid_amount: paidSoFar,
-          outstandingBalance: Math.max(0, linkedTotal - paidSoFar),
-          outstanding_balance: Math.max(0, linkedTotal - paidSoFar),
+          paymentStatus: remainingBalance <= 0 ? 'Paid' : (totalPaidAcrossOrder > 0 ? 'Partial' : 'Pending'),
+          payment_status: remainingBalance <= 0 ? 'Paid' : (totalPaidAcrossOrder > 0 ? 'Partial' : 'Pending'),
+          paidAmount: totalPaidAcrossOrder,
+          paid_amount: totalPaidAcrossOrder,
+          outstandingBalance: remainingBalance,
+          outstanding_balance: remainingBalance,
           status: 'Completed',
-          transferredToPos: true,
-          transferred_to_pos: true,
+          transferredToPos: isLinkedOnlineOrder ? true : posLinkedOrder.transferredToPos,
+          transferred_to_pos: isLinkedOnlineOrder ? true : posLinkedOrder.transferred_to_pos,
           updatedAt: new Date().toISOString(),
         };
         try {
@@ -6539,7 +6622,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
 
 
-        <main className="flex-1 overflow-y-auto p-3 sm:p-5 md:p-6 space-y-4 sm:space-y-5 scroll-smooth pb-8 md:pb-12">
+        <main className="flex-1 min-w-0 w-full overflow-y-auto overflow-x-hidden p-3 sm:p-5 md:p-6 space-y-4 sm:space-y-5 scroll-smooth pb-8 md:pb-12">
 
         {/* Rate Limit Backoff Warning */}
 
@@ -8496,13 +8579,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     </div>
                   </div>
                 )}
-                <table className="w-full text-left text-xs min-w-[700px]">
+                <table className="w-full text-left text-xs">
 
                   <thead>
 
-                    <tr className={`border-b text-xs font-bold uppercase tracking-wider ${tableHeaderBg}`}>
+                    <tr className={`border-b text-[11px] font-bold uppercase tracking-wider ${tableHeaderBg}`}>
 
-                      <th className="p-4 w-10">
+                      <th className="px-2.5 py-3 w-9">
                         <input
                           type="checkbox"
                           checked={selectedProductIds.size === filteredInventoryProducts.length && filteredInventoryProducts.length > 0}
@@ -8516,21 +8599,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                         />
                       </th>
-                      <th className="p-4">Product</th>
+                      <th className="px-2.5 py-3">Product</th>
 
-                      <th className="p-4">Category & Channel</th>
+                      <th className="px-2.5 py-3">Category & Channel</th>
 
-                      <th className="p-4">SKU / Barcode</th>
+                      <th className="px-2.5 py-3">SKU / Barcode</th>
 
-                      <th className="p-4">Price</th>
+                      <th className="px-2.5 py-3">Price</th>
 
-                      <th className="p-4">Wholesale</th>
+                      <th className="px-2.5 py-3">Wholesale</th>
 
-                      <th className="p-4">Cost</th>
+                      <th className="px-2.5 py-3">Cost</th>
 
-                      <th className="p-4">Stock</th>
+                      <th className="px-2.5 py-3">Stock</th>
 
-                      <th className="p-4 text-right">Actions</th>
+                      <th className="px-2.5 py-3 text-right">Actions</th>
 
                     </tr>
 
@@ -8554,7 +8637,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       filteredInventoryProducts.map((p) => (
 
                       <tr key={p.id} className={`transition-colors ${tableRowHover}`}>
-                        <td className="p-4">
+                        <td className="px-2.5 py-3 w-9">
                           <input
                             type="checkbox"
                             checked={selectedProductIds.has(p.id)}
@@ -8570,18 +8653,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                           />
                         </td>
-                        <td className="p-4">
-                          <div className="flex items-center gap-3">
+                        <td className="px-2.5 py-3 max-w-[200px]">
+                          <div className="flex items-center gap-2.5 min-w-0">
 
-                            <img src={p.image} alt={p.name} className={`w-10 h-10 object-contain p-0.5 rounded-xl border shrink-0 bg-white dark:bg-slate-900 ${isDark ? 'border-slate-700' : 'border-slate-200'}`} />
+                            <img src={p.image} alt={p.name} className={`w-9 h-9 object-contain p-0.5 rounded-xl border shrink-0 bg-white dark:bg-slate-900 ${isDark ? 'border-slate-700' : 'border-slate-200'}`} />
 
-                            <div>
+                            <div className="min-w-0">
 
-                              <h4 className={`font-bold ${textTitle}`}>{p.name}</h4>
+                              <h4 className={`font-bold truncate ${textTitle}`} title={p.name}>{p.name}</h4>
 
-                              <span className="text-[11px] text-emerald-500 font-medium flex items-center gap-1">
+                              <span className="text-[11px] text-emerald-500 font-medium flex items-center gap-1 truncate">
 
-                                <ShieldCheck className="w-3 h-3" /> {p.brand}
+                                <ShieldCheck className="w-3 h-3 shrink-0" /> {p.brand}
 
                               </span>
 
@@ -8591,7 +8674,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                         </td>
 
-                        <td className="p-4 whitespace-nowrap">
+                        <td className="px-2.5 py-3 whitespace-nowrap">
                           <div className={`font-medium ${textSub}`}>{p.category}</div>
                           <div className="mt-1">
                             {p.isLocalOnly ? (
@@ -8608,7 +8691,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </div>
                         </td>
 
-                        <td className="p-4 font-mono text-[11px] whitespace-nowrap">
+                        <td className="px-2.5 py-3 font-mono text-[11px] whitespace-nowrap">
 
                           <div className={`font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{p.sku}</div>
 
@@ -8616,18 +8699,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                         </td>
 
-                        <td className={`p-4 font-extrabold whitespace-nowrap ${textTitle}`}>{formatTZS(p.price)}</td>
+                        <td className={`px-2.5 py-3 font-extrabold whitespace-nowrap ${textTitle}`}>{formatTZS(p.price)}</td>
 
-                        <td className={`p-4 font-semibold text-purple-500 whitespace-nowrap`}>
+                        <td className={`px-2.5 py-3 font-semibold text-purple-500 whitespace-nowrap`}>
 
                           {p.wholesalePrice ? formatTZS(p.wholesalePrice) : 'Auto'}
 
                         </td>
 
-                        <td className={`p-4 font-semibold whitespace-nowrap ${textSub}`}>{formatTZS(p.costPrice)}</td>
+                        <td className={`px-2.5 py-3 font-semibold whitespace-nowrap ${textSub}`}>{formatTZS(p.costPrice)}</td>
 
-                        <td className="p-4 whitespace-nowrap">
-                          <div className="flex flex-col gap-1.5 min-w-[140px]">
+                        <td className="px-2.5 py-3 whitespace-nowrap">
+                          <div className="flex flex-col gap-1.5 min-w-[125px]">
                             {/* Smart Stock Badge */}
                             <span className={`font-bold px-2.5 py-1 rounded-lg border text-[11px] inline-flex items-center gap-1.5 w-fit ${
                               p.stock <= 0
@@ -8696,7 +8779,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </div>
                         </td>
 
-                        <td className="p-4 text-right space-x-2 whitespace-nowrap">
+                        <td className="px-2.5 py-3 text-right space-x-1 whitespace-nowrap">
                           <button
                             type="button"
                             onClick={() => {
@@ -9367,23 +9450,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                     <div className="overflow-x-auto w-full">
 
-                      <table className="w-full text-left text-xs min-w-[700px]">
+                      <table className="w-full text-left text-xs">
 
                         <thead>
 
-                          <tr className={`border-b text-xs font-bold uppercase tracking-wider ${tableHeaderBg}`}>
+                          <tr className={`border-b text-[11px] font-bold uppercase tracking-wider ${tableHeaderBg}`}>
 
-                            <th className="p-4">Category Visual</th>
+                            <th className="px-3 py-3">Category Visual</th>
 
-                            <th className="p-4">English Name</th>
+                            <th className="px-3 py-3">English Name</th>
 
-                            <th className="p-4">Swahili Name</th>
+                            <th className="px-3 py-3">Swahili Name</th>
 
-                            <th className="p-4">Products Linked</th>
+                            <th className="px-3 py-3">Products Linked</th>
 
-                            <th className="p-4">Description</th>
+                            <th className="px-3 py-3">Description</th>
 
-                            <th className="p-4 text-right">Actions</th>
+                            <th className="px-3 py-3 text-right">Actions</th>
 
                           </tr>
 
@@ -10447,23 +10530,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                     <div className="flex items-center gap-2">
                       <span className="bg-blue-600 text-white text-xs px-2.5 py-1 rounded-xl font-black shadow-sm">
-                        {posCart.reduce((a, c) => a + c.quantity, 0)} items
+                        {posCartItemCount > 0 ? `${posCartItemCount} items` : (isLinkedOnlineOrder ? 'Order Details' : '0 items')}
                       </span>
 
-                      {posCart.length > 0 && (
+                      {(posCart.length > 0 || Boolean(posLinkedOrder)) && (
                         <div className="flex items-center gap-1">
-                          <button
-                            onClick={handleParkCurrentCart}
-                            className="p-1.5 rounded-lg text-amber-500 hover:bg-amber-500/10 border border-amber-500/20 transition-all"
-                            title="Hold / Park Current Sale"
-                          >
-                            <Pause className="w-3.5 h-3.5" />
-                          </button>
+                          {posCart.length > 0 && (
+                            <button
+                              onClick={handleParkCurrentCart}
+                              className="p-1.5 rounded-lg text-amber-500 hover:bg-amber-500/10 border border-amber-500/20 transition-all"
+                              title="Hold / Park Current Sale"
+                            >
+                              <Pause className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           <button
                             onClick={() => {
                               showConfirm(
-                                'Clear Cart',
-                                'Are you sure you want to clear all items from the cart?',
+                                posCart.length === 0 && posLinkedOrder ? 'Clear Transferred Order' : 'Clear Cart',
+                                posCart.length === 0 && posLinkedOrder
+                                  ? 'Detach the transferred online order details from the register?'
+                                  : 'Are you sure you want to clear all items from the cart?',
                                 () => {
                                   handleClearCartPOS();
                                 },
@@ -10471,7 +10558,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               );
                             }}
                             className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 border border-rose-500/20 transition-all"
-                            title="Clear Cart"
+                            title={posCart.length === 0 && posLinkedOrder ? 'Detach Order' : 'Clear Cart'}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -10481,28 +10568,67 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
 
                   {(posLinkedOrder || posTransferredQueue.length > 0) && (
-                    <div className="mb-3 px-3 py-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 space-y-2">
+                    <div className="mb-3 px-3 py-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 space-y-2.5">
                       {posLinkedOrder && (
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <Globe className="w-4 h-4 text-indigo-500 shrink-0" />
-                            <div className="min-w-0">
-                              <div className="text-[11px] font-black text-indigo-600 dark:text-indigo-300 truncate">
-                                Continuing Online Order #{posLinkedOrder.id}
-                              </div>
-                              <div className={`text-[10px] truncate ${textSub}`}>
-                                {posLinkedOrder.customerName || 'Customer'} • Ready for Offline POS / Orbi Pay
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Globe className="w-4 h-4 text-indigo-500 shrink-0" />
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-300 truncate">
+                                    {isLinkedOnlineOrder ? `Online Order #${posLinkedOrder.id}` : `POS Quotation #${posLinkedOrder.id}`}
+                                  </span>
+                                  {isLinkedOnlineOrder && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30">
+                                      Order Details Only • Not Local Stock
+                                    </span>
+                                  )}
+                                </div>
+                                <div className={`text-[10px] truncate ${textSub}`}>
+                                  {posLinkedOrder.customerName || 'Customer'}
+                                  {posLinkedOrder.shippingAddress ? ` • ${posLinkedOrder.shippingAddress}` : ''}
+                                </div>
                               </div>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => setPosLinkedOrder(null)}
+                              className="text-[10px] font-bold px-2 py-1 rounded-lg bg-white/70 dark:bg-slate-900/70 text-slate-600 dark:text-slate-300 hover:text-rose-500 border border-slate-200 dark:border-slate-700 shrink-0"
+                              title="Detach linked online order from register"
+                            >
+                              Unlink
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setPosLinkedOrder(null)}
-                            className="text-[10px] font-bold px-2 py-1 rounded-lg bg-white/70 dark:bg-slate-900/70 text-slate-600 dark:text-slate-300 hover:text-rose-500 border border-slate-200 dark:border-slate-700 shrink-0"
-                            title="Detach linked online order from current cart"
-                          >
-                            Unlink
-                          </button>
+
+                          {isLinkedOnlineOrder && (
+                            <div className={`rounded-xl border p-2 space-y-1.5 ${isDark ? 'bg-slate-900/75 border-indigo-900/50' : 'bg-white/90 border-indigo-200/80'}`}>
+                              <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-indigo-500">
+                                <span>Order Items Summary (Read-Only)</span>
+                                <span>{(posLinkedOrder.items || []).reduce((s, it) => s + Number(it.quantity || 1), 0)} item(s)</span>
+                              </div>
+                              <div className="max-h-28 overflow-y-auto space-y-1 pr-1">
+                                {(posLinkedOrder.items || []).map((it, idx) => {
+                                  const unitP = Number(it.price ?? it.product?.price ?? 0);
+                                  const qty = Number(it.quantity || 1);
+                                  return (
+                                    <div key={idx} className="flex items-center justify-between gap-2 text-[11px]">
+                                      <span className={`truncate ${textTitle}`}>
+                                        <span className="font-black text-indigo-500">{qty}×</span> {it.product?.name || 'Online Item'}
+                                      </span>
+                                      <span className={`font-bold shrink-0 ${textSub}`}>{formatTZS(unitP * qty)}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <div className="pt-1 border-t border-indigo-500/20 flex items-center justify-between text-[11px]">
+                                <span className={textSub}>
+                                  {linkedOrderPaidAmount > 0 ? `Order Total ${formatTZS(linkedOrderTotalAmount)} (Paid ${formatTZS(linkedOrderPaidAmount)})` : 'Online Order Balance Due'}
+                                </span>
+                                <span className="font-black text-indigo-600 dark:text-indigo-300">{formatTZS(linkedOrderBalanceDue)}</span>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -10948,14 +11074,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     );
                   })()}
 
-                  {/* Scrollable Cart Item List */}
+                  {/* Scrollable Local Stock Cart Item List */}
                   <div className="space-y-2.5 max-h-[240px] 2xl:max-h-[300px] overflow-y-auto pr-1">
                     {posCart.length === 0 ? (
-                      <div className={`text-center py-10 px-4 rounded-2xl border border-dashed ${isDark ? 'border-slate-800 bg-slate-900/30' : 'border-slate-200 bg-slate-50'}`}>
-                        <ShoppingCart className="w-8 h-8 text-slate-400 mx-auto mb-2 opacity-50" />
-                        <p className={`text-xs font-semibold ${textTitle}`}>Cart is empty</p>
-                        <p className={`text-[11px] mt-0.5 ${textSub}`}>Click catalog items or scan barcodes to begin sale.</p>
-                      </div>
+                      isLinkedOnlineOrder ? (
+                        <div className={`text-center py-3 px-4 rounded-2xl border border-dashed ${isDark ? 'border-indigo-900/50 bg-indigo-950/20' : 'border-indigo-200 bg-indigo-50/40'}`}>
+                          <p className={`text-[11px] font-semibold ${textTitle}`}>No extra Local Stock items added</p>
+                          <p className={`text-[10px] mt-0.5 ${textSub}`}>
+                            Transferred online order details are ready for checkout below. Optionally tap any Offline Stock product to add extra in-store items.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className={`text-center py-10 px-4 rounded-2xl border border-dashed ${isDark ? 'border-slate-800 bg-slate-900/30' : 'border-slate-200 bg-slate-50'}`}>
+                          <ShoppingCart className="w-8 h-8 text-slate-400 mx-auto mb-2 opacity-50" />
+                          <p className={`text-xs font-semibold ${textTitle}`}>Cart is empty</p>
+                          <p className={`text-[11px] mt-0.5 ${textSub}`}>Click catalog items or scan barcodes to begin sale.</p>
+                        </div>
+                      )
                     ) : (
                       posCart.map((item) => {
                         const stock = Number(item.product.stock || 0);
@@ -11314,10 +11449,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                   {/* Totals Summary */}
                   <div className={`p-3 rounded-2xl border space-y-1.5 text-xs ${isDark ? 'bg-slate-800/40 border-slate-700/60 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
-                    <div className="flex justify-between">
-                      <span>Subtotal (Gross)</span>
-                      <span className={`font-semibold ${textTitle}`}>{formatTZS(posCartGross)}</span>
-                    </div>
+                    {isLinkedOnlineOrder && (
+                      <div className="flex justify-between text-indigo-500 dark:text-indigo-400 font-semibold">
+                        <span>Online Order (#{posLinkedOrder?.id})</span>
+                        <span className="font-bold">{formatTZS(linkedOrderBalanceDue)}</span>
+                      </div>
+                    )}
+                    {(!isLinkedOnlineOrder || posCart.length > 0) && (
+                      <div className="flex justify-between">
+                        <span>{isLinkedOnlineOrder ? 'Local POS Stock Items' : 'Subtotal (Gross)'}</span>
+                        <span className={`font-semibold ${textTitle}`}>{formatTZS(isLinkedOnlineOrder ? posCartGross : posGrossBeforeAdjustments)}</span>
+                      </div>
+                    )}
 
                     {posIncludeVat && posTax > 0 && (
                       <div className="flex justify-between text-slate-400 text-[11px]">
@@ -11777,7 +11920,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     <button
                       type="button"
                       onClick={handleOpenPosCheckoutPreview}
-                      disabled={posCart.length === 0}
+                      disabled={posCart.length === 0 && !posLinkedOrder}
                       className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-extrabold py-3.5 rounded-2xl shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 text-sm active:scale-[0.99] cursor-pointer"
                     >
                       <Printer className="w-4 h-4" />
@@ -11797,22 +11940,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        if (posCart.length === 0) return;
+                        if (posCart.length === 0 && !posLinkedOrder) return;
                         const quoteDate = posTransactionDate ? new Date(posTransactionDate).toISOString() : new Date().toISOString();
                         const validDate = (() => {
                           const d = new Date(quoteDate);
                           d.setDate(d.getDate() + 14);
                           return d.toISOString().slice(0, 10);
                         })();
+                        const proformaItems = [
+                          ...(isLinkedOnlineOrder && Array.isArray(posLinkedOrder?.items)
+                            ? posLinkedOrder.items.map(it => ({
+                                product: it.product,
+                                quantity: Number(it.quantity || 1),
+                                price: Number(it.price ?? it.product?.price ?? 0)
+                              }))
+                            : []),
+                          ...posCart.map(item => ({
+                            product: item.product,
+                            quantity: item.quantity,
+                            price: getPosItemUnitPrice(item)
+                          }))
+                        ];
                         const dummyOrder: Order = {
-                          id: `PRO-${Date.now().toString().slice(-6)}`,
+                          id: isLinkedOnlineOrder && posLinkedOrder ? posLinkedOrder.id : `PRO-${Date.now().toString().slice(-6)}`,
                           createdAt: quoteDate,
                           validUntil: validDate,
-                          customerName: posCustomerName || 'Walk-in Customer',
-                          customerEmail: '',
-                          phone: posCustomerPhone || '',
-                          shippingAddress: 'In-Store POS',
-                          items: posCart.map(item => ({ product: item.product, quantity: item.quantity, price: getPosItemUnitPrice(item) })),
+                          customerName: posCustomerName || posLinkedOrder?.customerName || 'Walk-in Customer',
+                          customerEmail: posCustomerEmail || posLinkedOrder?.customerEmail || '',
+                          phone: posCustomerPhone || posLinkedOrder?.customerPhone || posLinkedOrder?.phone || '',
+                          shippingAddress: posLinkedOrder?.shippingAddress || 'In-Store POS',
+                          items: proformaItems,
                           totalAmount: posTotal,
                           subtotal: posSubtotal,
                           tax: posTax,
@@ -11826,7 +11983,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         };
                         setSelectedOrderForInvoice(dummyOrder);
                       }}
-                      disabled={posCart.length === 0}
+                      disabled={posCart.length === 0 && !posLinkedOrder}
                       className={`w-full ${isDark ? 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'} border disabled:opacity-50 font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 text-xs active:scale-[0.99] cursor-pointer`}
                     >
                       <Eye className="w-3.5 h-3.5 opacity-70" />
@@ -11887,13 +12044,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        if (posCart.length === 0) {
-                          showAlert('Cart is Empty', 'Please add products to the register cart first before checking out.', 'warning');
+                        if (posCart.length === 0 && !posLinkedOrder) {
+                          showAlert('Cart is Empty', 'Please add products or load a transferred order before checking out.', 'warning');
                           return;
                         }
                         handleOpenPosCheckoutPreview();
                       }}
-                      disabled={posCart.length === 0}
+                      disabled={posCart.length === 0 && !posLinkedOrder}
                       className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-black px-4 py-2 rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 transition-all active:scale-95 text-xs"
                     >
                       <Printer className="w-3.5 h-3.5" />
@@ -15306,7 +15463,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
 
                       <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden text-xs">
-
+                        <div className="overflow-x-auto w-full">
                         <table className="w-full text-left">
 
                           <thead className={`text-[10px] font-black uppercase ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>
@@ -15350,7 +15507,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </tbody>
 
                         </table>
-
+                        </div>
                       </div>
 
                     </div>
@@ -16621,7 +16778,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   return (
 
                     <div className={`rounded-2xl border overflow-hidden ${cardBg}`}>
-
+                      <div className="overflow-x-auto w-full">
                       <table className="w-full text-left text-xs">
 
                         <thead>
@@ -16819,7 +16976,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </tbody>
 
                       </table>
-
+                      </div>
                     </div>
 
                   );
@@ -17383,6 +17540,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         onConvertToLoan={handleConvertPosToLoan}
         saleDate={posTransactionDate}
         onUpdateSaleDate={setPosTransactionDate}
+        linkedOrder={isLinkedOnlineOrder ? posLinkedOrder : null}
       />
 
       {/* Orbi Pay Automated Payment Gateway Modal for POS Checkout */}
@@ -17535,6 +17693,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               items: o.items || [],
                               receiptDraft: {
                                 orderId: o.id,
+                                skipStockDeduction: true,
                                 items: o.items || [],
                                 subtotal: Number(o.subtotal || orderAmount),
                                 tax: Number(o.tax || 0),

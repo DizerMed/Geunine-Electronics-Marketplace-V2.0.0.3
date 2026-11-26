@@ -6733,6 +6733,7 @@ async function autoCompleteOrbiPayment(
   intent.verifiedVia = gatewayDetails?.verifiedVia || intent.verifiedVia || 'orbi_gateway';
 
   let updatedOrder: any = null;
+  let existingOrderRef: any = null;
 
   // 1. Update linked Order if orderId exists
   if (intent.orderId) {
@@ -6743,6 +6744,7 @@ async function autoCompleteOrbiPayment(
         if (data) existingOrder = normalizeFromSupabase('orders', data);
       } catch (_) {}
     }
+    existingOrderRef = existingOrder;
 
     if (existingOrder) {
       const draft = intent.receiptDraft || {};
@@ -6898,9 +6900,21 @@ async function autoCompleteOrbiPayment(
     });
 
     // 3. Deduct inventory stock once if not already deducted
-    if (!intent.stockDeducted && Array.isArray(txItems) && txItems.length > 0) {
+    // IMPORTANT: Never deduct local POS stock for transferred online orders or items tagged as online order items.
+    const linkedOrderSource = String(existingOrderRef?.orderSource || existingOrderRef?.order_source || '').toLowerCase();
+    const linkedOrderType = String(existingOrderRef?.orderType || existingOrderRef?.order_type || '').toLowerCase();
+    const isLinkedPosPreSale = linkedOrderSource === 'pos' || linkedOrderType === 'pos_pre_sale';
+    const isTransferredOnlineOrder = Boolean(
+      existingOrderRef && !isLinkedPosPreSale
+    );
+    const skipAllStockDeduction = Boolean(intent.skipStockDeduction || draft?.skipStockDeduction);
+
+    if (!intent.stockDeducted && !skipAllStockDeduction && Array.isArray(txItems) && txItems.length > 0) {
       intent.stockDeducted = true;
       for (const it of txItems) {
+        if (it?.isTransferredOnlineItem === true) continue;
+        if (isTransferredOnlineOrder && it?.isLocalPosAddition !== true) continue;
+
         const prodId = it?.product?.id || it?.productId || it?.product_id;
         const qty = Number(it?.quantity) || 0;
         if (!prodId || qty <= 0) continue;
@@ -6962,7 +6976,7 @@ async function autoCompleteOrbiPayment(
 
 app.post('/api/payments/orbi-pay/initiate', async (req, res) => {
   try {
-    const { amount, orderId, customerPhone, customerName, cashierName, items, receiptDraft } = req.body || {};
+    const { amount, orderId, customerPhone, customerName, cashierName, items, receiptDraft, skipStockDeduction } = req.body || {};
     const numericAmount = Number(amount);
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
       return res.status(400).json({ error: 'A valid positive payment amount (TZS) is required.' });
@@ -7027,6 +7041,7 @@ app.post('/api/payments/orbi-pay/initiate', async (req, res) => {
       cashierName: cashierName ? String(cashierName).trim() : 'Counter Cashier',
       items: Array.isArray(items) ? items : [],
       receiptDraft: receiptDraft && typeof receiptDraft === 'object' ? receiptDraft : undefined,
+      skipStockDeduction: Boolean(skipStockDeduction || receiptDraft?.skipStockDeduction),
       stockDeducted: false,
       createdAt: now
     };

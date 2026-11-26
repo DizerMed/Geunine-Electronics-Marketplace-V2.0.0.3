@@ -98,7 +98,7 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
 
   return (
     <>
-      <div className="space-y-6">
+      <div className="space-y-6 w-full min-w-0">
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
 
@@ -470,178 +470,99 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
                 </div>
               </div>
 
-            <div className={`rounded-2xl border overflow-hidden ${cardBg}`}>
-
+            <div className={`rounded-2xl border overflow-hidden w-full ${cardBg}`}>
               <div className="overflow-x-auto w-full">
-
-                <table className="w-full text-left text-xs min-w-[900px]">
-
+                <table className="w-full text-left text-xs">
                   <thead>
-
-                    <tr className={`border-b text-xs font-bold uppercase tracking-wider ${tableHeaderBg}`}>
-
-                      <th className="p-4 w-10 text-center">
-
+                    <tr className={`border-b text-[11px] font-bold uppercase tracking-wider ${tableHeaderBg}`}>
+                      <th className="px-2 py-3 w-8 text-center">
                         <input
-
                           type="checkbox"
-
                           aria-label="Select all visible orders"
-
                           onChange={(e) => setSelectedOrderIds(e.target.checked ? filteredAdminOrders.map(o => o.id) : [])}
-
                           checked={filteredAdminOrders.length > 0 && filteredAdminOrders.every(o => selectedOrderIds.includes(o.id))}
-
                           className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-
                         />
-
                       </th>
-
-                      <th className="p-4">Order ID & Date</th>
-
-                      <th className="p-4">Customer & Contact</th>
-
-                      <th className="p-4">Shipping Destination</th>
-
-                      <th className="p-4">Items & Total</th>
-
-                      <th className="p-4">Tracking & Courier</th>
-
-                      <th className="p-4">Fulfillment Status</th>
-
-                      <th className="p-4">Payment Status</th>
-
-                      <th className="p-4 text-right">Actions & Dispatch</th>
-
+                      <th className="px-2.5 py-3">Order & Date</th>
+                      <th className="px-2.5 py-3">Customer</th>
+                      <th className="px-2.5 py-3">Destination</th>
+                      <th className="px-2.5 py-3">Items & Total</th>
+                      <th className="px-2.5 py-3">Tracking</th>
+                      <th className="px-2.5 py-3">Status</th>
+                      <th className="px-2.5 py-3">Payment</th>
+                      <th className="px-2.5 py-3 text-right">Actions & Dispatch</th>
                     </tr>
-
                   </thead>
-
                   <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
-
                     {filteredAdminOrders.map((o) => {
                       const isRowSelected = selectedOrderIds.includes(o.id);
                       return (
                       <tr key={o.id} className={`transition-colors ${isRowSelected ? (isDark ? 'bg-indigo-950/25' : 'bg-indigo-50/60') : tableRowHover}`}>
-
-                        <td className="p-4 w-10 text-center">
-
+                        <td className="px-2 py-3 w-8 text-center">
                           <input
-
                             type="checkbox"
-
                             aria-label={`Select order ${o.id}`}
-
                             checked={isRowSelected}
-
                             onChange={(e) => setSelectedOrderIds(e.target.checked ? [...selectedOrderIds, o.id] : selectedOrderIds.filter(id => id !== o.id))}
-
                             className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-
                           />
-
                         </td>
-
-                        <td className="p-4">
-
-                          <div className={`font-bold ${textTitle}`}>{o.id}</div>
-
-                          <div className={`text-[11px] ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>{formatToGMT3(o.createdAt)}</div>
-
+                        <td className="px-2.5 py-3 whitespace-nowrap">
+                          <div className={`font-bold text-[11px] ${textTitle}`}>{o.id}</div>
+                          <div className={`text-[10px] ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>{formatToGMT3(o.createdAt)}</div>
                           {(o.status === 'transferred-to-pos' || o.transferredToPos || o.transferred_to_pos || o.orderType === 'online_to_pos' || o.order_type === 'online_to_pos') && (
-                            <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
-                              <Store className="w-3 h-3" />
+                            <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+                              <Store className="w-2.5 h-2.5" />
                               <span>transferred-to-pos</span>
                             </span>
                           )}
-
                           {(o.autoCompletedViaOrbiPay || o.auto_completed_via_orbi_pay) && (
-                            <span className="mt-1 ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30">
-                              <Zap className="w-3 h-3" />
+                            <span className="mt-1 ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+                              <Zap className="w-2.5 h-2.5" />
                               <span>Orbi Auto-Paid</span>
                             </span>
                           )}
-
                         </td>
-
-                        <td className="p-4">
-
-                          <div className={`font-semibold ${textTitle}`}>{o.customerName}</div>
-
-                          <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{o.customerEmail}</div>
-
+                        <td className="px-2.5 py-3 max-w-[145px]">
+                          <div className={`font-semibold truncate ${textTitle}`} title={o.customerName}>{o.customerName}</div>
+                          <div className={`text-[10px] truncate ${isDark ? 'text-slate-400' : 'text-slate-500'}`} title={o.customerEmail}>{o.customerEmail}</div>
                           {(o.customerPhone || o.phone) && (
-
-                            <div className="text-[11px] font-bold text-blue-500">{o.customerPhone || o.phone}</div>
-
+                            <div className="text-[10px] font-bold text-blue-500 truncate">{o.customerPhone || o.phone}</div>
                           )}
-
                         </td>
-
-                        <td className={`p-4 max-w-xs ${textSub}`}>
-
-                          <div className="truncate font-medium">{o.shippingAddress}</div>
-
-                          {o.city && <span className="text-[10px] uppercase font-bold text-slate-400">{o.city}</span>}
-
+                        <td className={`px-2.5 py-3 max-w-[115px] ${textSub}`}>
+                          <div className="truncate font-medium text-[11px]" title={o.shippingAddress}>{o.shippingAddress}</div>
+                          {o.city && <span className="text-[10px] uppercase font-bold text-slate-400 truncate block">{o.city}</span>}
                         </td>
-
-                        <td className="p-4 whitespace-nowrap">
-
-                          <div className={`font-bold ${textTitle}`}>{formatTZS(o.totalAmount)}</div>
-
+                        <td className="px-2.5 py-3 whitespace-nowrap">
+                          <div className={`font-bold text-[11px] ${textTitle}`}>{formatTZS(o.totalAmount)}</div>
                           {o.paidAmount !== undefined && o.paidAmount > 0 && o.paidAmount < o.totalAmount ? (
-
                             <div className="text-[10px] font-bold text-amber-500 flex flex-col">
-
                               <span>Paid: {formatTZS(o.paidAmount)}</span>
-
                               <span className="text-rose-500">Due: {formatTZS(o.totalAmount - o.paidAmount)}</span>
-
                             </div>
-
                           ) : (
-
-                            <div className={`text-[11px] ${textSub}`}>{o.items.reduce((a, c) => a + c.quantity, 0)} items</div>
-
+                            <div className={`text-[10px] ${textSub}`}>{o.items.reduce((a, c) => a + c.quantity, 0)} items</div>
                           )}
-
                         </td>
-
-                        <td className="p-4">
-
+                        <td className="px-2.5 py-3 whitespace-nowrap">
                           {o.trackingNumber ? (
-
                             <div className="space-y-0.5">
-
-                              <span className="font-mono text-[11px] font-bold text-blue-500 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20 block w-fit">
-
+                              <span className="font-mono text-[10px] font-bold text-blue-500 dark:text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20 block w-fit">
                                 {o.trackingNumber}
-
                               </span>
-
                               {o.courierName && (
-
-                                <span className={`text-[10px] block font-medium ${textSub}`}>
-
+                                <span className={`text-[9px] block font-medium truncate max-w-[95px] ${textSub}`} title={o.courierName}>
                                   via {o.courierName}
-
                                 </span>
-
                               )}
-
                             </div>
-
                           ) : (
-
-                            <span className="text-[11px] text-slate-400 italic">No tracking code yet</span>
-
+                            <span className="text-[10px] text-slate-400 italic">No tracking</span>
                           )}
-
                         </td>
-
-                        <td className="p-4">
+                        <td className="px-2.5 py-3 whitespace-nowrap">
 
                           <span className={`px-2.5 py-1 rounded-lg font-bold text-[11px] border inline-flex items-center gap-1 ${
                             o.status === 'Delivered' || o.status === 'Completed'
@@ -661,22 +582,14 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
 
                         </td>
 
-                        <td className="p-4">
-
-                          <div className="flex flex-col gap-1.5 min-w-[150px]">
-
+                        <td className="px-2.5 py-3">
+                          <div className="flex flex-col gap-1 min-w-[125px] max-w-[145px]">
                             <select
-
                               value={o.paymentStatus || 'Pending'}
-
                               onChange={(e) => {
-
                                 const newPaymentStatus = e.target.value as 'Pending' | 'Partial' | 'Paid' | 'Failed';
-
                                 if (updateOrder) {
-
                                   const updatedPaidAmount = newPaymentStatus === 'Paid' ? o.totalAmount : newPaymentStatus === 'Pending' ? 0 : o.paidAmount;
-
                                   updateOrder({
                                     ...o,
                                     paymentStatus: newPaymentStatus,
@@ -685,8 +598,7 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
                                   });
                                 }
                               }}
-
-                              className={`border rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all ${
+                              className={`w-full border rounded-lg px-2 py-1 text-[11px] font-bold transition-all ${
 
                                 o.paymentStatus === 'Paid'
 
@@ -796,168 +708,115 @@ export const AdminOrdersTab: React.FC<AdminOrdersTabProps> = ({
 
                         </td>
 
-                        <td className="p-4 text-right">
-
-                          <div className="flex items-center justify-end gap-2">
-
-                            {(() => {
-                              const isTransferred = Boolean(o.status === 'transferred-to-pos' || o.transferredToPos || o.transferred_to_pos || o.orderType === 'online_to_pos' || o.order_type === 'online_to_pos');
-                              const isOpenForPos = (o.paymentStatus || 'Pending') !== 'Paid' && o.status !== 'Cancelled' && o.status !== 'Completed';
-                              if (!isOpenForPos) return null;
-                              if (isTransferred && onOpenInPos) {
-                                return (
-                                  <button
-                                    type="button"
-                                    onClick={() => onOpenInPos(o)}
-                                    className="px-2.5 py-1.5 rounded-lg bg-emerald-600/10 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white border border-emerald-500/25 font-bold text-xs transition-colors flex items-center gap-1 shadow-sm whitespace-nowrap"
-                                    title="Continue this transferred online order inside Offline POS"
-                                  >
-                                    <Store className="w-3.5 h-3.5" />
-                                    <span>Open in POS</span>
-                                  </button>
-                                );
-                              }
-                              if (!isTransferred && onTransferToPos) {
-                                return (
-                                  <button
-                                    type="button"
-                                    onClick={() => onTransferToPos(o)}
-                                    className="px-2.5 py-1.5 rounded-lg bg-indigo-600/10 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-400 hover:text-white border border-indigo-500/25 font-bold text-xs transition-colors flex items-center gap-1 shadow-sm whitespace-nowrap"
-                                    title="Transfer this Online Order to Offline POS Register / Orbi Pay"
-                                  >
-                                    <Store className="w-3.5 h-3.5" />
-                                    <span>Transfer to POS</span>
-                                  </button>
-                                );
-                              }
-                              return null;
-                            })()}
-
-                            <button
-
-                              type="button"
-
-                              onClick={() => setSelectedOrderForInvoice(o)}
-
-                              className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors flex items-center gap-1 shadow-sm"
-
-                              title="Print or Download Official Tax Invoice (Available for all orders)"
-
-                            >
-
-                              <FileText className="w-3.5 h-3.5 text-blue-500" />
-
-                              <span>Tax Invoice</span>
-
-                            </button>
-
-
-
-                            <select
-
-                              value={o.status}
-
-                              onChange={(e) => {
-
-                                const newStatus = e.target.value as Order['status'];
-
-                                if (updateOrder) {
-
-                                  updateOrder({ ...o, status: newStatus });
-
-                                } else {
-
-                                  updateOrderStatus(o.id, newStatus);
-
+                        <td className="px-2.5 py-3 text-right">
+                          <div className="flex flex-col items-end gap-1.5">
+                            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                              {(() => {
+                                const isTransferred = Boolean(o.status === 'transferred-to-pos' || o.transferredToPos || o.transferred_to_pos || o.orderType === 'online_to_pos' || o.order_type === 'online_to_pos');
+                                const isOpenForPos = (o.paymentStatus || 'Pending') !== 'Paid' && o.status !== 'Cancelled' && o.status !== 'Completed';
+                                if (!isOpenForPos) return null;
+                                if (isTransferred && onOpenInPos) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => onOpenInPos(o)}
+                                      className="px-2 py-1 rounded-lg bg-emerald-600/10 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white border border-emerald-500/25 font-bold text-[11px] transition-colors flex items-center gap-1 shadow-sm whitespace-nowrap"
+                                      title="Continue this transferred online order inside Offline POS"
+                                    >
+                                      <Store className="w-3 h-3" />
+                                      <span>Open POS</span>
+                                    </button>
+                                  );
                                 }
-
-                              }}
-
-                              className={`border rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
-
-                                isDark ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-slate-100 border-slate-200 text-slate-800'
-
-                              }`}
-
-                            >
-
-                              <option value="Pending">Pending</option>
-                              <option value="Processing">Processing</option>
-                              <option value="transferred-to-pos">transferred-to-pos</option>
-                              <option value="Shipped">Shipped</option>
-                              <option value="Delivered">Delivered</option>
-                              <option value="Completed">Completed</option>
-                              <option value="Cancelled">Cancelled</option>
-                            </select>
-
-
-
-                            <button
-
-                              onClick={() => {
-
-                                setSelectedOrderForDispatch(o);
-
-                                setDispatchStatus(o.status);
-
-                                setDispatchTrackingNumber(o.trackingNumber || `GE-TRK-${Math.floor(Math.random() * 9000000 + 1000000)}`);
-
-                                setDispatchCourier(o.courierName || 'DAR Express (Local)');
-
-                                setDispatchEstimatedDelivery(o.estimatedDelivery || 'Within 24-48 Hours');
-
-                                setDispatchNotes(o.notes || '');
-
-                                const paidVal = o.paidAmount ?? (o.paymentStatus === 'Paid' ? o.totalAmount : 0);
-
-                                setDispatchPaidAmount(paidVal);
-
-                                setDispatchPaymentStatus(o.paymentStatus || (paidVal >= o.totalAmount ? 'Paid' : paidVal > 0 ? 'Partial' : 'Pending'));
-
-                              }}
-
-                              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors flex items-center gap-1 shadow-sm"
-
-                            >
-
-                              <Truck className="w-3.5 h-3.5" />
-
-                              <span>Dispatch & Track</span>
-
-                            </button>
-
-                            {deleteOrder && (
+                                if (!isTransferred && onTransferToPos) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => onTransferToPos(o)}
+                                      className="px-2 py-1 rounded-lg bg-indigo-600/10 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-400 hover:text-white border border-indigo-500/25 font-bold text-[11px] transition-colors flex items-center gap-1 shadow-sm whitespace-nowrap"
+                                      title="Transfer this Online Order to Offline POS Register / Orbi Pay"
+                                    >
+                                      <Store className="w-3 h-3" />
+                                      <span>To POS</span>
+                                    </button>
+                                  );
+                                }
+                                return null;
+                              })()}
 
                               <button
-
-                                onClick={async () => {
-
-                                  if (await customConfirm(`Delete order ${o.id}?`, 'Delete Order')) {
-
-                                    await deleteOrder(o.id);
-
-                                    setSelectedOrderIds(selectedOrderIds.filter(id => id !== o.id));
-
-                                  }
-
-                                }}
-
-                                className="p-2 rounded-lg bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white transition-all shadow-sm"
-
-                                title="Delete Order"
-
+                                type="button"
+                                onClick={() => setSelectedOrderForInvoice(o)}
+                                className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[11px] transition-colors flex items-center gap-1 shadow-sm whitespace-nowrap"
+                                title="Print or Download Official Tax Invoice (Available for all orders)"
                               >
+                                <FileText className="w-3 h-3 text-blue-500" />
+                                <span>Invoice</span>
+                              </button>
+                            </div>
 
-                                <Trash2 className="w-4 h-4" />
+                            <div className="flex items-center justify-end gap-1.5">
+                              <select
+                                value={o.status}
+                                onChange={(e) => {
+                                  const newStatus = e.target.value as Order['status'];
+                                  if (updateOrder) {
+                                    updateOrder({ ...o, status: newStatus });
+                                  } else {
+                                    updateOrderStatus(o.id, newStatus);
+                                  }
+                                }}
+                                className={`border rounded-lg px-1.5 py-1 text-[11px] font-semibold max-w-[115px] ${
+                                  isDark ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-slate-100 border-slate-200 text-slate-800'
+                                }`}
+                              >
+                                <option value="Pending">Pending</option>
+                                <option value="Processing">Processing</option>
+                                <option value="transferred-to-pos">transferred-to-pos</option>
+                                <option value="Shipped">Shipped</option>
+                                <option value="Delivered">Delivered</option>
+                                <option value="Completed">Completed</option>
+                                <option value="Cancelled">Cancelled</option>
+                              </select>
 
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedOrderForDispatch(o);
+                                  setDispatchStatus(o.status);
+                                  setDispatchTrackingNumber(o.trackingNumber || `GE-TRK-${Math.floor(Math.random() * 9000000 + 1000000)}`);
+                                  setDispatchCourier(o.courierName || 'DAR Express (Local)');
+                                  setDispatchEstimatedDelivery(o.estimatedDelivery || 'Within 24-48 Hours');
+                                  setDispatchNotes(o.notes || '');
+                                  const paidVal = o.paidAmount ?? (o.paymentStatus === 'Paid' ? o.totalAmount : 0);
+                                  setDispatchPaidAmount(paidVal);
+                                  setDispatchPaymentStatus(o.paymentStatus || (paidVal >= o.totalAmount ? 'Paid' : paidVal > 0 ? 'Partial' : 'Pending'));
+                                }}
+                                className="px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] transition-colors flex items-center gap-1 shadow-sm whitespace-nowrap"
+                                title="Dispatch & Track"
+                              >
+                                <Truck className="w-3 h-3" />
+                                <span>Dispatch</span>
                               </button>
 
-                            )}
-
+                              {deleteOrder && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (await customConfirm(`Delete order ${o.id}?`, 'Delete Order')) {
+                                      await deleteOrder(o.id);
+                                      setSelectedOrderIds(selectedOrderIds.filter(id => id !== o.id));
+                                    }
+                                  }}
+                                  className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white transition-all shadow-sm"
+                                  title="Delete Order"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </div>
-
                         </td>
-
                       </tr>
 
                     );

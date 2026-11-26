@@ -1,9 +1,9 @@
 import React from 'react';
-import { formatTZS, Product } from '../types';
+import { formatTZS, Order, Product } from '../types';
 import {
   ShoppingCart, CheckCircle, X, CreditCard, User, AlertTriangle,
   Printer, Banknote, Tag, Sparkles, Calendar, Phone,
-  Layers, FileText, ArrowRight, ShieldCheck
+  Layers, FileText, ArrowRight, ShieldCheck, Globe
 } from 'lucide-react';
 import { triggerHaptic } from '../utils/haptics';
 import { groupCartItemsByTaxStatus } from '../utils/taxUtils';
@@ -42,6 +42,7 @@ interface POSSalePreviewModalProps {
   onConvertToLoan?: (downPayment: number) => void;
   saleDate?: string;
   onUpdateSaleDate?: (newDate: string) => void;
+  linkedOrder?: Order | null;
 }
 
 export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
@@ -78,15 +79,39 @@ export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
   onConvertToLoan,
   saleDate,
   onUpdateSaleDate,
+  linkedOrder,
 }) => {
   if (!isOpen) return null;
 
-  const taxAnalysis = groupCartItemsByTaxStatus(cart, {
+  const linkedOrderItems = Array.isArray(linkedOrder?.items) ? linkedOrder.items : [];
+  const linkedOrderTotalAmount = Math.max(0, Number(linkedOrder?.totalAmount ?? linkedOrder?.total_amount ?? 0));
+  const linkedOrderPaidAmount = Math.max(0, Number(linkedOrder?.paidAmount ?? linkedOrder?.paid_amount ?? 0));
+  const linkedOrderBalanceDue = linkedOrder
+    ? Math.max(
+        0,
+        linkedOrder.outstandingBalance !== undefined && linkedOrder.outstandingBalance !== null
+          ? Number(linkedOrder.outstandingBalance)
+          : (linkedOrder.outstanding_balance !== undefined && linkedOrder.outstanding_balance !== null
+              ? Number(linkedOrder.outstanding_balance)
+              : Math.max(0, linkedOrderTotalAmount - linkedOrderPaidAmount))
+      )
+    : 0;
+
+  const combinedTaxItems = [
+    ...linkedOrderItems.map((it) => ({
+      product: it.product,
+      quantity: Number(it.quantity || 1),
+      price: Number(it.price ?? it.product?.price ?? 0),
+    })),
+    ...cart,
+  ];
+
+  const taxAnalysis = groupCartItemsByTaxStatus(combinedTaxItems, {
     discount,
     includeVat: tax > 0,
   });
 
-  const grossCartTotal = cart.reduce((sum, item) => sum + getPosItemUnitPrice(item) * item.quantity, 0);
+  const grossCartTotal = cart.reduce((sum, item) => sum + getPosItemUnitPrice(item) * item.quantity, 0) + linkedOrderBalanceDue;
 
   // Compute actual received / allocated payment
   const activeSplits = splitPayments.filter(p => Number(p.amount) > 0);
@@ -490,44 +515,91 @@ export const POSSalePreviewModal: React.FC<POSSalePreviewModalProps> = ({
             </div>
           )}
 
-          {/* Cart Items List */}
-          <div>
-            <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase mb-2.5">
-              <span className="flex items-center gap-1.5"><ShoppingCart className="w-4 h-4" /> Order Items ({cart.length})</span>
-              <span>Total Qty: {cart.reduce((sum, item) => sum + item.quantity, 0)}</span>
-            </div>
-            <div className={`rounded-2xl border overflow-hidden ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
-              {cart.map((item, idx) => {
-                const isVatItem = item.product?.isVatInclusive !== false;
-                const unitPrice = getPosItemUnitPrice(item);
-                const lineTotal = unitPrice * item.quantity;
-                return (
-                  <div key={idx} className={`p-3 flex items-center justify-between text-sm ${
-                    idx !== cart.length - 1 ? (isDark ? 'border-b border-slate-800' : 'border-b border-slate-200') : ''
-                  }`}>
-                    <div className="flex flex-col min-w-0 flex-1 pr-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold truncate">{item.product.name}</span>
-                        {isVatItem ? (
-                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 shrink-0">
-                            VAT Incl.
-                          </span>
-                        ) : (
-                          <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 bg-slate-500/10 px-1.5 py-0.2 rounded border border-slate-500/20 shrink-0">
-                            Non-VAT
-                          </span>
-                        )}
+          {/* Transferred Online Order Details (Read-Only, Not Local Stock) */}
+          {linkedOrder && (
+            <div className={`p-4 rounded-2xl border space-y-2.5 ${
+              isDark ? 'bg-indigo-950/25 border-indigo-800/60' : 'bg-indigo-50/70 border-indigo-200'
+            }`}>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2 text-xs font-black text-indigo-600 dark:text-indigo-300">
+                  <Globe className="w-4 h-4 shrink-0" />
+                  <span>Transferred Online Order #{linkedOrder.id}</span>
+                </div>
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30">
+                  Order Details Only • Local Stock Untouched
+                </span>
+              </div>
+              {linkedOrderItems.length > 0 && (
+                <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-indigo-900/50 bg-slate-900/60' : 'border-indigo-200/80 bg-white'}`}>
+                  {linkedOrderItems.map((item, idx) => {
+                    const unitPrice = Number(item.price ?? item.product?.price ?? 0);
+                    const qty = Number(item.quantity || 1);
+                    return (
+                      <div
+                        key={`linked-${idx}`}
+                        className={`p-2.5 flex items-center justify-between text-xs ${
+                          idx !== linkedOrderItems.length - 1 ? (isDark ? 'border-b border-slate-800' : 'border-b border-slate-100') : ''
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1 pr-3">
+                          <div className="font-bold truncate">{item.product?.name || 'Online Order Item'}</div>
+                          <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                            {qty}x @ {formatTZS(unitPrice)} • Online Order Item
+                          </div>
+                        </div>
+                        <span className="font-black shrink-0">{formatTZS(unitPrice * qty)}</span>
                       </div>
-                      <span className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                        {item.quantity}x @ {formatTZS(unitPrice)}
-                      </span>
-                    </div>
-                    <span className="font-black shrink-0">{formatTZS(lineTotal)}</span>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              )}
+              <div className="flex items-center justify-between text-xs font-bold pt-1">
+                <span className={isDark ? 'text-slate-400' : 'text-slate-600'}>Online Order Balance Due:</span>
+                <span className="font-black text-indigo-600 dark:text-indigo-300">{formatTZS(linkedOrderBalanceDue)}</span>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Local POS Cart Items List */}
+          {cart.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase mb-2.5">
+                <span className="flex items-center gap-1.5"><ShoppingCart className="w-4 h-4" /> Local POS Stock Items ({cart.length})</span>
+                <span>Total Qty: {cart.reduce((sum, item) => sum + item.quantity, 0)}</span>
+              </div>
+              <div className={`rounded-2xl border overflow-hidden ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
+                {cart.map((item, idx) => {
+                  const isVatItem = item.product?.isVatInclusive !== false;
+                  const unitPrice = getPosItemUnitPrice(item);
+                  const lineTotal = unitPrice * item.quantity;
+                  return (
+                    <div key={idx} className={`p-3 flex items-center justify-between text-sm ${
+                      idx !== cart.length - 1 ? (isDark ? 'border-b border-slate-800' : 'border-b border-slate-200') : ''
+                    }`}>
+                      <div className="flex flex-col min-w-0 flex-1 pr-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold truncate">{item.product.name}</span>
+                          {isVatItem ? (
+                            <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 shrink-0">
+                              VAT Incl.
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 bg-slate-500/10 px-1.5 py-0.2 rounded border border-slate-500/20 shrink-0">
+                              Non-VAT
+                            </span>
+                          )}
+                        </div>
+                        <span className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                          {item.quantity}x @ {formatTZS(unitPrice)}
+                        </span>
+                      </div>
+                      <span className="font-black shrink-0">{formatTZS(lineTotal)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Financial Totals Breakdown */}
           <div className={`p-4 sm:p-5 rounded-2xl border space-y-2.5 ${isDark ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-slate-100/50'}`}>

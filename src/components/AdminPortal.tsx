@@ -5125,8 +5125,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       return;
     }
 
-    // Re-check local inventory ONLY for items in posCart (never validate or touch local stock for transferred online order items).
-    const stockErrors = posCart.filter(item => {
+    // Do not block checkout on low stock for transferred online orders
+    const stockErrors = isLinkedOnlineOrder ? [] : posCart.filter(item => {
       const current = products.find(p => p.id === item.product.id);
       return !current || Number(current.stock || 0) < item.quantity;
     });
@@ -5250,7 +5250,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         receiptDraft: {
           ...receipt,
           orderId: posLinkedOrder?.id,
-          skipStockDeduction: isLinkedOnlineOrder && posCart.length === 0,
+          skipStockDeduction: false,
         },
       });
       setShowPOSSalePreview(false);
@@ -5264,11 +5264,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         // decrement it, create the receipt, and commit atomically/idempotently.
         await completePOSTransaction(receipt);
       } else {
-        // Atomic stock delta deduction strictly for local offline POS cart items (never transferred online items)
-        if (posCart.length > 0) {
-          const stockAdjustments = posCart.map(item => ({
-            productId: item.product.id,
-            delta: -item.quantity,
+        // Atomic stock delta deduction for all receipt items (including transferred online order items and posCart items)
+        const stockDeltaItems = Array.isArray(receipt.items) ? receipt.items : [];
+        if (stockDeltaItems.length > 0) {
+          const stockAdjustments = stockDeltaItems.map(item => ({
+            productId: item.product?.id,
+            delta: -Number(item.quantity || 1),
             reason: 'pos_sale',
             txId: receipt.id
           }));

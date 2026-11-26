@@ -6912,9 +6912,6 @@ async function autoCompleteOrbiPayment(
     if (!intent.stockDeducted && !skipAllStockDeduction && Array.isArray(txItems) && txItems.length > 0) {
       intent.stockDeducted = true;
       for (const it of txItems) {
-        if (it?.isTransferredOnlineItem === true) continue;
-        if (isTransferredOnlineOrder && it?.isLocalPosAddition !== true) continue;
-
         const prodId = it?.product?.id || it?.productId || it?.product_id;
         const qty = Number(it?.quantity) || 0;
         if (!prodId || qty <= 0) continue;
